@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { ledgerClient, financeClient, plaidClient, mercuryClient, connectClient } from '../lib/integrations';
+import { ledgerClient, financeClient, plaidClient, mercuryClient, connectClient, booksClient } from '../lib/integrations';
 import { recordActionSchema, exchangeTokenSchema } from '../lib/validators';
 
 export const bridgeRoutes = new Hono<{ Bindings: Env }>();
@@ -537,6 +537,41 @@ bridgeRoutes.post('/mercury/sync-transactions', async (c) => {
   return c.json({ accounts: accounts.length, transactions_added: totalAdded, errors });
 });
 
+// ── ChittyBooks ─────────────────────────────────────────────
+
+/** Record a transaction in ChittyBooks for bookkeeping */
+bridgeRoutes.post('/books/record-transaction', async (c) => {
+  const books = booksClient(c.env);
+  if (!books) return c.json({ error: 'ChittyBooks not configured' }, 503);
+
+  const body = await c.req.json() as { type: 'income' | 'expense'; description: string; amount: number };
+  if (!body.type || !body.description || !body.amount) {
+    return c.json({ error: 'type, description, and amount are required' }, 400);
+  }
+
+  const result = await books.recordTransaction(body);
+  if (!result) return c.json({ error: 'Failed to record transaction in ChittyBooks' }, 502);
+
+  const sql = getDb(c.env);
+  await sql`
+    INSERT INTO cc_actions_log (action_type, target_type, description, request_payload, response_payload, status)
+    VALUES ('books_record', 'transaction', ${body.description}, ${JSON.stringify(body)}::jsonb, ${JSON.stringify(result)}::jsonb, 'completed')
+  `;
+
+  return c.json({ recorded: true, books_result: result });
+});
+
+/** Get ChittyBooks financial summary */
+bridgeRoutes.get('/books/summary', async (c) => {
+  const books = booksClient(c.env);
+  if (!books) return c.json({ error: 'ChittyBooks not configured' }, 503);
+
+  const summary = await books.getSummary();
+  if (!summary) return c.json({ error: 'Failed to fetch summary from ChittyBooks' }, 502);
+
+  return c.json(summary);
+});
+
 // ── Cross-Service Status ─────────────────────────────────────
 
 /** Health check all connected services */
@@ -548,6 +583,8 @@ bridgeRoutes.get('/status', async (c) => {
     { name: 'chittycharge', url: c.env.CHITTYCHARGE_URL },
     { name: 'chittyconnect', url: c.env.CHITTYCONNECT_URL },
     { name: 'plaid', url: c.env.PLAID_CLIENT_ID ? `https://${c.env.PLAID_ENV || 'sandbox'}.plaid.com` : undefined },
+    { name: 'chittybooks', url: c.env.CHITTYBOOKS_URL },
+    { name: 'mercury', url: 'https://api.mercury.com' },
   ];
 
   const results = await Promise.all(
