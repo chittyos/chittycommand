@@ -1,0 +1,41 @@
+name = "chittycommand"
+account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"
+main = "src/index.ts"
+compatibility_date = "2026-01-15"
+compatibility_flags = ["nodejs_compat"]
+routes = [
+  { pattern = "command.chitty.cc", custom_domain = true }
+]
+
+[vars]
+ENVIRONMENT = "production"
+CHITTYAUTH_URL = "https://auth.chitty.cc"
+CHITTYLEDGER_URL = "https://ledger.chitty.cc"
+CHITTYFINANCE_URL = "https://finance.chitty.cc"
+CHITTYCHARGE_URL = "https://charge.chitty.cc"
+CHITTYCONNECT_URL = "https://connect.chitty.cc"
+PLAID_ENV = "sandbox"
+# PLAID_CLIENT_ID and PLAID_SECRET set via `wrangler secret put`
+
+# Neon PostgreSQL via Hyperdrive
+[[hyperdrive]]
+binding = "HYPERDRIVE"
+id = "6f6cba43540b430eb77045f79384ca00"
+
+# R2 for document storage
+[[r2_buckets]]
+binding = "DOCUMENTS"
+bucket_name = "chittycommand-documents"
+
+# KV for sync state and caching
+[[kv_namespaces]]
+binding = "COMMAND_KV"
+id = "64eef343b99b46ac909dbbcc1c4b2dee"
+
+[triggers]
+crons = [
+  "0 12 * * *",   # Daily 6 AM CT: Plaid + ChittyFinance sync
+  "0 13 * * *",   # Daily 7 AM CT: Court docket check
+  "0 14 * * 1",   # Weekly Monday 8 AM CT: Utility scrapers
+  "0 15 1 * *"    # Monthly 1st 9 AM CT: Mortgage, property tax
+]

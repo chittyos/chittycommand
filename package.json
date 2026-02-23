@@ -1,0 +1,28 @@
+{
+  "name": "chittycommand",
+  "version": "0.1.0",
+  "private": true,
+  "description": "ChittyCommand - Unified life management & action dashboard",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "drizzle-kit migrate",
+    "ui:dev": "cd ui && vite dev",
+    "ui:build": "cd ui && vite build",
+    "ui:preview": "cd ui && vite preview"
+  },
+  "dependencies": {
+    "@hono/zod-validator": "^0.7.6",
+    "@neondatabase/serverless": "^0.10.0",
+    "drizzle-orm": "^0.33.0",
+    "hono": "^4.4.0",
+    "zod": "^3.23.0"
+  },
+  "devDependencies": {
+    "@cloudflare/workers-types": "^4.20240512.0",
+    "drizzle-kit": "^0.24.0",
+    "typescript": "^5.5.0",
+    "wrangler": "^4.60.0"
+  }
+}
