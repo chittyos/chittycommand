@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
+import { syncMercury, syncPlaid, syncFinance } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -37,9 +38,46 @@ syncRoutes.post('/trigger/:source', async (c) => {
     RETURNING *
   `;
 
-  // TODO: Dispatch actual sync job based on source
-  // For now, just log it
-  return c.json({ message: `Sync triggered for ${source}`, sync_id: log.id });
+  const dispatchers: Record<string, () => Promise<number>> = {
+    mercury: () => syncMercury(c.env, sql),
+    plaid: () => syncPlaid(c.env, sql),
+    chittyfinance: () => syncFinance(c.env, sql),
+  };
+
+  const dispatcher = dispatchers[source];
+  if (!dispatcher) {
+    await sql`
+      UPDATE cc_sync_log SET status = 'skipped', error_message = 'No sync implementation for this source yet', completed_at = NOW()
+      WHERE id = ${log.id}
+    `;
+    return c.json({ message: `Sync for ${source} not yet implemented`, sync_id: log.id, status: 'skipped' });
+  }
+
+  // Run sync in background via waitUntil if available, otherwise inline
+  const run = async () => {
+    try {
+      const recordsSynced = await dispatcher();
+      await sql`
+        UPDATE cc_sync_log SET status = 'completed', records_synced = ${recordsSynced}, completed_at = NOW()
+        WHERE id = ${log.id}
+      `;
+    } catch (err) {
+      await sql`
+        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)}, completed_at = NOW()
+        WHERE id = ${log.id}
+      `.catch(() => {});
+    }
+  };
+
+  const ctx = c.executionCtx;
+  if (ctx?.waitUntil) {
+    ctx.waitUntil(run());
+    return c.json({ message: `Sync dispatched for ${source}`, sync_id: log.id, status: 'dispatched' });
+  }
+
+  await run();
+  const [result] = await sql`SELECT status, records_synced, error_message FROM cc_sync_log WHERE id = ${log.id}`;
+  return c.json({ message: `Sync completed for ${source}`, sync_id: log.id, ...result });
 });
 
 // Run transaction-to-obligation matching

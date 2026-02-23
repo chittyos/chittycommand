@@ -105,7 +105,7 @@ export async function runCronSync(
  * Sync Plaid balances and transactions.
  * Uses batch lookups to avoid N+1 query patterns.
  */
-async function syncPlaid(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncPlaid(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
   const plaid = plaidClient(env);
   if (!plaid) return 0;
 
@@ -188,7 +188,7 @@ async function syncPlaid(env: Env, sql: NeonQueryFunction<false, false>): Promis
  * Sync ChittyFinance accounts and transactions.
  * Uses batch lookups to avoid N+1 query patterns.
  */
-async function syncFinance(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncFinance(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
   const finance = financeClient(env);
   if (!finance) return 0;
 
@@ -243,7 +243,7 @@ async function syncFinance(env: Env, sql: NeonQueryFunction<false, false>): Prom
  * Refresh Mercury tokens from ChittyConnect, then sync accounts and transactions.
  * Each org syncs independently — a failed org doesn't block others.
  */
-async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
   const orgsJson = await env.COMMAND_KV.get('mercury:orgs');
   if (!orgsJson) return 0;
 
