@@ -409,3 +409,50 @@ export function booksClient(env: Env) {
     },
   };
 }
+
+// ── ChittyAssets ────────────────────────────────────────────
+// Asset management: property data, ownership proof, evidence ledger
+
+export function assetsClient(env: Env) {
+  const baseUrl = env.CHITTYASSETS_URL;
+  if (!baseUrl) return null;
+
+  async function get<T>(path: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        headers: { 'X-Source-Service': 'chittycommand' },
+      });
+      if (!res.ok) return null;
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[assets] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  async function post<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        console.error(`[assets] ${path} failed: ${res.status}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[assets] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  return {
+    getAssets: () => get<Record<string, unknown>[]>('/api/assets'),
+    getAsset: (assetId: string) => get<Record<string, unknown>>(`/api/assets/${encodeURIComponent(assetId)}`),
+    submitEvidence: (payload: { evidenceType: string; data: Record<string, unknown>; metadata?: Record<string, unknown> }) =>
+      post<{ chittyId: string; status: string; trustScore: number }>('/api/evidence-ledger/submit', payload),
+    getServiceStatus: () => get<Record<string, unknown>[]>('/api/chitty/services'),
+  };
+}
