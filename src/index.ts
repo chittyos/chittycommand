@@ -1,6 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
-import { authMiddleware, mcpAuthMiddleware } from './middleware/auth';
+import { authMiddleware, bridgeAuthMiddleware, mcpAuthMiddleware } from './middleware/auth';
 import type { AuthVariables } from './middleware/auth';
 import { getDb } from './lib/db';
 import { runCronSync } from './lib/cron';
@@ -66,7 +66,11 @@ app.get('/health', (c) => c.json({
 // Auth routes — unauthenticated (handles login/verify itself)
 app.route('/auth', authRoutes);
 
-// Authenticate all /api/* routes via ChittyAuth
+// Bridge routes — service token or user token (mounted before global /api/* auth)
+app.use('/api/bridge/*', bridgeAuthMiddleware);
+app.route('/api/bridge', bridgeRoutes);
+
+// Authenticate all other /api/* routes via ChittyAuth
 app.use('/api/*', authMiddleware);
 
 // API routes
@@ -79,7 +83,6 @@ app.route('/api/documents', documentRoutes);
 app.route('/api/recommendations', recommendationRoutes);
 app.route('/api/sync', syncRoutes);
 app.route('/api/cashflow', cashflowRoutes);
-app.route('/api/bridge', bridgeRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
