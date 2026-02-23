@@ -1,8 +1,8 @@
-# Mercury Live Data Integration Design
+# Mercury + ChittyBooks Live Data Integration Design
 
 **Date:** 2026-02-23
 **Status:** Approved
-**Approach:** Direct Mercury API client + bridge routes (Approach A)
+**Approach:** Direct Mercury API client + ChittyBooks client + bridge routes
 
 ## Context
 
@@ -103,8 +103,55 @@ Once ChittyFinance is stable and aggregating all sources:
 3. Optionally disable the direct Mercury sync via KV flag (`mercury:direct_sync_enabled = false`)
 4. Direct Mercury client stays in code as a fallback
 
+## ChittyBooks Integration
+
+ChittyBooks (`chittybooks.chitty.cc`) is the bookkeeping/accounting service. Flask app with REST API. Currently not deployed but repo exists at `chittyapps/chittybooks`.
+
+### Purpose in ChittyCommand
+
+ChittyBooks enables **action execution** — when ChittyCommand recommends a payment or records a transaction, it can push that to ChittyBooks for proper bookkeeping (double-entry accounting, categorization, audit trail).
+
+### ChittyBooks API
+
+- `GET /api/summary` — financial summary with AI insights
+- `GET /api/transactions` — list all transactions
+- `POST /api/transaction` — add transaction (`{type, description, amount}`)
+- `GET /health` — health check
+
+### ChittyBooks Client
+
+Added to `src/lib/integrations.ts` as `booksClient(env)`:
+
+- `getSummary()` — fetch financial summary
+- `getTransactions()` — list transactions
+- `recordTransaction(type, description, amount)` — push a transaction for bookkeeping
+
+Uses `CHITTYBOOKS_URL` env var (like other service URLs).
+
+### Bridge Routes
+
+- `POST /api/bridge/books/record-transaction` — record a payment/expense in ChittyBooks
+- `POST /api/bridge/books/sync-summary` — pull ChittyBooks summary into dashboard
+- `GET /api/bridge/books/status` — check if ChittyBooks is reachable
+
+### Action Execution Flow
+
+When a recommendation is acted on (e.g., "Pay ComEd bill"):
+1. ChittyCommand executes the payment (via Mercury API or ChittyCharge)
+2. ChittyCommand records the transaction in ChittyBooks for bookkeeping
+3. ChittyCommand logs the action in `cc_actions_log`
+
+## Files Modified
+
+| File | Change |
+|------|--------|
+| `src/lib/integrations.ts` | Add `mercuryClient(token)` + `booksClient(env)` |
+| `src/routes/bridge.ts` | Add Mercury + ChittyBooks sections |
+| `src/lib/cron.ts` | Add Mercury sync steps before Plaid in daily cron |
+| `src/index.ts` | Add `CHITTYBOOKS_URL` to Env type |
+| `wrangler.toml` | Add `CHITTYBOOKS_URL` env var |
+
 ## No Changes Needed
 
-- `src/index.ts` — bridge routes already mounted
-- `wrangler.toml` — tokens come from KV/ChittyConnect, not env vars
 - Database schema — Mercury data fits existing `cc_accounts` + `cc_transactions` tables
+- Bridge routes already mounted in `src/index.ts`
