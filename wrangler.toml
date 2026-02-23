@@ -32,6 +32,10 @@ bucket_name = "chittycommand-documents"
 binding = "COMMAND_KV"
 id = "64eef343b99b46ac909dbbcc1c4b2dee"
 
+# ChittyTrack observability
+[[tail_consumers]]
+service = "chittytrack"
+
 [triggers]
 crons = [
   "0 12 * * *",   # Daily 6 AM CT: Plaid + ChittyFinance sync
