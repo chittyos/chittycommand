@@ -304,3 +304,108 @@ export function connectClient(env: Env) {
     },
   };
 }
+
+// ── Mercury ─────────────────────────────────────────────────
+// Direct Mercury API for multi-entity banking
+
+export interface MercuryAccount {
+  id: string;
+  name: string;
+  status: string;
+  type: string;
+  routingNumber: string;
+  accountNumber: string;
+  currentBalance: number;
+  availableBalance: number;
+  kind: string;
+}
+
+export interface MercuryTransaction {
+  id: string;
+  amount: number;
+  bankDescription: string | null;
+  counterpartyId: string;
+  counterpartyName: string;
+  counterpartyNickname: string | null;
+  createdAt: string;
+  dashboardLink: string;
+  details: Record<string, unknown> | null;
+  estimatedDeliveryDate: string;
+  externalMemo: string | null;
+  kind: string;
+  note: string | null;
+  postedAt: string | null;
+  status: string;
+}
+
+export function mercuryClient(token: string) {
+  const baseUrl = 'https://api.mercury.com/api/v1';
+
+  async function get<T>(path: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
+      });
+      if (!res.ok) {
+        console.error(`[mercury] ${path} failed: ${res.status}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[mercury] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  return {
+    getAccounts: () => get<{ accounts: MercuryAccount[] }>('/accounts'),
+
+    getTransactions: (accountId: string, params?: { offset?: number; limit?: number; start?: string; end?: string }) => {
+      const qs = params ? '?' + new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
+      ).toString() : '';
+      return get<{ transactions: MercuryTransaction[] }>(`/account/${accountId}/transactions${qs}`);
+    },
+  };
+}
+
+// ── ChittyBooks ─────────────────────────────────────────────
+// Bookkeeping and accounting: push executed actions as ledger entries
+
+export function booksClient(env: Env) {
+  const baseUrl = env.CHITTYBOOKS_URL;
+  if (!baseUrl) return null;
+
+  return {
+    getSummary: async (): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await fetch(`${baseUrl}/api/summary`, {
+          headers: { 'X-Source-Service': 'chittycommand' },
+        });
+        if (!res.ok) return null;
+        return await res.json() as Record<string, unknown>;
+      } catch (err) {
+        console.error('[books] summary error:', err);
+        return null;
+      }
+    },
+
+    recordTransaction: async (payload: { type: 'income' | 'expense'; description: string; amount: number }): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await fetch(`${baseUrl}/api/transaction`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' },
+          body: JSON.stringify(payload),
+        });
+        if (!res.ok) {
+          console.error(`[books] record-transaction failed: ${res.status}`);
+          return null;
+        }
+        return await res.json() as Record<string, unknown>;
+      } catch (err) {
+        console.error('[books] record-transaction error:', err);
+        return null;
+      }
+    },
+  };
+}
