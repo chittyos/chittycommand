@@ -1,6 +1,6 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
-import { plaidClient, financeClient, mercuryClient } from './integrations';
+import { plaidClient, financeClient, mercuryClient, scrapeClient } from './integrations';
 import { runTriage } from './triage';
 import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
@@ -83,6 +83,22 @@ export async function runCronSync(
         console.log(`[projections] ${projResult.days_projected}d: low=$${projResult.lowest_balance} on ${projResult.lowest_balance_date}`);
       } catch (err) {
         console.error('[projections] failed:', err);
+      }
+    }
+
+    if (source === 'court_docket') {
+      try {
+        recordsSynced += await syncCourtDocket(env, sql);
+      } catch (err) {
+        console.error('[cron:court_docket] failed:', err);
+      }
+    }
+
+    if (source === 'monthly_check') {
+      try {
+        recordsSynced += await syncMonthlyChecks(env, sql);
+      } catch (err) {
+        console.error('[cron:monthly_check] failed:', err);
       }
     }
 
@@ -336,4 +352,98 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
   }
 
   return recordsSynced;
+}
+
+/**
+ * Scrape court docket via ChittyScrape and insert new deadlines.
+ */
+async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const scrape = scrapeClient(env);
+  if (!scrape) return 0;
+
+  const token = await env.COMMAND_KV.get('scrape:service_token');
+  if (!token) return 0;
+
+  // Arias v. Bianchi case number
+  const result = await scrape.scrapeCourtDocket('2024D007847', token);
+  if (!result?.success) {
+    console.error('[cron:court_docket] scrape failed:', result?.error);
+    return 0;
+  }
+
+  let synced = 0;
+
+  if (result.data?.entries) {
+    for (const entry of result.data.entries) {
+      await sql`
+        INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
+        VALUES ('2024D007847', ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
+        ON CONFLICT DO NOTHING
+      `;
+      synced++;
+    }
+  }
+
+  if (result.data?.nextHearing) {
+    await sql`
+      INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
+      VALUES ('2024D007847', 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
+      ON CONFLICT DO NOTHING
+    `;
+    synced++;
+  }
+
+  return synced;
+}
+
+/**
+ * Monthly scrapers: Mr. Cooper mortgage + Cook County property tax.
+ */
+async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const scrape = scrapeClient(env);
+  if (!scrape) return 0;
+
+  const token = await env.COMMAND_KV.get('scrape:service_token');
+  if (!token) return 0;
+
+  let synced = 0;
+
+  // Mr. Cooper mortgage scrape
+  try {
+    const cooper = await scrape.scrapeMrCooper('addison', token);
+    if (cooper?.success && cooper.data) {
+      await sql`
+        UPDATE cc_obligations
+        SET current_amount = ${cooper.data.monthlyPayment || cooper.data.currentBalance || 0},
+            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_scrape}', ${JSON.stringify(cooper.data)}::jsonb),
+            updated_at = NOW()
+        WHERE counterparty ILIKE '%mr. cooper%' OR counterparty ILIKE '%mr cooper%'
+      `;
+      synced++;
+    }
+  } catch (err) {
+    console.error('[cron:mr_cooper] failed:', err);
+  }
+
+  // Cook County property tax scrape for all properties with PINs
+  try {
+    const properties = await sql`SELECT id, property_name, pin FROM cc_properties WHERE pin IS NOT NULL`;
+    for (const prop of properties) {
+      const taxResult = await scrape.scrapeCookCountyTax(prop.pin as string, token);
+      if (taxResult?.success && taxResult.data) {
+        await sql`
+          UPDATE cc_properties
+          SET annual_tax = ${taxResult.data.totalTax || 0},
+              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_tax_scrape}', ${JSON.stringify(taxResult.data)}::jsonb),
+              updated_at = NOW()
+          WHERE id = ${prop.id}
+        `;
+        synced++;
+      }
+    }
+  } catch (err) {
+    console.error('[cron:cook_county_tax] failed:', err);
+  }
+
+  return synced;
 }

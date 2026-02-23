@@ -17,6 +17,7 @@ CHITTYCONNECT_URL = "https://connect.chitty.cc"
 PLAID_ENV = "sandbox"
 CHITTYBOOKS_URL = "https://chittybooks.chitty.cc"
 CHITTYASSETS_URL = "https://chittyassets.chitty.cc"
+CHITTYSCRAPE_URL = "https://scrape.chitty.cc"
 # PLAID_CLIENT_ID and PLAID_SECRET set via `wrangler secret put`
 
 # Neon PostgreSQL via Hyperdrive

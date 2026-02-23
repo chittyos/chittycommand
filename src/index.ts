@@ -30,6 +30,7 @@ export type Env = {
   CHITTYCONNECT_URL?: string;
   CHITTYBOOKS_URL?: string;
   CHITTYASSETS_URL?: string;
+  CHITTYSCRAPE_URL?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
   PLAID_ENV?: string;

@@ -456,3 +456,44 @@ export function assetsClient(env: Env) {
     getServiceStatus: () => get<Record<string, unknown>[]>('/api/chitty/services'),
   };
 }
+
+// ── ChittyScrape ──────────────────────────────────────────────
+// Browser automation for portals without APIs
+
+export function scrapeClient(env: Env) {
+  const baseUrl = env.CHITTYSCRAPE_URL;
+  if (!baseUrl) return null;
+
+  async function post<T>(path: string, body: unknown, token: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) {
+        console.error(`[scrape] ${path} failed: ${res.status}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[scrape] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  return {
+    scrapeCourtDocket: (caseNumber: string, token: string) =>
+      post<{ success: boolean; data?: any; error?: string }>('/api/scrape/court-docket', { caseNumber }, token),
+
+    scrapeCookCountyTax: (pin: string, token: string) =>
+      post<{ success: boolean; data?: any; error?: string }>('/api/scrape/cook-county-tax', { pin }, token),
+
+    scrapeMrCooper: (property: string, token: string) =>
+      post<{ success: boolean; data?: any; error?: string }>('/api/scrape/mr-cooper', { property }, token),
+  };
+}
