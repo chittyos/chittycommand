@@ -1,6 +1,6 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
-import { plaidClient, financeClient } from './integrations';
+import { plaidClient, financeClient, mercuryClient } from './integrations';
 import { runTriage } from './triage';
 import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
@@ -39,6 +39,13 @@ export async function runCronSync(
     let recordsSynced = 0;
 
     if (source === 'daily_api') {
+      // Phase 0: Mercury sync (multi-org)
+      try {
+        recordsSynced += await syncMercury(env, sql);
+      } catch (err) {
+        console.error('[cron:mercury] failed:', err);
+      }
+
       // Phase 1: Plaid sync
       try {
         recordsSynced += await syncPlaid(env, sql);
@@ -226,6 +233,105 @@ async function syncFinance(env: Env, sql: NeonQueryFunction<false, false>): Prom
         ON CONFLICT DO NOTHING
       `;
       recordsSynced++;
+    }
+  }
+
+  return recordsSynced;
+}
+
+/**
+ * Refresh Mercury tokens from ChittyConnect, then sync accounts and transactions.
+ * Each org syncs independently — a failed org doesn't block others.
+ */
+async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const orgsJson = await env.COMMAND_KV.get('mercury:orgs');
+  if (!orgsJson) return 0;
+
+  interface MercuryOrg { slug: string; opRef: string; }
+  const orgs: MercuryOrg[] = JSON.parse(orgsJson);
+  let recordsSynced = 0;
+
+  // Phase A: Refresh tokens from ChittyConnect
+  if (env.CHITTYCONNECT_URL) {
+    for (const org of orgs) {
+      try {
+        const res = await fetch(`${env.CHITTYCONNECT_URL}/api/credentials/${encodeURIComponent(org.opRef)}`, {
+          headers: { 'X-Source-Service': 'chittycommand' },
+          signal: AbortSignal.timeout(5000),
+        });
+        if (res.ok) {
+          const data = await res.json() as { value: string };
+          await env.COMMAND_KV.put(`mercury:token:${org.slug}`, data.value);
+        }
+      } catch (err) {
+        console.error(`[cron:mercury] Token refresh failed for ${org.slug}:`, err);
+      }
+    }
+  }
+
+  // Phase B: Sync accounts and transactions per org
+  for (const org of orgs) {
+    const token = await env.COMMAND_KV.get(`mercury:token:${org.slug}`);
+    if (!token) continue;
+
+    const mercury = mercuryClient(token);
+
+    // Sync accounts
+    const acctResult = await mercury.getAccounts();
+    if (acctResult?.accounts) {
+      for (const acct of acctResult.accounts) {
+        if (acct.status !== 'active') continue;
+        const typeMap: Record<string, string> = { mercury: 'checking', savings: 'savings' };
+        const [existing] = await sql`SELECT id FROM cc_accounts WHERE source_id = ${acct.id} AND source = 'mercury'`;
+        if (existing) {
+          await sql`UPDATE cc_accounts SET current_balance = ${acct.currentBalance}, last_synced_at = NOW() WHERE id = ${existing.id}`;
+        } else {
+          await sql`
+            INSERT INTO cc_accounts (source, source_id, account_name, account_type, institution, current_balance, last_synced_at, metadata)
+            VALUES ('mercury', ${acct.id}, ${acct.name}, ${typeMap[acct.kind] || 'checking'}, 'Mercury', ${acct.currentBalance}, NOW(),
+                    ${JSON.stringify({ mercury_org: org.slug, mercury_kind: acct.kind })}::jsonb)
+          `;
+        }
+      }
+    }
+
+    // Sync transactions for this org's accounts
+    const orgAccounts = await sql`
+      SELECT id, source_id FROM cc_accounts WHERE source = 'mercury' AND metadata->>'mercury_org' = ${org.slug}
+    `;
+
+    for (const acct of orgAccounts) {
+      const cursor = await env.COMMAND_KV.get(`mercury:cursor:${acct.source_id}`);
+      const start = (cursor as string) || '2024-01-01';
+
+      const txResult = await mercury.getTransactions(acct.source_id as string, { start, limit: 500 });
+      if (!txResult?.transactions) continue;
+
+      const txIds = txResult.transactions.map((tx) => tx.id);
+      const existingRows = txIds.length > 0
+        ? await sql`SELECT source_id FROM cc_transactions WHERE source = 'mercury' AND source_id = ANY(${txIds})`
+        : [];
+      const existingIds = new Set(existingRows.map((r: any) => r.source_id));
+
+      for (const tx of txResult.transactions) {
+        if (existingIds.has(tx.id) || tx.status === 'cancelled') continue;
+        const direction = tx.amount >= 0 ? 'inflow' : 'outflow';
+        const txDate = tx.postedAt ? tx.postedAt.split('T')[0] : tx.createdAt.split('T')[0];
+        await sql`
+          INSERT INTO cc_transactions (account_id, source, source_id, amount, direction, description, counterparty, tx_date, posted_at)
+          VALUES (${acct.id}, 'mercury', ${tx.id}, ${Math.abs(tx.amount)}, ${direction},
+                  ${tx.externalMemo || tx.bankDescription || tx.counterpartyName},
+                  ${tx.counterpartyNickname || tx.counterpartyName || null},
+                  ${txDate}, ${tx.postedAt || null})
+          ON CONFLICT DO NOTHING
+        `;
+        recordsSynced++;
+      }
+
+      if (txResult.transactions.length > 0) {
+        const latestDate = txResult.transactions.map((tx) => tx.postedAt || tx.createdAt).sort().pop();
+        if (latestDate) await env.COMMAND_KV.put(`mercury:cursor:${acct.source_id}`, latestDate.split('T')[0]);
+      }
     }
   }
 
