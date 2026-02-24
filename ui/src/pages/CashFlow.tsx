@@ -154,8 +154,8 @@ export function CashFlow() {
                 </tr>
               </thead>
               <tbody>
-                {chartData.filter((e) => e.outflow > 0).slice(0, 15).map((entry, i) => (
-                  <tr key={i} className="border-b border-card-border/50 last:border-0">
+                {chartData.filter((e) => e.outflow > 0).slice(0, 15).map((entry) => (
+                  <tr key={entry.date} className="border-b border-card-border/50 last:border-0">
                     <td className="py-2 text-card-muted">{entry.date}</td>
                     <td className="py-2 text-urgency-red text-right font-mono">-{formatCurrency(entry.outflow)}</td>
                     <td className={`py-2 text-right font-mono ${entry.balance < 0 ? 'text-urgency-red' : 'text-card-text'}`}>

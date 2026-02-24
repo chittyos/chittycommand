@@ -34,7 +34,7 @@ export function StatusBar() {
           <div className="flex items-center gap-2">
             <span className="text-chrome-muted">Cash</span>
             <span className="text-urgency-green font-mono font-semibold">
-              ${parseFloat(cashPosition).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+              ${Number(cashPosition).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </span>
           </div>
         )}
