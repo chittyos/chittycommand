@@ -102,7 +102,7 @@ Provide a unified life management and action dashboard that ingests data from 15
 
 ## Compliance
 
-- [ ] Service registered in ChittyRegistry
+- [x] Service registered in ChittyRegister (03-1-USA-3846-T-2602-0-57, pending_cert)
 - [x] Health endpoint operational at /health
 - [x] Status endpoint operational at /api/v1/status
 - [x] CLAUDE.md development guide present

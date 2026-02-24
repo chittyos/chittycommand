@@ -5,68 +5,86 @@
 ChittyCommand is a unified life management and action dashboard for the ChittyOS ecosystem. It ingests data from 15+ financial, legal, and administrative sources, scores urgency with AI, recommends actions, and executes them via APIs, email, or browser automation.
 
 **Repo:** `CHITTYOS/chittycommand`
-**Deploy:** Cloudflare Workers + Pages at `command.chitty.cc`
-**Stack:** Hono TypeScript, React + Shadcn UI, Neon PostgreSQL, Cloudflare R2
+**Deploy:** Cloudflare Workers at `command.chitty.cc`
+**Stack:** Hono TypeScript, React + Tailwind, Neon PostgreSQL (via Hyperdrive), Cloudflare R2/KV
+**Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 5
 
 ## Common Commands
 
 ```bash
 npm run dev          # Start Hono dev server (wrangler dev)
 npm run deploy       # Deploy to Cloudflare Workers
-npm run ui:dev       # Start React frontend dev server
+npm run ui:dev       # Start React frontend dev server (localhost:5173)
 npm run ui:build     # Build frontend for Pages
 npm run db:generate  # Generate Drizzle migrations
 npm run db:migrate   # Run Drizzle migrations
 ```
 
+Secrets are managed via wrangler (never hardcode):
+```bash
+wrangler secret put PLAID_CLIENT_ID
+wrangler secret put PLAID_SECRET
+wrangler secret put DATABASE_URL
+```
+
 ## Architecture
 
-### Workers
-
-| Worker | Domain | Role |
-|--------|--------|------|
-| command-api | command.chitty.cc | Core API, CRUD, action execution |
-| command-ingest | Cron-triggered | Data ingestion from all sources |
-| command-ai | Internal | AI triage, urgency scoring, recommendations |
-| command-ui | app.command.chitty.cc | React SPA (Cloudflare Pages) |
+Single Cloudflare Worker (`chittycommand`) serving API + cron. Frontend is a separate React SPA at `app.command.chitty.cc` (Cloudflare Pages).
 
 ### Data Sources
 
-**API Sources (auto-sync):** Mercury, Wave, Stripe, TurboTenant, ChittyRental/ChittyFinance
+**Via ChittyFinance (auto-sync):** Mercury, Wave Accounting, Stripe, Plaid
+**Direct API:** ChittyBooks, ChittyAssets, ChittyCharge, ChittyLedger
+**Via ChittyScrape (bridge):** Mr. Cooper mortgage, Cook County property tax, Court docket
 **Email Parse:** ComEd, Peoples Gas, Xfinity, Citi, Home Depot, Lowe's
-**Scraper:** Mr. Cooper, Cook County property tax, Court docket
 **Manual:** IRS quarterly, HOA fees, Personal loans
 **Historical Only:** DoorLoop (sunset, data archived)
 
+### Auth Flow
+
+Three auth layers in `src/middleware/auth.ts`:
+1. **`authMiddleware`** (`/api/*`) — KV token lookup, then ChittyAuth fallback
+2. **`bridgeAuthMiddleware`** (`/api/bridge/*`) — Service token OR user token
+3. **`mcpAuthMiddleware`** (`/mcp/*`) — Shared service token from KV (bypassed in dev)
+
+### Cron Schedule
+
+Defined in `wrangler.toml`, dispatched via `src/lib/cron.ts`:
+- `0 12 * * *` — Daily 6 AM CT: Plaid + ChittyFinance sync
+- `0 13 * * *` — Daily 7 AM CT: Court docket check
+- `0 14 * * 1` — Weekly Mon 8 AM CT: Utility scrapers
+- `0 15 1 * *` — Monthly 1st 9 AM CT: Mortgage, property tax
+
 ### Database
 
-Neon PostgreSQL with `cc_` prefixed tables. Schema in `src/db/schema.ts`, SQL migrations in `migrations/`.
+Neon PostgreSQL via Hyperdrive binding. All tables prefixed `cc_`. Schema in `src/db/schema.ts`, SQL migrations in `migrations/` (0001-0007).
 
 ### Action Execution
 
 Three modes:
-1. **API** — Mercury transfers, Stripe payments, TurboTenant/ChittyRental
+1. **API** — Mercury transfers, Stripe payments via bridge routes
 2. **Claude in Chrome** — Browser automation for portals without APIs
 3. **Email** — Dispute letters, follow-ups via Cloudflare Email Workers
 
-## Active Disputes
-
-1. **Xfinity** — Pricing/credit dispute (priority 2)
-2. **Commodore Green Briar Landmark Condo Association** — HOA dispute (priority 3)
-3. **Fox Rental** — $14K+ reclaim (priority 1)
-
 ## Key Files
 
-- `src/index.ts` — Hono API entry point
-- `src/db/schema.ts` — Drizzle schema for all tables
+- `src/index.ts` — Hono entry point, route mounting, health/status endpoints
+- `src/middleware/auth.ts` — Auth middleware (user, bridge, MCP)
+- `src/lib/cron.ts` — Cron sync orchestrator (all data sources)
+- `src/lib/integrations.ts` — Service clients (Mercury, Plaid, ChittyScrape, etc.)
 - `src/lib/urgency.ts` — Deterministic urgency scoring engine
-- `src/routes/` — API route handlers
-- `migrations/` — SQL migration files
-- `ui/` — React frontend
+- `src/lib/validators.ts` — Zod schemas for request validation
+- `src/routes/bridge.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
+- `src/routes/mcp.ts` — MCP server for Claude integration
+- `src/routes/dashboard.ts` — Dashboard summary with urgency scoring
+- `src/db/schema.ts` — Drizzle schema for all cc_* tables
+- `migrations/` — SQL migration files (0001-0007)
+- `ui/` — React frontend (Vite + Tailwind)
 
 ## Security
 
-- Credentials via 1Password (`op run`)
-- No hardcoded secrets
+- Credentials via 1Password (`op run`) — never expose in terminal output
+- Secrets via `wrangler secret put` — never in `[vars]`
 - R2 for document storage (zero egress)
-- CORS restricted to `app.command.chitty.cc` and localhost
+- CORS restricted to `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`
+- Service tokens stored in KV: `bridge:service_token`, `mcp:service_token`, `scrape:service_token`
