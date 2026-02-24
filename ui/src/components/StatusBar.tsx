@@ -1,13 +1,30 @@
+import { useEffect, useState } from 'react';
 import { useFocusMode } from '../lib/focus-mode';
+import { api, type DashboardData, type SyncStatus } from '../lib/api';
+import { FreshnessDot, freshnessFromDate } from './ui/FreshnessDot';
 import { Eye, EyeOff } from 'lucide-react';
 
-interface StatusBarProps {
-  cashPosition?: string;
-  nextDue?: string;
-}
-
-export function StatusBar({ cashPosition, nextDue }: StatusBarProps) {
+export function StatusBar() {
   const { focusMode, toggleFocusMode } = useFocusMode();
+  const [data, setData] = useState<DashboardData | null>(null);
+  const [syncs, setSyncs] = useState<SyncStatus[]>([]);
+
+  useEffect(() => {
+    api.getDashboard().then(setData).catch(() => {});
+    api.getSyncStatus().then(setSyncs).catch(() => {});
+  }, []);
+
+  const cashPosition = data?.summary?.total_cash;
+  const overdueCount = data?.obligations?.overdue_count;
+  const dueThisWeek = data?.obligations?.due_this_week;
+
+  // Pick the most recent sync per source for freshness display
+  const sourceFreshness = syncs.reduce<Record<string, string | null>>((acc, s) => {
+    if (!acc[s.source] || (s.completed_at && (!acc[s.source] || s.completed_at > acc[s.source]!))) {
+      acc[s.source] = s.completed_at;
+    }
+    return acc;
+  }, {});
 
   return (
     <header className="h-12 bg-chrome-surface border-b border-chrome-border flex items-center justify-between px-4 sticky top-0 z-10">
@@ -15,13 +32,32 @@ export function StatusBar({ cashPosition, nextDue }: StatusBarProps) {
         {cashPosition && (
           <div className="flex items-center gap-2">
             <span className="text-chrome-muted">Cash</span>
-            <span className="text-urgency-green font-mono font-semibold">{cashPosition}</span>
+            <span className="text-urgency-green font-mono font-semibold">
+              ${parseFloat(cashPosition).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
+            </span>
           </div>
         )}
-        {nextDue && (
+        {overdueCount && parseInt(overdueCount) > 0 && (
           <div className="flex items-center gap-2">
-            <span className="text-chrome-muted">Next Due</span>
-            <span className="text-chrome-text font-mono">{nextDue}</span>
+            <span className="text-chrome-muted">Overdue</span>
+            <span className="text-urgency-red font-mono font-semibold">{overdueCount}</span>
+          </div>
+        )}
+        {dueThisWeek && parseInt(dueThisWeek) > 0 && (
+          <div className="flex items-center gap-2">
+            <span className="text-chrome-muted">Due This Week</span>
+            <span className="text-urgency-amber font-mono font-semibold">{dueThisWeek}</span>
+          </div>
+        )}
+
+        {/* Freshness dots */}
+        {Object.keys(sourceFreshness).length > 0 && (
+          <div className="flex items-center gap-1.5 ml-2">
+            {Object.entries(sourceFreshness).map(([source, lastSync]) => (
+              <span key={source} title={source}>
+                <FreshnessDot status={freshnessFromDate(lastSync)} />
+              </span>
+            ))}
           </div>
         )}
       </div>
