@@ -497,3 +497,66 @@ export function scrapeClient(env: Env) {
       post<{ success: boolean; data?: any; error?: string }>('/api/scrape/mr-cooper', { property }, token),
   };
 }
+
+// ── ChittyRouter ──────────────────────────────────────────────
+// Unified ingestion gateway: routes scrape, email, and compliance requests
+
+export interface RouterScrapeResponse {
+  success: boolean;
+  target: string;
+  scraped_at?: string;
+  data?: Record<string, unknown>;
+  error?: string;
+}
+
+export function routerClient(env: Env) {
+  const baseUrl = env.CHITTYROUTER_URL;
+  if (!baseUrl) return null;
+
+  async function post<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'X-Source-Service': 'chittycommand',
+        },
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(60000),
+      });
+      if (!res.ok) {
+        console.error(`[router] ${path} failed: ${res.status}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[router] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  async function get<T>(path: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        headers: { 'X-Source-Service': 'chittycommand' },
+        signal: AbortSignal.timeout(10000),
+      });
+      if (!res.ok) return null;
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[router] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  return {
+    scrapePortal: (target: string, params?: Record<string, unknown>) =>
+      post<RouterScrapeResponse>('/route/scrape', { target, params }),
+
+    getUrgentItems: () =>
+      get<{ items: Record<string, unknown>[] }>('/email/urgent'),
+
+    getEmailStatus: () =>
+      get<Record<string, unknown>>('/email/status'),
+  };
+}

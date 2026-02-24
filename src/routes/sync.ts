@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
-import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax } from '../lib/cron';
+import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -42,8 +42,8 @@ syncRoutes.post('/trigger/:source', async (c) => {
   // Sources that flow through ChittyFinance aggregation
   const chittyFinanceAliases = ['wave', 'stripe', 'turbotenant', 'chittyrental'];
 
-  // Sources with no scraper/API implementation yet
-  const notImplemented = ['comed', 'peoples_gas', 'xfinity', 'citi', 'home_depot', 'lowes'];
+  // Portal sources routed through ChittyRouter gateway
+  const portalSources = ['comed', 'peoples_gas', 'xfinity', 'citi', 'home_depot', 'lowes'];
 
   const dispatchers: Record<string, () => Promise<number>> = {
     mercury: () => syncMercury(c.env, sql),
@@ -54,21 +54,21 @@ syncRoutes.post('/trigger/:source', async (c) => {
     cook_county_tax: () => syncCookCountyTax(c.env, sql),
   };
 
-  // Resolve aliases to their underlying dispatcher
+  // Resolve aliases and portal sources to their dispatcher
   let dispatcher = dispatchers[source];
   if (!dispatcher && chittyFinanceAliases.includes(source)) {
     dispatcher = dispatchers.chittyfinance;
   }
+  if (!dispatcher && portalSources.includes(source)) {
+    dispatcher = () => syncPortal(c.env, sql, source);
+  }
 
   if (!dispatcher) {
-    const msg = notImplemented.includes(source)
-      ? `No scraper/API exists for ${source} yet — requires email parse or new ChittyScrape method`
-      : `No sync implementation for ${source}`;
     await sql`
-      UPDATE cc_sync_log SET status = 'skipped', error_message = ${msg}, completed_at = NOW()
+      UPDATE cc_sync_log SET status = 'skipped', error_message = ${'No sync implementation for ' + source}, completed_at = NOW()
       WHERE id = ${log.id}
     `;
-    return c.json({ message: msg, sync_id: log.id, status: 'skipped' });
+    return c.json({ message: `No sync implementation for ${source}`, sync_id: log.id, status: 'skipped' });
   }
 
   // Run sync in background via waitUntil if available, otherwise inline

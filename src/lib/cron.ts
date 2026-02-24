@@ -1,6 +1,6 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
-import { plaidClient, financeClient, mercuryClient, scrapeClient } from './integrations';
+import { plaidClient, financeClient, mercuryClient, scrapeClient, routerClient } from './integrations';
 import { runTriage } from './triage';
 import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
@@ -465,6 +465,58 @@ async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>)
     synced += await syncCookCountyTax(env, sql);
   } catch (err) {
     console.error('[cron:cook_county_tax] failed:', err);
+  }
+
+  return synced;
+}
+
+/**
+ * Sync a bill portal via ChittyRouter gateway.
+ * ChittyRouter fetches credentials from ChittyConnect, dispatches to ChittyScrape,
+ * and returns structured bill data. This is one ingestion path — portals may also
+ * be scraped directly via ChittyScrape or parsed from email.
+ */
+export async function syncPortal(env: Env, sql: NeonQueryFunction<false, false>, target: string): Promise<number> {
+  const router = routerClient(env);
+  if (!router) {
+    console.warn(`[sync:${target}] ChittyRouter not configured — skipping`);
+    return 0;
+  }
+
+  const result = await router.scrapePortal(target);
+  if (!result?.success || !result.data) {
+    console.error(`[sync:${target}] portal scrape failed:`, result?.error || 'no data');
+    return 0;
+  }
+
+  let synced = 0;
+
+  // If the scrape returned bill/obligation data, upsert it
+  if (result.data.amount || result.data.amount_due) {
+    const amount = Number(result.data.amount || result.data.amount_due || 0);
+    const dueDate = (result.data.due_date || result.data.dueDate || null) as string | null;
+    const payee = (result.data.payee || target) as string;
+
+    const [existing] = await sql`
+      SELECT id FROM cc_obligations WHERE payee ILIKE ${`%${payee}%`} AND status IN ('pending', 'overdue') LIMIT 1
+    `;
+
+    if (existing) {
+      await sql`
+        UPDATE cc_obligations
+        SET amount_due = ${amount},
+            due_date = COALESCE(${dueDate}, due_date),
+            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_portal_scrape}', ${JSON.stringify(result.data)}::jsonb),
+            updated_at = NOW()
+        WHERE id = ${existing.id}
+      `;
+    } else if (dueDate) {
+      await sql`
+        INSERT INTO cc_obligations (category, payee, amount_due, due_date, status, metadata)
+        VALUES ('utility', ${payee}, ${amount}, ${dueDate}, 'pending', ${JSON.stringify({ source: 'portal_scrape', last_portal_scrape: result.data })}::jsonb)
+      `;
+    }
+    synced++;
   }
 
   return synced;
