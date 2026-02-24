@@ -44,13 +44,25 @@ export function Recommendations() {
   };
 
   const act = async (id: string, action: string) => {
-    await api.actOnRecommendation(id, { action_taken: action });
-    setRecs(recs.filter(r => r.id !== id));
+    try {
+      await api.actOnRecommendation(id, { action_taken: action });
+      setRecs(recs.filter(r => r.id !== id));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Action failed';
+      console.error(`[Recommendations] act failed for ${id}:`, msg, e);
+      setError(msg);
+    }
   };
 
   const dismiss = async (id: string) => {
-    await api.dismissRecommendation(id);
-    setRecs(recs.filter(r => r.id !== id));
+    try {
+      await api.dismissRecommendation(id);
+      setRecs(recs.filter(r => r.id !== id));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Dismiss failed';
+      console.error(`[Recommendations] dismiss failed for ${id}:`, msg, e);
+      setError(msg);
+    }
   };
 
   if (loading) return <div className="text-chrome-muted py-8">Loading recommendations...</div>;

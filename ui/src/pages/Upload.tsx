@@ -18,7 +18,7 @@ export function Upload() {
   const [gaps, setGaps] = useState<GapsResult | null>(null);
 
   useEffect(() => {
-    api.getDocumentGaps().then(setGaps).catch(() => {});
+    api.getDocumentGaps().then(setGaps).catch((e) => console.error('[Upload] document gaps failed:', e));
   }, [batchResult]);
 
   const addFiles = useCallback((newFiles: FileList | File[]) => {

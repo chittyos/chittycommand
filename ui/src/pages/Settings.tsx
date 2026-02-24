@@ -15,12 +15,12 @@ export function Settings() {
 
   useEffect(() => {
     api.getSyncStatus().then(setSyncStatuses).catch((e) => setError(e.message));
-    api.getBridgeStatus().then((r) => setServiceStatuses(r.services)).catch(() => {});
+    api.getBridgeStatus().then((r) => setServiceStatuses(r.services)).catch((e) => console.error('[Settings] bridge status failed:', e));
   }, []);
 
   const handlePlaidSuccess = useCallback((itemId: string, count: number) => {
     setPlaidMessage(`Connected ${count} account${count !== 1 ? 's' : ''} (item: ${itemId.slice(0, 8)}...)`);
-    api.getBridgeStatus().then((r) => setServiceStatuses(r.services)).catch(() => {});
+    api.getBridgeStatus().then((r) => setServiceStatuses(r.services)).catch((e) => console.error('[Settings] bridge status refresh failed:', e));
   }, []);
 
   const runBridgeSync = async (name: string, fn: () => Promise<unknown>) => {

@@ -10,8 +10,8 @@ export function StatusBar() {
   const [syncs, setSyncs] = useState<SyncStatus[]>([]);
 
   useEffect(() => {
-    api.getDashboard().then(setData).catch(() => {});
-    api.getSyncStatus().then(setSyncs).catch(() => {});
+    api.getDashboard().then(setData).catch((e) => console.error('[StatusBar] dashboard load failed:', e));
+    api.getSyncStatus().then(setSyncs).catch((e) => console.error('[StatusBar] sync status load failed:', e));
   }, []);
 
   const cashPosition = data?.summary?.total_cash;
@@ -20,7 +20,8 @@ export function StatusBar() {
 
   // Pick the most recent sync per source for freshness display
   const sourceFreshness = syncs.reduce<Record<string, string | null>>((acc, s) => {
-    if (!acc[s.source] || (s.completed_at && (!acc[s.source] || s.completed_at > acc[s.source]!))) {
+    const current = acc[s.source];
+    if (!current || (s.completed_at && s.completed_at > current)) {
       acc[s.source] = s.completed_at;
     }
     return acc;
@@ -37,13 +38,13 @@ export function StatusBar() {
             </span>
           </div>
         )}
-        {overdueCount && parseInt(overdueCount) > 0 && (
+        {overdueCount && Number(overdueCount) > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-chrome-muted">Overdue</span>
             <span className="text-urgency-red font-mono font-semibold">{overdueCount}</span>
           </div>
         )}
-        {dueThisWeek && parseInt(dueThisWeek) > 0 && (
+        {dueThisWeek && Number(dueThisWeek) > 0 && (
           <div className="flex items-center gap-2">
             <span className="text-chrome-muted">Due This Week</span>
             <span className="text-urgency-amber font-mono font-semibold">{dueThisWeek}</span>

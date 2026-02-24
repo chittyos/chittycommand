@@ -28,19 +28,26 @@ export function Disputes() {
 
   useEffect(() => { reload(); }, [reload]);
 
+  const [panelError, setPanelError] = useState<string | null>(null);
+
   const togglePanel = async (disputeId: string, panel: 'correspondence' | 'documents') => {
     if (expandedId === disputeId && activePanel === panel) {
       setExpandedId(null);
       setActivePanel(null);
+      setPanelError(null);
       return;
     }
     setExpandedId(disputeId);
     setActivePanel(panel);
+    setPanelError(null);
     try {
       const detail = await api.getDispute(disputeId);
       if (panel === 'correspondence') setCorrespondenceList(detail.correspondence || []);
       else setDocumentList(detail.documents || []);
-    } catch {
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to load';
+      console.error(`[Disputes] ${panel} load failed for ${disputeId}:`, msg, e);
+      setPanelError(`Unable to load ${panel}: ${msg}`);
       if (panel === 'correspondence') setCorrespondenceList([]);
       else setDocumentList([]);
     }
@@ -130,6 +137,9 @@ export function Disputes() {
             {expandedId === d.id && activePanel === 'correspondence' && (
               <div className="mt-4 p-4 bg-card-hover rounded-lg border border-card-border">
                 <h3 className="text-card-text text-sm font-semibold mb-3">Correspondence</h3>
+                {panelError && (
+                  <p className="text-urgency-red text-xs mb-3">{panelError}</p>
+                )}
                 {correspondenceList.length > 0 ? (
                   <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
                     {correspondenceList.map((c) => (
@@ -193,6 +203,9 @@ export function Disputes() {
             {expandedId === d.id && activePanel === 'documents' && (
               <div className="mt-4 p-4 bg-card-hover rounded-lg border border-card-border">
                 <h3 className="text-card-text text-sm font-semibold mb-3">Documents</h3>
+                {panelError && (
+                  <p className="text-urgency-red text-xs mb-3">{panelError}</p>
+                )}
                 {documentList.length > 0 ? (
                   <div className="space-y-2">
                     {documentList.map((doc) => (

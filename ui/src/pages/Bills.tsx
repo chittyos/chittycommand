@@ -22,6 +22,10 @@ export function Bills() {
     try {
       await api.markPaid(id);
       setObligations((prev) => prev.map((o) => (o.id === id ? { ...o, status: 'paid', urgency_score: 0 } : o)));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to mark as paid';
+      console.error(`[Bills] markPaid failed for ${id}:`, msg, e);
+      setError(msg);
     } finally {
       setPayingId(null);
     }

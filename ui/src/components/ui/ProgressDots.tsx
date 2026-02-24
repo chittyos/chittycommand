@@ -7,19 +7,22 @@ interface ProgressDotsProps {
 }
 
 export function ProgressDots({ completed, total, className }: ProgressDotsProps) {
+  const safeTotal = Math.max(1, Math.floor(total));
+  const safeCompleted = Math.max(0, Math.min(Math.floor(completed), safeTotal));
+
   return (
     <div className={cn('flex items-center gap-1', className)}>
-      {Array.from({ length: total }, (_, i) => (
+      {Array.from({ length: safeTotal }, (_, i) => (
         <span
           key={i}
           className={cn(
             'w-2 h-2 rounded-full',
-            i < completed ? 'bg-urgency-green' : 'bg-card-border',
+            i < safeCompleted ? 'bg-urgency-green' : 'bg-card-border',
           )}
         />
       ))}
       <span className="text-xs text-card-muted ml-1">
-        {completed}/{total}
+        {safeCompleted}/{safeTotal}
       </span>
     </div>
   );

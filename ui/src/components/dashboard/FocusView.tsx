@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { Card } from '../ui/Card';
 import { ActionButton } from '../ui/ActionButton';
 import { urgencyLevel } from '../ui/UrgencyBorder';
@@ -13,6 +14,7 @@ interface FocusViewProps {
 }
 
 interface FocusItem {
+  id: string;
   type: 'obligation' | 'dispute' | 'deadline' | 'recommendation';
   urgency: number;
   title: string;
@@ -22,12 +24,14 @@ interface FocusItem {
 }
 
 export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: FocusViewProps) {
+  const navigate = useNavigate();
   const { obligations, disputes, deadlines, recommendations } = data;
 
   const items: FocusItem[] = [];
 
   obligations.urgent.forEach((ob) => {
     items.push({
+      id: `ob-${ob.id}`,
       type: 'obligation',
       urgency: ob.urgency_score ?? 0,
       title: ob.payee,
@@ -45,6 +49,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
 
   disputes.forEach((d) => {
     items.push({
+      id: `disp-${d.id}`,
       type: 'dispute',
       urgency: (6 - d.priority) * 20,
       title: d.title,
@@ -52,7 +57,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
       metric: d.amount_at_stake ? formatCurrency(d.amount_at_stake) : '',
       action: {
         label: d.next_action ? 'Take Action' : 'View',
-        onClick: () => { window.location.href = '/disputes'; },
+        onClick: () => navigate('/disputes'),
         loading: false,
       },
     });
@@ -61,6 +66,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
   deadlines.forEach((dl) => {
     const days = daysUntil(dl.deadline_date);
     items.push({
+      id: `dl-${dl.id}`,
       type: 'deadline',
       urgency: dl.urgency_score ?? (days <= 7 ? 80 : 30),
       title: dl.title,
@@ -68,7 +74,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
       metric: days > 0 ? `${days}d left` : days === 0 ? 'TODAY' : `${Math.abs(days)}d ago`,
       action: {
         label: 'View',
-        onClick: () => { window.location.href = '/legal'; },
+        onClick: () => navigate('/legal'),
         loading: false,
       },
     });
@@ -76,6 +82,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
 
   recommendations.slice(0, 3).forEach((rec) => {
     items.push({
+      id: `rec-${rec.id}`,
       type: 'recommendation',
       urgency: (6 - rec.priority) * 15,
       title: rec.title,
@@ -83,7 +90,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
       metric: '',
       action: {
         label: rec.action_type ? 'Execute' : 'View',
-        onClick: () => rec.action_type ? onExecute(rec) : (window.location.href = '/recommendations'),
+        onClick: () => rec.action_type ? onExecute(rec) : navigate('/recommendations'),
         loading: executingId === rec.id,
       },
     });
@@ -105,9 +112,9 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <p className="text-chrome-muted text-sm font-medium uppercase tracking-wider">Needs your attention</p>
-      {top3.map((item, i) => (
+      {top3.map((item) => (
         <Card
-          key={i}
+          key={item.id}
           urgency={urgencyLevel(item.urgency)}
           className="flex items-center justify-between gap-4"
         >

@@ -124,20 +124,20 @@ export function CashFlow() {
               <AreaChart data={chartData} margin={{ top: 10, right: 10, left: 0, bottom: 0 }}>
                 <defs>
                   <linearGradient id="balanceGradient" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#4c6ef5" stopOpacity={0.3} />
-                    <stop offset="95%" stopColor="#4c6ef5" stopOpacity={0.02} />
+                    <stop offset="5%" stopColor="var(--chitty-500)" stopOpacity={0.3} />
+                    <stop offset="95%" stopColor="var(--chitty-500)" stopOpacity={0.02} />
                   </linearGradient>
                 </defs>
-                <XAxis dataKey="date" tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: '#64748b' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                <XAxis dataKey="date" tick={{ fontSize: 11, fill: 'var(--card-text-muted)' }} tickLine={false} axisLine={false} />
+                <YAxis tick={{ fontSize: 11, fill: 'var(--card-text-muted)' }} tickLine={false} axisLine={false} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                 <Tooltip
-                  contentStyle={{ backgroundColor: '#1a1a2e', border: '1px solid #2a2a4a', borderRadius: '8px', fontSize: '12px' }}
-                  labelStyle={{ color: '#e2e8f0' }}
-                  itemStyle={{ color: '#94a3b8' }}
+                  contentStyle={{ backgroundColor: 'var(--chrome-bg)', border: '1px solid var(--chrome-border)', borderRadius: '8px', fontSize: '12px' }}
+                  labelStyle={{ color: 'var(--chrome-text)' }}
+                  itemStyle={{ color: 'var(--chrome-text-muted)' }}
                   formatter={(value?: number) => [value != null ? formatCurrency(value) : '', '']}
                 />
-                <ReferenceLine y={0} stroke="#ef4444" strokeDasharray="3 3" strokeOpacity={0.5} />
-                <Area type="monotone" dataKey="balance" stroke="#4c6ef5" fill="url(#balanceGradient)" strokeWidth={2} />
+                <ReferenceLine y={0} stroke="var(--urgency-red)" strokeDasharray="3 3" strokeOpacity={0.5} />
+                <Area type="monotone" dataKey="balance" stroke="var(--chitty-500)" fill="url(#balanceGradient)" strokeWidth={2} />
               </AreaChart>
             </ResponsiveContainer>
           </Card>
