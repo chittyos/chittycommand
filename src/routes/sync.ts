@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
-import { syncMercury, syncPlaid, syncFinance } from '../lib/cron';
+import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -22,10 +22,11 @@ syncRoutes.post('/trigger/:source', async (c) => {
   const sql = getDb(c.env);
 
   const validSources = [
-    'mercury', 'wave', 'stripe', 'turbotenant', 'chittyrental',
-    'comed', 'peoples_gas', 'xfinity', 'mr_cooper',
+    'mercury', 'plaid', 'chittyfinance',
+    'wave', 'stripe', 'turbotenant', 'chittyrental',
+    'court_docket', 'mr_cooper', 'cook_county_tax',
+    'comed', 'peoples_gas', 'xfinity',
     'citi', 'home_depot', 'lowes',
-    'cook_county_tax', 'court_docket',
   ];
 
   if (!validSources.includes(source)) {
@@ -38,19 +39,36 @@ syncRoutes.post('/trigger/:source', async (c) => {
     RETURNING *
   `;
 
+  // Sources that flow through ChittyFinance aggregation
+  const chittyFinanceAliases = ['wave', 'stripe', 'turbotenant', 'chittyrental'];
+
+  // Sources with no scraper/API implementation yet
+  const notImplemented = ['comed', 'peoples_gas', 'xfinity', 'citi', 'home_depot', 'lowes'];
+
   const dispatchers: Record<string, () => Promise<number>> = {
     mercury: () => syncMercury(c.env, sql),
     plaid: () => syncPlaid(c.env, sql),
     chittyfinance: () => syncFinance(c.env, sql),
+    court_docket: () => syncCourtDocket(c.env, sql),
+    mr_cooper: () => syncMrCooper(c.env, sql),
+    cook_county_tax: () => syncCookCountyTax(c.env, sql),
   };
 
-  const dispatcher = dispatchers[source];
+  // Resolve aliases to their underlying dispatcher
+  let dispatcher = dispatchers[source];
+  if (!dispatcher && chittyFinanceAliases.includes(source)) {
+    dispatcher = dispatchers.chittyfinance;
+  }
+
   if (!dispatcher) {
+    const msg = notImplemented.includes(source)
+      ? `No scraper/API exists for ${source} yet — requires email parse or new ChittyScrape method`
+      : `No sync implementation for ${source}`;
     await sql`
-      UPDATE cc_sync_log SET status = 'skipped', error_message = 'No sync implementation for this source yet', completed_at = NOW()
+      UPDATE cc_sync_log SET status = 'skipped', error_message = ${msg}, completed_at = NOW()
       WHERE id = ${log.id}
     `;
-    return c.json({ message: `Sync for ${source} not yet implemented`, sync_id: log.id, status: 'skipped' });
+    return c.json({ message: msg, sync_id: log.id, status: 'skipped' });
   }
 
   // Run sync in background via waitUntil if available, otherwise inline

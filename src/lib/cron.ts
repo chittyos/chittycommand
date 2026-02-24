@@ -357,7 +357,7 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
 /**
  * Scrape court docket via ChittyScrape and insert new deadlines.
  */
-async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
   const scrape = scrapeClient(env);
   if (!scrape) return 0;
 
@@ -397,9 +397,33 @@ async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): 
 }
 
 /**
- * Monthly scrapers: Mr. Cooper mortgage + Cook County property tax.
+ * Scrape Mr. Cooper mortgage data via ChittyScrape.
  */
-async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncMrCooper(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const scrape = scrapeClient(env);
+  if (!scrape) return 0;
+
+  const token = await env.COMMAND_KV.get('scrape:service_token');
+  if (!token) return 0;
+
+  const cooper = await scrape.scrapeMrCooper('addison', token);
+  if (cooper?.success && cooper.data) {
+    await sql`
+      UPDATE cc_obligations
+      SET current_amount = ${cooper.data.monthlyPayment || cooper.data.currentBalance || 0},
+          metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_scrape}', ${JSON.stringify(cooper.data)}::jsonb),
+          updated_at = NOW()
+      WHERE counterparty ILIKE '%mr. cooper%' OR counterparty ILIKE '%mr cooper%'
+    `;
+    return 1;
+  }
+  return 0;
+}
+
+/**
+ * Scrape Cook County property tax data via ChittyScrape.
+ */
+export async function syncCookCountyTax(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
   const scrape = scrapeClient(env);
   if (!scrape) return 0;
 
@@ -407,40 +431,38 @@ async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>)
   if (!token) return 0;
 
   let synced = 0;
-
-  // Mr. Cooper mortgage scrape
-  try {
-    const cooper = await scrape.scrapeMrCooper('addison', token);
-    if (cooper?.success && cooper.data) {
+  const properties = await sql`SELECT id, property_name, pin FROM cc_properties WHERE pin IS NOT NULL`;
+  for (const prop of properties) {
+    const taxResult = await scrape.scrapeCookCountyTax(prop.pin as string, token);
+    if (taxResult?.success && taxResult.data) {
       await sql`
-        UPDATE cc_obligations
-        SET current_amount = ${cooper.data.monthlyPayment || cooper.data.currentBalance || 0},
-            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_scrape}', ${JSON.stringify(cooper.data)}::jsonb),
+        UPDATE cc_properties
+        SET annual_tax = ${taxResult.data.totalTax || 0},
+            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_tax_scrape}', ${JSON.stringify(taxResult.data)}::jsonb),
             updated_at = NOW()
-        WHERE counterparty ILIKE '%mr. cooper%' OR counterparty ILIKE '%mr cooper%'
+        WHERE id = ${prop.id}
       `;
       synced++;
     }
+  }
+  return synced;
+}
+
+/**
+ * Monthly scrapers: Mr. Cooper mortgage + Cook County property tax.
+ * Calls the standalone functions above.
+ */
+async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  let synced = 0;
+
+  try {
+    synced += await syncMrCooper(env, sql);
   } catch (err) {
     console.error('[cron:mr_cooper] failed:', err);
   }
 
-  // Cook County property tax scrape for all properties with PINs
   try {
-    const properties = await sql`SELECT id, property_name, pin FROM cc_properties WHERE pin IS NOT NULL`;
-    for (const prop of properties) {
-      const taxResult = await scrape.scrapeCookCountyTax(prop.pin as string, token);
-      if (taxResult?.success && taxResult.data) {
-        await sql`
-          UPDATE cc_properties
-          SET annual_tax = ${taxResult.data.totalTax || 0},
-              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_tax_scrape}', ${JSON.stringify(taxResult.data)}::jsonb),
-              updated_at = NOW()
-          WHERE id = ${prop.id}
-        `;
-        synced++;
-      }
-    }
+    synced += await syncCookCountyTax(env, sql);
   } catch (err) {
     console.error('[cron:cook_county_tax] failed:', err);
   }
