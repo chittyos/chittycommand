@@ -1,15 +1,24 @@
 import { useEffect, useState, useCallback } from 'react';
 import { api, type Dispute, type Correspondence } from '../lib/api';
+import { Card } from '../components/ui/Card';
+import { ActionButton } from '../components/ui/ActionButton';
+import { ProgressDots } from '../components/ui/ProgressDots';
 import { formatCurrency, formatDate } from '../lib/utils';
+
+const DISPUTE_STAGES = ['filed', 'response_pending', 'in_review', 'resolved'];
+
+function disputeStageIndex(status: string): number {
+  const idx = DISPUTE_STAGES.indexOf(status);
+  return idx >= 0 ? idx : 0;
+}
 
 export function Disputes() {
   const [disputes, setDisputes] = useState<Dispute[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [correspondenceFor, setCorrespondenceFor] = useState<string | null>(null);
-  const [documentsFor, setDocumentsFor] = useState<string | null>(null);
-  const [statusFor, setStatusFor] = useState<string | null>(null);
+  const [expandedId, setExpandedId] = useState<string | null>(null);
   const [correspondenceList, setCorrespondenceList] = useState<Correspondence[]>([]);
   const [documentList, setDocumentList] = useState<{ id: string; filename: string | null; doc_type: string; created_at: string }[]>([]);
+  const [activePanel, setActivePanel] = useState<'correspondence' | 'documents' | null>(null);
   const [newCorrespondence, setNewCorrespondence] = useState({ direction: 'outbound', channel: 'email', subject: '', content: '' });
   const [saving, setSaving] = useState(false);
 
@@ -19,135 +28,130 @@ export function Disputes() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const openCorrespondence = async (disputeId: string) => {
-    setCorrespondenceFor(disputeId);
+  const togglePanel = async (disputeId: string, panel: 'correspondence' | 'documents') => {
+    if (expandedId === disputeId && activePanel === panel) {
+      setExpandedId(null);
+      setActivePanel(null);
+      return;
+    }
+    setExpandedId(disputeId);
+    setActivePanel(panel);
     try {
       const detail = await api.getDispute(disputeId);
-      setCorrespondenceList(detail.correspondence || []);
-    } catch { setCorrespondenceList([]); }
-  };
-
-  const openDocuments = async (disputeId: string) => {
-    setDocumentsFor(disputeId);
-    try {
-      const detail = await api.getDispute(disputeId);
-      setDocumentList(detail.documents || []);
-    } catch { setDocumentList([]); }
+      if (panel === 'correspondence') setCorrespondenceList(detail.correspondence || []);
+      else setDocumentList(detail.documents || []);
+    } catch {
+      if (panel === 'correspondence') setCorrespondenceList([]);
+      else setDocumentList([]);
+    }
   };
 
   const submitCorrespondence = async () => {
-    if (!correspondenceFor || !newCorrespondence.subject.trim()) return;
+    if (!expandedId || !newCorrespondence.subject.trim()) return;
     setSaving(true);
     try {
-      await api.addCorrespondence(correspondenceFor, newCorrespondence);
+      await api.addCorrespondence(expandedId, newCorrespondence);
       setNewCorrespondence({ direction: 'outbound', channel: 'email', subject: '', content: '' });
-      const detail = await api.getDispute(correspondenceFor);
+      const detail = await api.getDispute(expandedId);
       setCorrespondenceList(detail.correspondence || []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Failed to add correspondence');
-    } finally { setSaving(false); }
+    } finally {
+      setSaving(false);
+    }
   };
 
-  if (error) return <p className="text-red-400">{error}</p>;
+  if (error) return <p className="text-urgency-red">{error}</p>;
 
-  const priorityColor = (p: number) => {
-    if (p <= 1) return 'bg-red-600';
-    if (p <= 3) return 'bg-orange-600';
-    return 'bg-yellow-600';
+  const priorityUrgency = (p: number): 'red' | 'amber' | 'green' => {
+    if (p <= 1) return 'red';
+    if (p <= 3) return 'amber';
+    return 'green';
   };
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Active Disputes</h1>
+    <div className="space-y-4">
+      <h1 className="text-xl font-bold text-chrome-text">Active Disputes</h1>
 
-      <div className="grid grid-cols-1 gap-4">
+      <div className="space-y-3">
         {disputes.map((d) => (
-          <div key={d.id} className="bg-[#161822] rounded-lg border border-gray-800 p-5">
-            <div className="flex items-start justify-between mb-3">
-              <div>
-                <div className="flex items-center gap-2">
-                  <span className={`text-xs px-2 py-0.5 rounded text-white ${priorityColor(d.priority)}`}>
+          <Card key={d.id} urgency={priorityUrgency(d.priority)}>
+            <div className="flex items-start justify-between gap-4 mb-3">
+              <div className="min-w-0 flex-1">
+                <div className="flex items-center gap-2 mb-1">
+                  <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
                     P{d.priority}
                   </span>
-                  <span className="text-xs px-2 py-0.5 rounded bg-gray-700 text-gray-300">
+                  <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-card-muted">
                     {d.dispute_type}
                   </span>
                 </div>
-                <h2 className="text-lg font-semibold text-white mt-2">{d.title}</h2>
-                <p className="text-gray-400 text-sm">vs {d.counterparty}</p>
+                <h2 className="text-lg font-semibold text-card-text">{d.title}</h2>
+                <p className="text-card-muted text-sm">vs {d.counterparty}</p>
               </div>
               {d.amount_at_stake && (
-                <div className="text-right">
-                  <p className="text-gray-400 text-xs">At Stake</p>
-                  <p className="text-red-400 text-xl font-bold font-mono">{formatCurrency(d.amount_at_stake)}</p>
+                <div className="text-right shrink-0">
+                  <p className="text-card-muted text-xs">At Stake</p>
+                  <p className="text-urgency-red text-xl font-bold font-mono">{formatCurrency(d.amount_at_stake)}</p>
                 </div>
               )}
             </div>
 
+            <ProgressDots completed={disputeStageIndex(d.status) + 1} total={DISPUTE_STAGES.length} className="mb-3" />
+
             {d.description && (
-              <p className="text-gray-300 text-sm mb-3">{d.description}</p>
+              <p className="text-card-muted text-sm mb-3">{d.description}</p>
             )}
 
             {d.next_action && (
-              <div className="bg-[#1c1f2e] rounded p-3 border border-gray-700">
-                <p className="text-xs text-gray-500 uppercase">Next Action</p>
-                <p className="text-chitty-500 text-sm mt-1">{d.next_action}</p>
+              <div className="bg-card-hover rounded-lg p-3 border border-card-border mb-3">
+                <p className="text-xs text-card-muted uppercase font-medium">Next Action</p>
+                <p className="text-chitty-600 text-sm mt-1 font-medium">{d.next_action}</p>
                 {d.next_action_date && (
-                  <p className="text-gray-500 text-xs mt-1">By {formatDate(d.next_action_date)}</p>
+                  <p className="text-card-muted text-xs mt-1">By {formatDate(d.next_action_date)}</p>
                 )}
               </div>
             )}
 
-            <div className="flex gap-2 mt-4">
-              <button
-                onClick={() => openCorrespondence(d.id)}
-                className="px-3 py-1.5 text-sm bg-chitty-600 text-white rounded hover:bg-chitty-700"
-              >
-                Add Correspondence
-              </button>
-              <button
-                onClick={() => openDocuments(d.id)}
-                className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
-              >
-                View Documents
-              </button>
-              <button
-                onClick={() => setStatusFor(statusFor === d.id ? null : d.id)}
-                className="px-3 py-1.5 text-sm bg-gray-700 text-gray-300 rounded hover:bg-gray-600"
-              >
-                Update Status
-              </button>
+            <div className="flex gap-2">
+              <ActionButton
+                label="Correspondence"
+                variant={expandedId === d.id && activePanel === 'correspondence' ? 'primary' : 'secondary'}
+                onClick={() => togglePanel(d.id, 'correspondence')}
+              />
+              <ActionButton
+                label="Documents"
+                variant={expandedId === d.id && activePanel === 'documents' ? 'primary' : 'secondary'}
+                onClick={() => togglePanel(d.id, 'documents')}
+              />
             </div>
 
             {/* Correspondence Panel */}
-            {correspondenceFor === d.id && (
-              <div className="mt-4 p-4 bg-[#1c1f2e] rounded border border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white text-sm font-semibold">Correspondence</h3>
-                  <button onClick={() => setCorrespondenceFor(null)} className="text-gray-500 hover:text-white text-xs">Close</button>
-                </div>
+            {expandedId === d.id && activePanel === 'correspondence' && (
+              <div className="mt-4 p-4 bg-card-hover rounded-lg border border-card-border">
+                <h3 className="text-card-text text-sm font-semibold mb-3">Correspondence</h3>
                 {correspondenceList.length > 0 ? (
                   <div className="space-y-2 mb-4 max-h-48 overflow-y-auto">
                     {correspondenceList.map((c) => (
-                      <div key={c.id} className="text-xs p-2 rounded bg-[#161822] border border-gray-800">
-                        <div className="flex justify-between text-gray-400">
+                      <div key={c.id} className="text-xs p-2 rounded-lg bg-card-bg border border-card-border">
+                        <div className="flex justify-between text-card-muted">
                           <span>{c.direction} via {c.channel}</span>
                           <span>{formatDate(c.sent_at)}</span>
                         </div>
-                        {c.subject && <p className="text-white mt-1">{c.subject}</p>}
-                        {c.content && <p className="text-gray-300 mt-1">{c.content}</p>}
+                        {c.subject && <p className="text-card-text mt-1 font-medium">{c.subject}</p>}
+                        {c.content && <p className="text-card-muted mt-1">{c.content}</p>}
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-xs mb-4">No correspondence yet</p>
+                  <p className="text-card-muted text-xs mb-4">No correspondence yet</p>
                 )}
                 <div className="space-y-2">
                   <div className="flex gap-2">
                     <select
                       value={newCorrespondence.direction}
                       onChange={(e) => setNewCorrespondence({ ...newCorrespondence, direction: e.target.value })}
-                      className="bg-[#161822] border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                      className="bg-card-bg border border-card-border rounded-lg px-2 py-1 text-xs text-card-text"
                     >
                       <option value="outbound">Outbound</option>
                       <option value="inbound">Inbound</option>
@@ -155,7 +159,7 @@ export function Disputes() {
                     <select
                       value={newCorrespondence.channel}
                       onChange={(e) => setNewCorrespondence({ ...newCorrespondence, channel: e.target.value })}
-                      className="bg-[#161822] border border-gray-700 rounded px-2 py-1 text-xs text-white"
+                      className="bg-card-bg border border-card-border rounded-lg px-2 py-1 text-xs text-card-text"
                     >
                       <option value="email">Email</option>
                       <option value="phone">Phone</option>
@@ -168,66 +172,49 @@ export function Disputes() {
                     placeholder="Subject"
                     value={newCorrespondence.subject}
                     onChange={(e) => setNewCorrespondence({ ...newCorrespondence, subject: e.target.value })}
-                    className="w-full bg-[#161822] border border-gray-700 rounded px-3 py-1.5 text-sm text-white"
+                    className="w-full bg-card-bg border border-card-border rounded-lg px-3 py-1.5 text-sm text-card-text"
                   />
                   <textarea
                     placeholder="Notes (optional)"
                     value={newCorrespondence.content}
                     onChange={(e) => setNewCorrespondence({ ...newCorrespondence, content: e.target.value })}
-                    className="w-full bg-[#161822] border border-gray-700 rounded px-3 py-1.5 text-sm text-white h-16 resize-none"
+                    className="w-full bg-card-bg border border-card-border rounded-lg px-3 py-1.5 text-sm text-card-text h-16 resize-none"
                   />
-                  <button
+                  <ActionButton
+                    label={saving ? 'Saving...' : 'Save'}
                     onClick={submitCorrespondence}
                     disabled={saving || !newCorrespondence.subject.trim()}
-                    className="px-3 py-1.5 text-sm bg-chitty-600 text-white rounded hover:bg-chitty-700 disabled:opacity-50"
-                  >
-                    {saving ? 'Saving...' : 'Save'}
-                  </button>
+                  />
                 </div>
               </div>
             )}
 
             {/* Documents Panel */}
-            {documentsFor === d.id && (
-              <div className="mt-4 p-4 bg-[#1c1f2e] rounded border border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white text-sm font-semibold">Documents</h3>
-                  <button onClick={() => setDocumentsFor(null)} className="text-gray-500 hover:text-white text-xs">Close</button>
-                </div>
+            {expandedId === d.id && activePanel === 'documents' && (
+              <div className="mt-4 p-4 bg-card-hover rounded-lg border border-card-border">
+                <h3 className="text-card-text text-sm font-semibold mb-3">Documents</h3>
                 {documentList.length > 0 ? (
                   <div className="space-y-2">
                     {documentList.map((doc) => (
-                      <div key={doc.id} className="flex items-center justify-between text-xs p-2 rounded bg-[#161822] border border-gray-800">
+                      <div key={doc.id} className="flex items-center justify-between text-xs p-2 rounded-lg bg-card-bg border border-card-border">
                         <div>
-                          <p className="text-white">{doc.filename || 'Unnamed'}</p>
-                          <p className="text-gray-400">{doc.doc_type} — {formatDate(doc.created_at)}</p>
+                          <p className="text-card-text font-medium">{doc.filename || 'Unnamed'}</p>
+                          <p className="text-card-muted">{doc.doc_type} — {formatDate(doc.created_at)}</p>
                         </div>
                       </div>
                     ))}
                   </div>
                 ) : (
-                  <p className="text-gray-500 text-xs">No documents linked — upload from the Upload page</p>
+                  <p className="text-card-muted text-xs">No documents linked — upload from the Upload page</p>
                 )}
               </div>
             )}
-
-            {/* Update Status Panel */}
-            {statusFor === d.id && (
-              <div className="mt-4 p-4 bg-[#1c1f2e] rounded border border-gray-700">
-                <div className="flex items-center justify-between mb-3">
-                  <h3 className="text-white text-sm font-semibold">Update Status</h3>
-                  <button onClick={() => setStatusFor(null)} className="text-gray-500 hover:text-white text-xs">Close</button>
-                </div>
-                <p className="text-gray-400 text-xs mb-2">Current: <span className="text-white">{d.status}</span></p>
-                <p className="text-gray-500 text-xs">Status updates are managed via the API. Use the dispute detail endpoint or the AI recommendations to progress this dispute.</p>
-              </div>
-            )}
-          </div>
+          </Card>
         ))}
       </div>
 
       {disputes.length === 0 && (
-        <p className="text-gray-500 text-center py-8">No active disputes</p>
+        <p className="text-chrome-muted text-center py-8">No active disputes</p>
       )}
     </div>
   );
