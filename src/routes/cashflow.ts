@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { generateProjections } from '../lib/projections';
+import { cashflowScenarioSchema } from '../lib/validators';
 
 export const cashflowRoutes = new Hono<{ Bindings: Env }>();
 
@@ -26,8 +27,9 @@ cashflowRoutes.post('/generate', async (c) => {
 
 // Scenario: "what if I defer obligation X?"
 cashflowRoutes.post('/scenario', async (c) => {
-  const { defer_obligation_ids } = await c.req.json() as { defer_obligation_ids: string[] };
-  if (!defer_obligation_ids?.length) return c.json({ error: 'defer_obligation_ids required' }, 400);
+  const parsed = cashflowScenarioSchema.safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const { defer_obligation_ids } = parsed.data;
 
   const sql = getDb(c.env);
 

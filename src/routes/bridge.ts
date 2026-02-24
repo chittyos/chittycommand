@@ -3,7 +3,7 @@ import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
 import { getDb } from '../lib/db';
 import { ledgerClient, financeClient, plaidClient, mercuryClient, connectClient, booksClient, assetsClient, scrapeClient } from '../lib/integrations';
-import { recordActionSchema, exchangeTokenSchema } from '../lib/validators';
+import { recordActionSchema, exchangeTokenSchema, recordBookTransactionSchema, submitEvidenceSchema, courtDocketScrapeSchema } from '../lib/validators';
 
 export const bridgeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -545,10 +545,9 @@ bridgeRoutes.post('/books/record-transaction', async (c) => {
   const books = booksClient(c.env);
   if (!books) return c.json({ error: 'ChittyBooks not configured' }, 503);
 
-  const body = await c.req.json() as { type: 'income' | 'expense'; description: string; amount: number };
-  if (!body.type || !body.description || !body.amount) {
-    return c.json({ error: 'type, description, and amount are required' }, 400);
-  }
+  const parsed = recordBookTransactionSchema.safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const body = parsed.data;
 
   const result = await books.recordTransaction(body);
   if (!result) return c.json({ error: 'Failed to record transaction in ChittyBooks' }, 502);
@@ -621,10 +620,9 @@ bridgeRoutes.post('/assets/submit-evidence', async (c) => {
   const assets = assetsClient(c.env);
   if (!assets) return c.json({ error: 'ChittyAssets not configured' }, 503);
 
-  const body = await c.req.json() as { evidenceType: string; data: Record<string, unknown>; metadata?: Record<string, unknown> };
-  if (!body.evidenceType || !body.data) {
-    return c.json({ error: 'evidenceType and data are required' }, 400);
-  }
+  const parsed = submitEvidenceSchema.safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const body = parsed.data;
 
   const result = await assets.submitEvidence({
     evidenceType: body.evidenceType,
@@ -653,8 +651,9 @@ bridgeRoutes.post('/scrape/court-docket', async (c) => {
   const token = await c.env.COMMAND_KV.get('scrape:service_token');
   if (!token) return c.json({ error: 'Scrape service token not configured' }, 503);
 
-  const { caseNumber } = await c.req.json() as { caseNumber?: string };
-  const targetCase = caseNumber || '2024D007847';
+  const parsed = courtDocketScrapeSchema.safeParse(await c.req.json());
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const targetCase = parsed.data.caseNumber || '2024D007847';
 
   const result = await scrape.scrapeCourtDocket(targetCase, token);
 

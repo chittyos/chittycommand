@@ -112,6 +112,24 @@ export const actOnRecommendationSchema = z.object({
   action_taken: z.string().min(1).max(1000).optional(),
 });
 
+// ── Cash Flow ────────────────────────────────────────────────
+
+export const cashflowScenarioSchema = z.object({
+  defer_obligation_ids: z.array(z.string().uuid()).min(1, 'At least one obligation ID required'),
+});
+
+// ── Auth ─────────────────────────────────────────────────────
+
+export const loginSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(1),
+});
+
+export const registerSchema = z.object({
+  email: z.string().email(),
+  password: z.string().min(8, 'Password must be at least 8 characters'),
+});
+
 // ── Bridge: Ledger ───────────────────────────────────────────
 
 export const recordActionSchema = z.object({
@@ -120,8 +138,52 @@ export const recordActionSchema = z.object({
   notes: z.string().max(2000).optional(),
 });
 
+// ── Bridge: Books ────────────────────────────────────────────
+
+export const recordBookTransactionSchema = z.object({
+  type: z.enum(['income', 'expense']),
+  description: z.string().min(1).max(1000),
+  amount: z.number().positive(),
+});
+
+// ── Bridge: Assets ───────────────────────────────────────────
+
+export const submitEvidenceSchema = z.object({
+  evidenceType: z.string().min(1).max(255),
+  data: z.record(z.string(), z.unknown()),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+// ── Bridge: Scrape ───────────────────────────────────────────
+
+export const courtDocketScrapeSchema = z.object({
+  caseNumber: z.string().max(50).optional(),
+});
+
 // ── Bridge: Plaid ────────────────────────────────────────────
 
 export const exchangeTokenSchema = z.object({
   public_token: z.string().min(1),
+});
+
+// ── Query Param Schemas ──────────────────────────────────────
+
+const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
+
+export const obligationQuerySchema = z.object({
+  status: z.enum(['pending', 'overdue', 'paid', 'deferred', 'disputed']).optional(),
+  category: z.string().max(100).optional(),
+});
+
+export const obligationCalendarQuerySchema = z.object({
+  start: dateString.optional(),
+  end: dateString.optional(),
+});
+
+export const disputeQuerySchema = z.object({
+  status: z.string().max(50).optional(),
+});
+
+export const recommendationQuerySchema = z.object({
+  status: z.string().max(50).optional(),
 });
