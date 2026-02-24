@@ -100,6 +100,31 @@ Provide a unified life management and action dashboard that ingests data from 15
 | Technical Lead | @chittyos-infrastructure |
 | Contact | chittycommand@chitty.cc |
 
+## Three Aspects (TY VY RY)
+
+Source: `chittycanon://gov/governance#three-aspects`
+
+| Aspect | Abbrev | Question | ChittyCommand Answer |
+|--------|--------|----------|--------------------|
+| **Identity** | TY | What IS it? | Unified life management dashboard — ingests financial, legal, and administrative data from 15+ sources, scores urgency, recommends and executes actions |
+| **Connectivity** | VY | How does it ACT? | Cron-scheduled syncs (Plaid, Mercury, court dockets, utilities); bridge API to ChittyScrape, ChittyLedger, ChittyFinance; MCP server for Claude-driven queries; action execution via API, email, or browser automation |
+| **Authority** | RY | Where does it SIT? | Tier 5 Application — consumer of upstream data, not source of truth; delegates scraping to ChittyScrape, identity to ChittyID, financials to ChittyFinance |
+
+## Document Triad
+
+This charter is part of a synchronized documentation triad. Changes to shared fields must propagate.
+
+| Field | Canonical Source | Also In |
+|-------|-----------------|---------|
+| Canonical URI | CHARTER.md (Classification) | CHITTY.md (blockquote) |
+| Tier | CHARTER.md (Classification) | CHITTY.md (blockquote) |
+| Domain | CHARTER.md (Classification) | CHITTY.md (blockquote), CLAUDE.md (header) |
+| Endpoints | CHARTER.md (API Contract) | CHITTY.md (Endpoints table), CLAUDE.md (API section) |
+| Dependencies | CHARTER.md (Dependencies) | CHITTY.md (Dependencies table), CLAUDE.md (Architecture) |
+| Certification badge | CHITTY.md (Certification) | CHARTER.md frontmatter `status` |
+
+**Related docs**: [CHITTY.md](CHITTY.md) (badge/one-pager) | [CLAUDE.md](CLAUDE.md) (developer guide)
+
 ## Compliance
 
 - [x] Service registered in ChittyRegister (03-1-USA-3846-T-2602-0-57, pending_cert)
@@ -110,4 +135,4 @@ Provide a unified life management and action dashboard that ingests data from 15
 - [x] CHITTY.md present
 
 ---
-*Charter Version: 1.0.0 | Last Updated: 2026-02-24*
+*Charter Version: 1.0.0 | Last Updated: 2026-02-23*
