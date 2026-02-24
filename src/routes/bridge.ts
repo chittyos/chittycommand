@@ -1,10 +1,11 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
+import type { AuthVariables } from '../middleware/auth';
 import { getDb } from '../lib/db';
 import { ledgerClient, financeClient, plaidClient, mercuryClient, connectClient, booksClient, assetsClient, scrapeClient } from '../lib/integrations';
 import { recordActionSchema, exchangeTokenSchema } from '../lib/validators';
 
-export const bridgeRoutes = new Hono<{ Bindings: Env }>();
+export const bridgeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // ── ChittyLedger Sync ────────────────────────────────────────
 
@@ -191,7 +192,7 @@ bridgeRoutes.post('/plaid/link-token', async (c) => {
   const plaid = plaidClient(c.env);
   if (!plaid) return c.json({ error: 'Plaid not configured' }, 503);
 
-  const userId = (c as any).get('userId') || 'anonymous';
+  const userId = c.get('userId') || 'anonymous';
   const result = await plaid.createLinkToken(userId);
   if (!result) return c.json({ error: 'Failed to create link token' }, 502);
 

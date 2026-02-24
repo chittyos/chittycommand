@@ -64,6 +64,15 @@ app.get('/health', (c) => c.json({
   timestamp: new Date().toISOString(),
 }));
 
+// Service status (unauthenticated) — ChittyOS standard
+app.get('/api/v1/status', (c) => c.json({
+  name: 'ChittyCommand',
+  version: '0.1.0',
+  environment: c.env.ENVIRONMENT || 'production',
+  canonicalUri: 'chittycanon://core/services/chittycommand',
+  tier: 5,
+}));
+
 // Auth routes — unauthenticated (handles login/verify itself)
 app.route('/auth', authRoutes);
 
