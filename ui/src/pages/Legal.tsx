@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { api, type LegalDeadline } from '../lib/api';
 import { formatDate, daysUntil } from '../lib/utils';
+import { Card } from '../components/ui/Card';
 
 export function Legal() {
   const [deadlines, setDeadlines] = useState<LegalDeadline[]>([]);
@@ -10,51 +11,59 @@ export function Legal() {
     api.getLegalDeadlines().then(setDeadlines).catch((e) => setError(e.message));
   }, []);
 
-  if (error) return <p className="text-red-400">{error}</p>;
+  if (error) return <div className="bg-red-50 border border-red-200 rounded-card p-3 text-urgency-red text-sm">{error}</div>;
+
+  const urgencyFromDays = (days: number): 'red' | 'amber' | 'green' | null => {
+    if (days < 0) return 'red';
+    if (days <= 7) return 'amber';
+    if (days <= 30) return 'green';
+    return null;
+  };
+
+  const countdownColor = (days: number): string => {
+    if (days < 0) return 'text-urgency-red';
+    if (days <= 7) return 'text-urgency-amber';
+    if (days <= 30) return 'text-urgency-amber';
+    return 'text-card-muted';
+  };
 
   return (
     <div className="space-y-6">
-      <h1 className="text-2xl font-bold text-white">Legal Deadlines</h1>
+      <h1 className="text-xl font-bold text-chrome-text">Legal Deadlines</h1>
 
-      <div className="space-y-3">
+      <div className="space-y-2">
         {deadlines.map((dl) => {
           const days = daysUntil(dl.deadline_date);
-          const isUrgent = days <= 7;
           const isPast = days < 0;
 
           return (
-            <div
-              key={dl.id}
-              className={`bg-[#161822] rounded-lg border p-4 ${
-                isPast ? 'border-red-700' : isUrgent ? 'border-orange-700' : 'border-gray-800'
-              }`}
-            >
+            <Card key={dl.id} urgency={urgencyFromDays(days)}>
               <div className="flex items-center justify-between">
                 <div>
                   <div className="flex items-center gap-2">
-                    <span className="text-xs px-2 py-0.5 rounded bg-purple-700 text-white">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-purple-100 text-purple-700 font-medium">
                       {dl.deadline_type}
                     </span>
-                    <span className="text-xs text-gray-500">{dl.case_ref}</span>
+                    <span className="text-xs text-card-muted">{dl.case_ref}</span>
                   </div>
-                  <h3 className="text-white font-medium mt-1">{dl.title}</h3>
+                  <h3 className="text-card-text font-medium mt-1">{dl.title}</h3>
                 </div>
                 <div className="text-right">
-                  <p className={`text-lg font-mono font-bold ${
-                    isPast ? 'text-red-400' : isUrgent ? 'text-orange-400' : days <= 30 ? 'text-yellow-400' : 'text-gray-400'
-                  }`}>
+                  <p className={`text-lg font-mono font-bold ${countdownColor(days)}`}>
                     {isPast ? `${Math.abs(days)}d PAST` : days === 0 ? 'TODAY' : `${days}d`}
                   </p>
-                  <p className="text-gray-500 text-xs">{formatDate(dl.deadline_date)}</p>
+                  <p className="text-card-muted text-xs">{formatDate(dl.deadline_date)}</p>
                 </div>
               </div>
-            </div>
+            </Card>
           );
         })}
       </div>
 
       {deadlines.length === 0 && (
-        <p className="text-gray-500 text-center py-8">No upcoming legal deadlines</p>
+        <Card className="text-center py-8">
+          <p className="text-card-muted">No upcoming legal deadlines</p>
+        </Card>
       )}
     </div>
   );
