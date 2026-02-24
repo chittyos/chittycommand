@@ -3,15 +3,17 @@ import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { computeUrgencyScore } from '../lib/urgency';
 import { chargeClient } from '../lib/integrations';
-import { createObligationSchema, updateObligationSchema } from '../lib/validators';
+import { createObligationSchema, updateObligationSchema, obligationQuerySchema, obligationCalendarQuerySchema } from '../lib/validators';
 
 export const obligationRoutes = new Hono<{ Bindings: Env }>();
 
 // List obligations with filtering
 obligationRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
-  const status = c.req.query('status');
-  const category = c.req.query('category');
+  const qResult = obligationQuerySchema.safeParse({ status: c.req.query('status'), category: c.req.query('category') });
+  if (!qResult.success) return c.json({ error: 'Invalid query params', issues: qResult.error.issues }, 400);
+  const status = qResult.data.status || null;
+  const category = qResult.data.category || null;
 
   let obligations;
   if (status && category) {
@@ -29,8 +31,10 @@ obligationRoutes.get('/', async (c) => {
 // Calendar view: obligations grouped by due date
 obligationRoutes.get('/calendar', async (c) => {
   const sql = getDb(c.env);
-  const start = c.req.query('start') || new Date().toISOString().slice(0, 10);
-  const end = c.req.query('end') || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
+  const calResult = obligationCalendarQuerySchema.safeParse({ start: c.req.query('start'), end: c.req.query('end') });
+  if (!calResult.success) return c.json({ error: 'Invalid query params', issues: calResult.error.issues }, 400);
+  const start = calResult.data.start || new Date().toISOString().slice(0, 10);
+  const end = calResult.data.end || new Date(Date.now() + 30 * 86400000).toISOString().slice(0, 10);
 
   const obligations = await sql`
     SELECT id, payee, category, amount_due, due_date, status, urgency_score, auto_pay
@@ -150,11 +154,13 @@ obligationRoutes.post('/recalculate-urgency', async (c) => {
       category: ob.category,
       status: ob.status,
       auto_pay: ob.auto_pay,
-      late_fee: ob.late_fee ? parseFloat(ob.late_fee) : null,
+      late_fee: ob.late_fee ? (isFinite(parseFloat(ob.late_fee)) ? parseFloat(ob.late_fee) : null) : null,
       grace_period_days: ob.grace_period_days || 0,
     });
-    const dueDate = new Date(ob.due_date);
-    const newStatus = dueDate < new Date() && ob.status === 'pending' ? 'overdue' : ob.status;
+    const dueDate = new Date(ob.due_date + 'T00:00:00Z');
+    const now = new Date();
+    const todayUtc = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+    const newStatus = dueDate < todayUtc && ob.status === 'pending' ? 'overdue' : ob.status;
     updates.push({ id: ob.id, score, status: newStatus });
   }
 

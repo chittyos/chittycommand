@@ -1,5 +1,9 @@
 import { useEffect, useState } from 'react';
 import { api, type Recommendation } from '../lib/api';
+import { Card } from '../components/ui/Card';
+import { MetricCard } from '../components/ui/MetricCard';
+import { ActionButton } from '../components/ui/ActionButton';
+import { formatCurrency } from '../lib/utils';
 
 export function Recommendations() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
@@ -16,8 +20,8 @@ export function Recommendations() {
     try {
       const data = await api.getRecommendations();
       setRecs(data);
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Load failed');
     } finally {
       setLoading(false);
     }
@@ -32,156 +36,128 @@ export function Recommendations() {
       const result = await api.generateRecommendations();
       setTriageResult(result);
       await loadRecs();
-    } catch (e: any) {
-      setError(e.message);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Generation failed');
     } finally {
       setGenerating(false);
     }
   };
 
   const act = async (id: string, action: string) => {
-    await api.actOnRecommendation(id, { action_taken: action });
-    setRecs(recs.filter(r => r.id !== id));
+    try {
+      await api.actOnRecommendation(id, { action_taken: action });
+      setRecs(recs.filter(r => r.id !== id));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Action failed';
+      console.error(`[Recommendations] act failed for ${id}:`, msg, e);
+      setError(msg);
+    }
   };
 
   const dismiss = async (id: string) => {
-    await api.dismissRecommendation(id);
-    setRecs(recs.filter(r => r.id !== id));
+    try {
+      await api.dismissRecommendation(id);
+      setRecs(recs.filter(r => r.id !== id));
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Dismiss failed';
+      console.error(`[Recommendations] dismiss failed for ${id}:`, msg, e);
+      setError(msg);
+    }
   };
 
-  if (loading) return <div className="text-gray-400">Loading recommendations...</div>;
+  if (loading) return <div className="text-chrome-muted py-8">Loading recommendations...</div>;
+
+  const priorityColors: Record<number, string> = {
+    1: 'bg-red-100 text-red-700',
+    2: 'bg-orange-100 text-orange-700',
+    3: 'bg-amber-100 text-amber-700',
+    4: 'bg-blue-100 text-blue-700',
+    5: 'bg-gray-100 text-gray-700',
+  };
+
+  const typeColors: Record<string, string> = {
+    payment: 'bg-green-50 text-green-700 border-green-200',
+    negotiate: 'bg-purple-50 text-purple-700 border-purple-200',
+    defer: 'bg-gray-50 text-gray-600 border-gray-200',
+    dispute: 'bg-orange-50 text-orange-700 border-orange-200',
+    legal: 'bg-red-50 text-red-700 border-red-200',
+    warning: 'bg-amber-50 text-amber-700 border-amber-200',
+    strategy: 'bg-blue-50 text-blue-700 border-blue-200',
+  };
+
+  const actionLabel = (type: string | null): string => {
+    const labels: Record<string, string> = {
+      pay_now: 'Pay Now', pay_minimum: 'Pay Minimum', negotiate: 'Start Negotiation',
+      defer: 'Defer', execute_action: 'Execute', plan_action: 'Plan',
+      prepare_legal: 'Prepare', review_cashflow: 'Review', execute_browser: 'Automate', send_email: 'Send',
+    };
+    return labels[type || ''] || 'Act';
+  };
 
   return (
     <div className="space-y-6">
       <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-white">AI Recommendations</h1>
-        <button
+        <h1 className="text-xl font-bold text-chrome-text">AI Recommendations</h1>
+        <ActionButton
+          label={generating ? 'Analyzing...' : 'Run Triage'}
           onClick={generate}
-          disabled={generating}
-          className="px-4 py-2 text-sm bg-chitty-600 text-white rounded-lg hover:bg-chitty-700 disabled:opacity-50 transition-colors font-medium"
-        >
-          {generating ? 'Analyzing...' : 'Run Triage'}
-        </button>
+          loading={generating}
+        />
       </div>
 
       {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-3 text-red-400 text-sm">{error}</div>
+        <div className="bg-red-50 border border-red-200 rounded-card p-3 text-urgency-red text-sm">{error}</div>
       )}
 
       {triageResult && (
-        <div className="bg-[#161822] rounded-lg border border-gray-800 p-4 grid grid-cols-4 gap-4 text-sm">
-          <div>
-            <p className="text-gray-500">Obligations Scored</p>
-            <p className="text-white text-lg font-bold">{triageResult.obligations_scored}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">New Recommendations</p>
-            <p className="text-white text-lg font-bold">{triageResult.recommendations_created}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">Cash Available</p>
-            <p className="text-white text-lg font-bold">${triageResult.cash_position.total_cash.toLocaleString()}</p>
-          </div>
-          <div>
-            <p className="text-gray-500">30-Day Surplus</p>
-            <p className={`text-lg font-bold ${triageResult.cash_position.surplus >= 0 ? 'text-green-400' : 'text-red-400'}`}>
-              {triageResult.cash_position.surplus >= 0 ? '+' : ''}${triageResult.cash_position.surplus.toLocaleString()}
-            </p>
-          </div>
+        <div className="grid grid-cols-4 gap-3">
+          <MetricCard label="Scored" value={String(triageResult.obligations_scored)} />
+          <MetricCard label="New Recs" value={String(triageResult.recommendations_created)} />
+          <MetricCard label="Cash Available" value={formatCurrency(triageResult.cash_position.total_cash)} valueClassName="text-urgency-green" />
+          <MetricCard label="30d Surplus" value={`${triageResult.cash_position.surplus >= 0 ? '+' : ''}${formatCurrency(triageResult.cash_position.surplus)}`} valueClassName={triageResult.cash_position.surplus >= 0 ? 'text-urgency-green' : 'text-urgency-red'} />
         </div>
       )}
 
       {recs.length === 0 ? (
-        <div className="bg-[#161822] rounded-lg border border-gray-800 p-8 text-center">
-          <p className="text-gray-400">No active recommendations.</p>
-          <p className="text-gray-600 text-sm mt-1">Click "Run Triage" to analyze your obligations and generate recommendations.</p>
-        </div>
+        <Card className="text-center py-8">
+          <p className="text-card-muted">No active recommendations.</p>
+          <p className="text-card-muted text-sm mt-1">Click "Run Triage" to analyze obligations.</p>
+        </Card>
       ) : (
-        <div className="space-y-3">
+        <div className="space-y-2">
           {recs.map((rec) => (
-            <div key={rec.id} className="bg-[#161822] rounded-lg border border-gray-800 p-4">
+            <Card key={rec.id} urgency={rec.priority <= 2 ? 'amber' : rec.priority <= 3 ? 'green' : null}>
               <div className="flex items-start justify-between gap-4">
-                <div className="flex-1">
-                  <div className="flex items-center gap-2 mb-1">
-                    <PriorityBadge priority={rec.priority} />
-                    <TypeBadge type={rec.rec_type} />
-                    {rec.obligation_payee && (
-                      <span className="text-xs text-gray-500">{rec.obligation_payee}</span>
-                    )}
-                    {rec.dispute_title && (
-                      <span className="text-xs text-gray-500">{rec.dispute_title}</span>
-                    )}
+                <div className="flex-1 min-w-0">
+                  <div className="flex items-center gap-2 mb-1 flex-wrap">
+                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColors[rec.priority] || priorityColors[5]}`}>
+                      P{rec.priority}
+                    </span>
+                    <span className={`text-xs px-2 py-0.5 rounded-full border ${typeColors[rec.rec_type] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
+                      {rec.rec_type}
+                    </span>
+                    {rec.obligation_payee && <span className="text-xs text-card-muted">{rec.obligation_payee}</span>}
+                    {rec.dispute_title && <span className="text-xs text-card-muted">{rec.dispute_title}</span>}
                   </div>
-                  <h3 className="text-white font-medium">{rec.title}</h3>
-                  <p className="text-gray-400 text-sm mt-1">{rec.reasoning}</p>
+                  <h3 className="font-medium text-card-text">{rec.title}</h3>
+                  <p className="text-card-muted text-sm mt-1">{rec.reasoning}</p>
                 </div>
                 <div className="flex gap-2 shrink-0">
-                  <button
+                  <ActionButton
+                    label={actionLabel(rec.action_type)}
                     onClick={() => act(rec.id, rec.action_type || 'acted')}
-                    className="px-3 py-1.5 text-xs bg-chitty-600 text-white rounded hover:bg-chitty-700 transition-colors font-medium"
-                  >
-                    {actionLabel(rec.action_type)}
-                  </button>
-                  <button
+                  />
+                  <ActionButton
+                    label="Dismiss"
+                    variant="secondary"
                     onClick={() => dismiss(rec.id)}
-                    className="px-3 py-1.5 text-xs bg-gray-700 text-gray-300 rounded hover:bg-gray-600 transition-colors"
-                  >
-                    Dismiss
-                  </button>
+                  />
                 </div>
               </div>
-            </div>
+            </Card>
           ))}
         </div>
       )}
     </div>
   );
-}
-
-function PriorityBadge({ priority }: { priority: number }) {
-  const colors: Record<number, string> = {
-    1: 'bg-red-600 text-white',
-    2: 'bg-orange-600 text-white',
-    3: 'bg-yellow-600 text-white',
-    4: 'bg-blue-600 text-white',
-    5: 'bg-gray-600 text-white',
-  };
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded font-medium ${colors[priority] || colors[5]}`}>
-      P{priority}
-    </span>
-  );
-}
-
-function TypeBadge({ type }: { type: string }) {
-  const colors: Record<string, string> = {
-    payment: 'bg-green-900/50 text-green-400 border-green-800',
-    negotiate: 'bg-purple-900/50 text-purple-400 border-purple-800',
-    defer: 'bg-gray-800 text-gray-400 border-gray-700',
-    dispute: 'bg-orange-900/50 text-orange-400 border-orange-800',
-    legal: 'bg-red-900/50 text-red-400 border-red-800',
-    warning: 'bg-yellow-900/50 text-yellow-400 border-yellow-800',
-    strategy: 'bg-blue-900/50 text-blue-400 border-blue-800',
-  };
-  return (
-    <span className={`text-xs px-1.5 py-0.5 rounded border ${colors[type] || 'bg-gray-800 text-gray-400 border-gray-700'}`}>
-      {type}
-    </span>
-  );
-}
-
-function actionLabel(type: string | null): string {
-  const labels: Record<string, string> = {
-    pay_now: 'Pay Now',
-    pay_minimum: 'Pay Minimum',
-    negotiate: 'Start Negotiation',
-    defer: 'Defer',
-    execute_action: 'Execute',
-    plan_action: 'Plan',
-    prepare_legal: 'Prepare',
-    review_cashflow: 'Review',
-    execute_browser: 'Automate',
-    send_email: 'Send',
-  };
-  return labels[type || ''] || 'Act';
 }

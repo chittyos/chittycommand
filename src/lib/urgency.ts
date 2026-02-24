@@ -11,18 +11,31 @@ export function computeUrgencyScore(obligation: {
   grace_period_days: number;
 }): number {
   let score = 0;
-  const now = new Date();
-  const due = new Date(obligation.due_date);
-  const daysUntilDue = Math.floor((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24));
 
-  // Time pressure
-  if (daysUntilDue < -30) score += 50;       // severely overdue
-  else if (daysUntilDue < -7) score += 45;   // overdue > 1 week
-  else if (daysUntilDue < 0) score += 40;    // overdue
-  else if (daysUntilDue === 0) score += 35;  // due today
-  else if (daysUntilDue <= 3) score += 30;   // due in 3 days
-  else if (daysUntilDue <= 7) score += 20;   // due in a week
-  else if (daysUntilDue <= 14) score += 10;  // due in 2 weeks
+  // Parse dates as date-only (midnight UTC) to avoid time-of-day drift
+  // Cloudflare Workers run in UTC, so this is consistent across environments
+  const now = new Date();
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()));
+  const due = new Date(obligation.due_date + 'T00:00:00Z');
+
+  // Guard against invalid dates
+  if (isNaN(due.getTime())) {
+    // Can't compute time pressure — fall through to category weight only
+  } else {
+    // Apply grace period: shift effective due date forward
+    const graceDays = Math.max(0, obligation.grace_period_days || 0);
+    const effectiveDueMs = due.getTime() + graceDays * 86400000;
+    const daysUntilDue = Math.floor((effectiveDueMs - today.getTime()) / 86400000);
+
+    // Time pressure
+    if (daysUntilDue < -30) score += 50;       // severely overdue
+    else if (daysUntilDue < -7) score += 45;   // overdue > 1 week
+    else if (daysUntilDue < 0) score += 40;    // overdue
+    else if (daysUntilDue === 0) score += 35;  // due today
+    else if (daysUntilDue <= 3) score += 30;   // due in 3 days
+    else if (daysUntilDue <= 7) score += 20;   // due in a week
+    else if (daysUntilDue <= 14) score += 10;  // due in 2 weeks
+  }
 
   // Consequence severity by category
   const categoryWeights: Record<string, number> = {
@@ -39,17 +52,19 @@ export function computeUrgencyScore(obligation: {
   };
   score += categoryWeights[obligation.category] || 5;
 
-  // Late fee increases urgency
-  if (obligation.late_fee && obligation.late_fee > 50) score += 15;
-  else if (obligation.late_fee && obligation.late_fee > 25) score += 10;
-  else if (obligation.late_fee && obligation.late_fee > 0) score += 5;
+  // Late fee increases urgency (guard against NaN/negative)
+  const lateFee = obligation.late_fee != null && isFinite(obligation.late_fee) ? obligation.late_fee : 0;
+  if (lateFee > 50) score += 15;
+  else if (lateFee > 25) score += 10;
+  else if (lateFee > 0) score += 5;
 
   // Auto-pay reduces urgency (it's handled)
   if (obligation.auto_pay) score -= 25;
 
-  // Already paid or disputed reduces urgency
+  // Status modifiers
   if (obligation.status === 'paid') score -= 50;
   if (obligation.status === 'disputed') score -= 10;
+  if (obligation.status === 'deferred') score -= 15;
 
   return Math.min(100, Math.max(0, score));
 }

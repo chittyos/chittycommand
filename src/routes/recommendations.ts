@@ -1,14 +1,16 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { actOnRecommendationSchema } from '../lib/validators';
+import { actOnRecommendationSchema, recommendationQuerySchema } from '../lib/validators';
 import { runTriage } from '../lib/triage';
 
 export const recommendationRoutes = new Hono<{ Bindings: Env }>();
 
 recommendationRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
-  const status = c.req.query('status') || 'active';
+  const qResult = recommendationQuerySchema.safeParse({ status: c.req.query('status') });
+  if (!qResult.success) return c.json({ error: 'Invalid query params', issues: qResult.error.issues }, 400);
+  const status = qResult.data.status || 'active';
   const recs = await sql`
     SELECT r.*, o.payee as obligation_payee, o.amount_due, o.due_date,
            d.title as dispute_title, d.counterparty

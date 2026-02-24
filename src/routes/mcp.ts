@@ -108,8 +108,8 @@ mcpRoutes.post('/', async (c) => {
       return c.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
 
     case 'tools/call': {
-      const toolName = params?.name;
-      const args = params?.arguments || {};
+      const toolName = params?.name as string;
+      const args = (params?.arguments || {}) as Record<string, unknown>;
       try {
         const sql = getDb(c.env);
         const result = await executeTool(sql, toolName, args);

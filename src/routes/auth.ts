@@ -1,6 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
+import { loginSchema, registerSchema } from '../lib/validators';
 
 /**
  * Auth routes — local auth with KV-stored credentials, falling back to ChittyAuth proxy.
@@ -21,15 +22,10 @@ authRoutes.get('/login', (c) => {
  * Returns: { token: string, user_id: string, scopes: string[] }
  */
 authRoutes.post('/login', async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body || typeof body !== 'object') {
-    return c.json({ error: 'Invalid request body' }, 400);
-  }
-
-  const { email, password } = body as { email?: string; password?: string };
-  if (!email || !password) {
-    return c.json({ error: 'Email and password are required' }, 400);
-  }
+  const raw = await c.req.json().catch(() => null);
+  const parsed = loginSchema.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const { email, password } = parsed.data;
 
   // ── Local auth: check KV-stored credentials ──
   const storedHash = await c.env.COMMAND_KV.get(`auth:user:${email.toLowerCase()}`);
@@ -76,18 +72,10 @@ authRoutes.post('/login', async (c) => {
  * Body: { email: string, password: string }
  */
 authRoutes.post('/register', async (c) => {
-  const body = await c.req.json().catch(() => null);
-  if (!body || typeof body !== 'object') {
-    return c.json({ error: 'Invalid request body' }, 400);
-  }
-
-  const { email, password } = body as { email?: string; password?: string };
-  if (!email || !password) {
-    return c.json({ error: 'Email and password are required' }, 400);
-  }
-  if (password.length < 8) {
-    return c.json({ error: 'Password must be at least 8 characters' }, 400);
-  }
+  const raw = await c.req.json().catch(() => null);
+  const parsed = registerSchema.safeParse(raw);
+  if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
+  const { email, password } = parsed.data;
 
   const key = `auth:user:${email.toLowerCase()}`;
   const existing = await c.env.COMMAND_KV.get(key);

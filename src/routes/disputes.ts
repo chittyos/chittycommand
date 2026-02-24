@@ -2,14 +2,16 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { ledgerClient } from '../lib/integrations';
-import { createDisputeSchema, updateDisputeSchema, createCorrespondenceSchema } from '../lib/validators';
+import { createDisputeSchema, updateDisputeSchema, createCorrespondenceSchema, disputeQuerySchema } from '../lib/validators';
 
 export const disputeRoutes = new Hono<{ Bindings: Env }>();
 
 // List disputes
 disputeRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
-  const status = c.req.query('status') || 'open';
+  const qResult = disputeQuerySchema.safeParse({ status: c.req.query('status') });
+  if (!qResult.success) return c.json({ error: 'Invalid query params', issues: qResult.error.issues }, 400);
+  const status = qResult.data.status || 'open';
   const disputes = await sql`
     SELECT * FROM cc_disputes WHERE status = ${status} ORDER BY priority ASC, created_at DESC
   `;
