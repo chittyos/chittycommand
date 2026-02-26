@@ -545,9 +545,10 @@ export async function syncPortal(env: Env, sql: NeonQueryFunction<false, false>,
     const amount = Number(result.data.amount || result.data.amount_due || 0);
     const dueDate = (result.data.due_date || result.data.dueDate || null) as string | null;
     const payee = (result.data.payee || target) as string;
+    const escapedPayee = payee.replace(/%/g, '\\%').replace(/_/g, '\\_');
 
     const [existing] = await sql`
-      SELECT id FROM cc_obligations WHERE payee ILIKE ${`%${payee}%`} AND status IN ('pending', 'overdue') LIMIT 1
+      SELECT id FROM cc_obligations WHERE payee ILIKE ${`%${escapedPayee}%`} AND status IN ('pending', 'overdue') LIMIT 1
     `;
 
     if (existing) {
@@ -587,7 +588,11 @@ export async function syncEmailParsedBills(env: Env, sql: NeonQueryFunction<fals
     console.error('[email_bills] ChittyRouter /email/urgent call failed — check auth token and router health');
     return 0;
   }
-  if (!result.items || result.items.length === 0) return 0;
+  if (!result.items) {
+    console.warn('[email_bills] ChittyRouter response missing "items" field — possible API schema change');
+    return 0;
+  }
+  if (result.items.length === 0) return 0;
 
   let synced = 0;
 
@@ -616,23 +621,27 @@ export async function syncEmailParsedBills(env: Env, sql: NeonQueryFunction<fals
       LIMIT 1
     `;
 
-    if (existing) {
-      await sql`
-        UPDATE cc_obligations
-        SET amount_due = CASE WHEN ${amount} > 0 THEN ${amount} ELSE amount_due END,
-            due_date = COALESCE(${dueDate}, due_date),
-            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_email_parse}', ${JSON.stringify(item)}::jsonb),
-            updated_at = NOW()
-        WHERE id = ${existing.id}
-      `;
-      synced++;
-    } else if (dueDate && amount > 0) {
-      await sql`
-        INSERT INTO cc_obligations (category, payee, amount_due, due_date, status, metadata)
-        VALUES (${category}, ${payee}, ${amount}, ${dueDate}, 'pending',
-                ${JSON.stringify({ source: 'email_parse', email_data: item })}::jsonb)
-      `;
-      synced++;
+    try {
+      if (existing) {
+        await sql`
+          UPDATE cc_obligations
+          SET amount_due = CASE WHEN ${amount} > 0 THEN ${amount} ELSE amount_due END,
+              due_date = COALESCE(${dueDate}, due_date),
+              metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_email_parse}', ${JSON.stringify(item)}::jsonb),
+              updated_at = NOW()
+          WHERE id = ${existing.id}
+        `;
+        synced++;
+      } else if (dueDate && amount > 0) {
+        await sql`
+          INSERT INTO cc_obligations (category, payee, amount_due, due_date, status, metadata)
+          VALUES (${category}, ${payee}, ${amount}, ${dueDate}, 'pending',
+                  ${JSON.stringify({ source: 'email_parse', email_data: item })}::jsonb)
+        `;
+        synced++;
+      }
+    } catch (dbErr) {
+      console.error(`[email_bills] DB error for payee "${payee}":`, dbErr);
     }
   }
 
