@@ -166,6 +166,57 @@ export const exchangeTokenSchema = z.object({
   public_token: z.string().min(1),
 });
 
+// ── Swipe Queue ─────────────────────────────────────────────
+
+export const queueDecisionSchema = z.object({
+  decision: z.enum(['approved', 'rejected', 'deferred', 'modified']),
+  modified_action: z.string().max(255).optional(),
+  session_id: z.string().uuid().optional(),
+});
+
+// ── Payment Plan ────────────────────────────────────────────
+
+export const paymentPlanGenerateSchema = z.object({
+  strategy: z.enum(['optimal', 'conservative', 'aggressive']),
+  horizon_days: z.number().int().min(7).max(365).optional(),
+  defer_ids: z.array(z.string().uuid()).optional(),
+  pay_early_ids: z.array(z.string().uuid()).optional(),
+  custom_amounts: z.record(z.string().uuid(), z.number().positive()).optional(),
+});
+
+export const paymentPlanSimulateSchema = z.object({
+  strategy: z.enum(['optimal', 'conservative', 'aggressive']),
+  horizon_days: z.number().int().min(7).max(365).optional(),
+  defer_ids: z.array(z.string().uuid()).optional(),
+  pay_early_ids: z.array(z.string().uuid()).optional(),
+  custom_amounts: z.record(z.string().uuid(), z.number().positive()).optional(),
+});
+
+// ── Revenue Sources ─────────────────────────────────────────
+
+export const createRevenueSourceSchema = z.object({
+  source: z.string().min(1).max(100),
+  source_id: z.string().max(255).optional(),
+  description: z.string().min(1).max(500),
+  amount: z.number().positive(),
+  recurrence: z.enum(['monthly', 'weekly', 'one_time', 'irregular']).optional(),
+  recurrence_day: z.number().int().min(1).max(31).optional(),
+  next_expected_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  verified_by: z.string().max(100).optional(),
+  contract_ref: z.string().max(500).optional(),
+  account_id: z.string().uuid().optional(),
+});
+
+export const updateRevenueSourceSchema = z.object({
+  amount: z.number().positive().optional(),
+  recurrence: z.enum(['monthly', 'weekly', 'one_time', 'irregular']).optional(),
+  confidence: z.number().min(0).max(1).optional(),
+  status: z.enum(['active', 'inactive']).optional(),
+  next_expected_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  contract_ref: z.string().max(500).optional(),
+});
+
 // ── Query Param Schemas ──────────────────────────────────────
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');

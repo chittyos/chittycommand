@@ -215,6 +215,71 @@ export const ccCashflowProjections = pgTable('cc_cashflow_projections', {
   dateIdx: index('idx_cc_cashflow_date').on(table.projectionDate),
 }));
 
+// ── Decision Feedback ────────────────────────────────────────
+export const ccDecisionFeedback = pgTable('cc_decision_feedback', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  recommendationId: uuid('recommendation_id').references(() => ccRecommendations.id),
+  obligationId: uuid('obligation_id').references(() => ccObligations.id),
+  decision: text('decision').notNull(),
+  originalAction: text('original_action'),
+  modifiedAction: text('modified_action'),
+  confidenceAtDecision: numeric('confidence_at_decision', { precision: 3, scale: 2 }),
+  outcomeStatus: text('outcome_status'),
+  outcomeRecordedAt: timestamp('outcome_recorded_at', { withTimezone: true }),
+  sessionId: uuid('session_id'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  recIdx: index('idx_cc_decision_feedback_rec').on(table.recommendationId),
+  obIdx: index('idx_cc_decision_feedback_ob').on(table.obligationId),
+  createdIdx: index('idx_cc_decision_feedback_created').on(table.createdAt),
+}));
+
+// ── Revenue Sources ──────────────────────────────────────────
+export const ccRevenueSources = pgTable('cc_revenue_sources', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  source: text('source').notNull(),
+  sourceId: text('source_id'),
+  description: text('description').notNull(),
+  amount: numeric('amount', { precision: 12, scale: 2 }).notNull(),
+  recurrence: text('recurrence'),
+  recurrenceDay: integer('recurrence_day'),
+  nextExpectedDate: date('next_expected_date'),
+  confidence: numeric('confidence', { precision: 3, scale: 2 }).default('0.50'),
+  verifiedBy: text('verified_by'),
+  contractRef: text('contract_ref'),
+  accountId: uuid('account_id').references(() => ccAccounts.id),
+  status: text('status').default('active'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  nextIdx: index('idx_cc_revenue_sources_next').on(table.nextExpectedDate),
+  statusIdx: index('idx_cc_revenue_sources_status').on(table.status),
+}));
+
+// ── Payment Plans ────────────────────────────────────────────
+export const ccPaymentPlans = pgTable('cc_payment_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  planType: text('plan_type').notNull(),
+  horizonDays: integer('horizon_days').default(90),
+  startingBalance: numeric('starting_balance', { precision: 12, scale: 2 }),
+  endingBalance: numeric('ending_balance', { precision: 12, scale: 2 }),
+  lowestBalance: numeric('lowest_balance', { precision: 12, scale: 2 }),
+  lowestBalanceDate: date('lowest_balance_date'),
+  totalInflows: numeric('total_inflows', { precision: 12, scale: 2 }),
+  totalOutflows: numeric('total_outflows', { precision: 12, scale: 2 }),
+  totalLateFeesAvoided: numeric('total_late_fees_avoided', { precision: 12, scale: 2 }).default('0'),
+  totalLateFeesRisked: numeric('total_late_fees_risked', { precision: 12, scale: 2 }).default('0'),
+  schedule: jsonb('schedule').notNull(),
+  warnings: jsonb('warnings').default([]),
+  status: text('status').default('draft'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  statusIdx: index('idx_cc_payment_plans_status').on(table.status),
+}));
+
 // ── Sync Log ──────────────────────────────────────────────────
 export const ccSyncLog = pgTable('cc_sync_log', {
   id: uuid('id').primaryKey().defaultRandom(),

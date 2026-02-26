@@ -4,6 +4,8 @@ import { plaidClient, financeClient, mercuryClient, scrapeClient, routerClient }
 import { runTriage } from './triage';
 import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
+import { discoverRevenueSources } from './revenue';
+import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 
 /**
  * Cron sync orchestrator.
@@ -83,6 +85,23 @@ export async function runCronSync(
         console.log(`[projections] ${projResult.days_projected}d: low=$${projResult.lowest_balance} on ${projResult.lowest_balance_date}`);
       } catch (err) {
         console.error('[projections] failed:', err);
+      }
+
+      // Phase 6: Revenue source discovery refresh
+      try {
+        const revResult = await discoverRevenueSources(sql);
+        console.log(`[revenue] discovered=${revResult.sources_discovered} updated=${revResult.sources_updated} monthly=$${revResult.total_monthly_expected}`);
+      } catch (err) {
+        console.error('[revenue] failed:', err);
+      }
+
+      // Phase 7: Payment plan regeneration
+      try {
+        const plan = await generatePaymentPlan(sql, { strategy: 'optimal' });
+        await savePaymentPlan(sql, plan);
+        console.log(`[planner] ending=$${plan.ending_balance} lowest=$${plan.lowest_balance} fees_risked=$${plan.total_late_fees_risked}`);
+      } catch (err) {
+        console.error('[planner] failed:', err);
       }
     }
 
@@ -271,8 +290,10 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
   if (env.CHITTYCONNECT_URL) {
     for (const org of orgs) {
       try {
+        const connectHeaders: Record<string, string> = { 'X-Source-Service': 'chittycommand' };
+        if (env.CHITTY_CONNECT_TOKEN) connectHeaders['Authorization'] = `Bearer ${env.CHITTY_CONNECT_TOKEN}`;
         const res = await fetch(`${env.CHITTYCONNECT_URL}/api/credentials/${encodeURIComponent(org.opRef)}`, {
-          headers: { 'X-Source-Service': 'chittycommand' },
+          headers: connectHeaders,
           signal: AbortSignal.timeout(5000),
         });
         if (res.ok) {

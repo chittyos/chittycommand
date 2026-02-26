@@ -97,6 +97,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
   });
 
   const top3 = items.sort((a, b) => b.urgency - a.urgency).slice(0, 3);
+  const unreviewedCount = recommendations.length;
 
   if (top3.length === 0) {
     return (
@@ -112,6 +113,15 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
   return (
     <div className="space-y-4 max-w-2xl mx-auto">
       <p className="text-chrome-muted text-sm font-medium uppercase tracking-wider">Needs your attention</p>
+      {unreviewedCount > 3 && (
+        <Card className="flex items-center justify-between gap-4">
+          <div className="flex-1 min-w-0">
+            <p className="font-semibold text-card-text">{unreviewedCount} actions to review</p>
+            <p className="text-card-muted text-sm mt-0.5">AI has recommendations ready for your approval.</p>
+          </div>
+          <ActionButton label="Review Queue" onClick={() => navigate('/queue')} />
+        </Card>
+      )}
       {top3.map((item) => (
         <Card
           key={item.id}

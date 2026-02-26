@@ -148,6 +148,41 @@ export const api = {
   // Sync: matching
   runTransactionMatch: () =>
     request<MatchResult>('/sync/match', { method: 'POST' }),
+
+  // Action Queue
+  getQueue: (limit?: number) =>
+    request<QueueItem[]>(`/queue${limit ? '?limit=' + limit : ''}`),
+  decideQueue: (id: string, decision: 'approved' | 'rejected' | 'deferred', sessionId?: string) =>
+    request<{ decided: string; decision: string; next: { id: string; title: string } | null }>(
+      `/queue/${id}/decide`,
+      { method: 'POST', body: JSON.stringify({ decision, session_id: sessionId }) },
+    ),
+  getQueueStats: (sessionId?: string) =>
+    request<QueueStats>(`/queue/stats${sessionId ? '?session_id=' + sessionId : ''}`),
+  getQueueHistory: (limit?: number) =>
+    request<DecisionHistory[]>(`/queue/history${limit ? '?limit=' + limit : ''}`),
+
+  // Payment Plan
+  getPaymentPlan: () =>
+    request<PaymentPlan | null>('/payment-plan'),
+  generatePaymentPlan: (options: { strategy: string; horizon_days?: number }) =>
+    request<PaymentPlan & { id: string }>('/payment-plan/generate', { method: 'POST', body: JSON.stringify(options) }),
+  simulatePaymentPlan: (options: { strategy: string; defer_ids?: string[]; pay_early_ids?: string[]; custom_amounts?: Record<string, number> }) =>
+    request<PaymentPlan>('/payment-plan/simulate', { method: 'POST', body: JSON.stringify(options) }),
+  getPlanSchedule: (id: string) =>
+    request<PaymentPlan>(`/payment-plan/${id}/schedule`),
+  activatePlan: (id: string) =>
+    request<PaymentPlan>(`/payment-plan/${id}/activate`, { method: 'POST' }),
+
+  // Revenue
+  getRevenueSources: () =>
+    request<{ sources: RevenueSource[]; summary: { count: number; total_monthly: number; weighted_monthly: number } }>('/revenue'),
+  discoverRevenue: () =>
+    request<{ sources_discovered: number; sources_updated: number; total_monthly_expected: number }>('/revenue/discover', { method: 'POST' }),
+  addRevenueSource: (data: Partial<RevenueSource>) =>
+    request<RevenueSource>('/revenue', { method: 'POST', body: JSON.stringify(data) }),
+  updateRevenueSource: (id: string, data: Partial<RevenueSource>) =>
+    request<RevenueSource>(`/revenue/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
 };
 
 // ── Types ─────────────────────────────────────────────────────
@@ -333,4 +368,115 @@ export interface MatchResult {
   matches_found: number;
   obligations_marked_paid: number;
   matches: { transaction_id: string; obligation_id: string; payee: string; amount: number; confidence: number }[];
+}
+
+// ── Queue Types ──────────────────────────────────────────────
+
+export interface QueueItem {
+  id: string;
+  rec_type: string;
+  priority: number;
+  title: string;
+  reasoning: string;
+  action_type: string | null;
+  estimated_savings: string | null;
+  obligation_id: string | null;
+  dispute_id: string | null;
+  confidence: number | null;
+  live_confidence: number;
+  suggested_amount: string | null;
+  suggested_account_id: string | null;
+  escalation_risk: string | null;
+  scenario_impact: unknown;
+  obligation_payee: string | null;
+  obligation_amount: string | null;
+  obligation_due_date: string | null;
+  obligation_category: string | null;
+  obligation_status: string | null;
+  obligation_late_fee: string | null;
+  obligation_grace_days: number | null;
+  obligation_auto_pay: boolean | null;
+  dispute_title: string | null;
+  dispute_counterparty: string | null;
+  dispute_amount: string | null;
+}
+
+export interface QueueStats {
+  approved: number;
+  rejected: number;
+  deferred: number;
+  modified: number;
+  total: number;
+  savings: number;
+}
+
+export interface DecisionHistory {
+  id: string;
+  decision: string;
+  original_action: string | null;
+  modified_action: string | null;
+  outcome_status: string | null;
+  created_at: string;
+  title: string | null;
+  rec_type: string | null;
+  estimated_savings: string | null;
+  obligation_payee: string | null;
+}
+
+// ── Payment Plan Types ──────────────────────────────────────
+
+export interface ScheduleEntry {
+  date: string;
+  obligation_id: string;
+  payee: string;
+  amount: number;
+  account_id: string | null;
+  action: string;
+  balance_after: number;
+  grace_used: boolean;
+  escalation_risk: string | null;
+}
+
+export interface PlanWarning {
+  date: string;
+  message: string;
+  severity: 'info' | 'warning' | 'critical';
+}
+
+export interface PaymentPlan {
+  plan_type: string;
+  horizon_days: number;
+  starting_balance: number;
+  ending_balance: number;
+  lowest_balance: number;
+  lowest_balance_date: string;
+  total_inflows: number;
+  total_outflows: number;
+  total_late_fees_avoided: number;
+  total_late_fees_risked: number;
+  schedule: ScheduleEntry[] | string;
+  warnings: PlanWarning[] | string;
+  revenue_summary?: { source: string; monthly: number; confidence: number }[];
+  status?: string;
+  created_at?: string;
+}
+
+// ── Revenue Types ───────────────────────────────────────────
+
+export interface RevenueSource {
+  id: string;
+  source: string;
+  source_id: string | null;
+  description: string;
+  amount: string;
+  recurrence: string | null;
+  recurrence_day: number | null;
+  next_expected_date: string | null;
+  confidence: string;
+  verified_by: string | null;
+  contract_ref: string | null;
+  account_id: string | null;
+  status: string;
+  account_name?: string;
+  institution?: string;
 }

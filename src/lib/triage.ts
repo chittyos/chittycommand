@@ -1,6 +1,7 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { typedRows } from './db';
 import { computeUrgencyScore, urgencyLevel } from './urgency';
+import { computeConfidence } from './learning';
 
 /**
  * AI Triage Engine for ChittyCommand.
@@ -35,6 +36,10 @@ interface Obligation {
   urgency_score: number | null;
   action_type: string | null;
   recurrence: string | null;
+  escalation_type: string | null;
+  escalation_threshold_days: number | null;
+  credit_impact_score: number | null;
+  preferred_account_id: string | null;
 }
 
 interface Dispute {
@@ -143,6 +148,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
     reasoning: string;
     action_type: string;
     estimated_savings: number | null;
+    suggested_amount: number | null;
+    escalation_risk: string | null;
   }[] = [];
 
   // Sort obligations by score descending
@@ -169,6 +176,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
           : `${ob.payee} is due today. ${ob.category === 'mortgage' ? 'Missing mortgage payments damages credit score.' : 'Avoid late fees by paying now.'}`,
         action_type: ob.action_type || 'pay_now',
         estimated_savings: ob.late_fee ? parseFloat(ob.late_fee) : null,
+        suggested_amount: amount,
+        escalation_risk: ob.escalation_type,
       });
     }
 
@@ -182,7 +191,9 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
         title: `Negotiate ${ob.payee} — potential savings`,
         reasoning: `${ob.payee} is marked negotiable with $${amount} due. Call to request a lower rate, waived fees, or payment plan.`,
         action_type: 'negotiate',
-        estimated_savings: amount * 0.15, // estimate 15% savings from negotiation
+        estimated_savings: amount * 0.15,
+        suggested_amount: amount,
+        escalation_risk: ob.escalation_type,
       });
     }
 
@@ -197,6 +208,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
         reasoning: `Cash surplus is -$${Math.abs(surplus).toFixed(0)}. ${ob.payee} ($${amount}) due in ${daysUntil} days is lower priority. Consider deferring to protect critical payments.`,
         action_type: 'defer',
         estimated_savings: null,
+        suggested_amount: null,
+        escalation_risk: ob.escalation_type,
       });
     }
 
@@ -213,6 +226,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
           reasoning: `Cash is limited. Pay minimum $${minAmt} instead of full $${amount} on ${ob.payee} to preserve cash for higher-priority obligations.`,
           action_type: 'pay_minimum',
           estimated_savings: amount - minAmt,
+          suggested_amount: minAmt,
+          escalation_risk: ob.escalation_type,
         });
       }
     }
@@ -230,6 +245,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
         reasoning: `Active dispute with ${d.counterparty}${d.amount_at_stake ? ` ($${parseFloat(d.amount_at_stake).toLocaleString()} at stake)` : ''}. Next step: ${d.next_action}.`,
         action_type: d.next_action_date && new Date(d.next_action_date) < in30d ? 'execute_action' : 'plan_action',
         estimated_savings: d.amount_at_stake ? parseFloat(d.amount_at_stake) : null,
+        suggested_amount: null,
+        escalation_risk: null,
       });
     }
   }
@@ -249,6 +266,8 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
         reasoning: `${dl.case_ref} — ${dl.title} in ${daysUntil} days (${dlDate.toLocaleDateString()}). Ensure documents are filed and preparation is complete.`,
         action_type: 'prepare_legal',
         estimated_savings: null,
+        suggested_amount: null,
+        escalation_risk: null,
       });
     }
   }
@@ -264,10 +283,12 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
       reasoning: `Available cash ($${totalCash.toFixed(0)}) doesn't cover 30-day obligations ($${totalDue30d.toFixed(0)}). Review deferrals, negotiate payment plans, or accelerate receivables.`,
       action_type: 'review_cashflow',
       estimated_savings: null,
+      suggested_amount: null,
+      escalation_risk: null,
     });
   }
 
-  // ── 6. Write recommendations (dedup by title) ───────────
+  // ── 6. Write recommendations with confidence enrichment ──
   let created = 0;
   for (const rec of recs) {
     // Skip if an active recommendation with the same title already exists
@@ -276,9 +297,12 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
     `;
     if (existing) continue;
 
+    // Compute confidence from learning engine
+    const confidence = await computeConfidence(sql, rec.rec_type, rec.obligation_id ? obligations.find(o => o.id === rec.obligation_id)?.payee : undefined);
+
     await sql`
-      INSERT INTO cc_recommendations (obligation_id, dispute_id, rec_type, priority, title, reasoning, action_type, estimated_savings, model_version)
-      VALUES (${rec.obligation_id}, ${rec.dispute_id}, ${rec.rec_type}, ${rec.priority}, ${rec.title}, ${rec.reasoning}, ${rec.action_type}, ${rec.estimated_savings}, 'triage-v1')
+      INSERT INTO cc_recommendations (obligation_id, dispute_id, rec_type, priority, title, reasoning, action_type, estimated_savings, model_version, confidence, suggested_amount, escalation_risk)
+      VALUES (${rec.obligation_id}, ${rec.dispute_id}, ${rec.rec_type}, ${rec.priority}, ${rec.title}, ${rec.reasoning}, ${rec.action_type}, ${rec.estimated_savings}, 'triage-v2', ${confidence}, ${rec.suggested_amount}, ${rec.escalation_risk})
     `;
     created++;
   }

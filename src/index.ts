@@ -16,6 +16,9 @@ import { cashflowRoutes } from './routes/cashflow';
 import { bridgeRoutes } from './routes/bridge';
 import { mcpRoutes } from './routes/mcp';
 import { authRoutes } from './routes/auth';
+import { swipeQueueRoutes } from './routes/swipe-queue';
+import { paymentPlanRoutes } from './routes/payment-plan';
+import { revenueRoutes } from './routes/revenue';
 
 export type Env = {
   HYPERDRIVE: Hyperdrive;
@@ -32,6 +35,7 @@ export type Env = {
   CHITTYASSETS_URL?: string;
   CHITTYSCRAPE_URL?: string;
   CHITTYROUTER_URL?: string;
+  CHITTY_CONNECT_TOKEN?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
   PLAID_ENV?: string;
@@ -94,6 +98,9 @@ app.route('/api/documents', documentRoutes);
 app.route('/api/recommendations', recommendationRoutes);
 app.route('/api/sync', syncRoutes);
 app.route('/api/cashflow', cashflowRoutes);
+app.route('/api/queue', swipeQueueRoutes);
+app.route('/api/payment-plan', paymentPlanRoutes);
+app.route('/api/revenue', revenueRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
