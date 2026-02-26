@@ -513,14 +513,23 @@ export function routerClient(env: Env) {
   const baseUrl = env.CHITTYROUTER_URL;
   if (!baseUrl) return null;
 
+  // Build auth headers — use scrape service token for router auth
+  async function authHeaders(): Promise<Record<string, string>> {
+    const headers: Record<string, string> = {
+      'X-Source-Service': 'chittycommand',
+    };
+    const token = await env.COMMAND_KV.get('scrape:service_token');
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    return headers;
+  }
+
   async function post<T>(path: string, body: unknown): Promise<T | null> {
     try {
+      const headers = await authHeaders();
+      headers['Content-Type'] = 'application/json';
       const res = await fetch(`${baseUrl}${path}`, {
         method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'X-Source-Service': 'chittycommand',
-        },
+        headers,
         body: JSON.stringify(body),
         signal: AbortSignal.timeout(60000),
       });
@@ -537,8 +546,9 @@ export function routerClient(env: Env) {
 
   async function get<T>(path: string): Promise<T | null> {
     try {
+      const headers = await authHeaders();
       const res = await fetch(`${baseUrl}${path}`, {
-        headers: { 'X-Source-Service': 'chittycommand' },
+        headers,
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) return null;
