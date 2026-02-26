@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback } from 'react';
-import { api, type SyncStatus, type ServiceStatus } from '../lib/api';
+import { api, type SyncStatus, type ServiceStatus, type EmailConnection } from '../lib/api';
 import { formatDate } from '../lib/utils';
 import { PlaidLink } from '../components/PlaidLink';
 import { Card } from '../components/ui/Card';
@@ -12,10 +12,18 @@ export function Settings() {
   const [bridgeSyncing, setBridgeSyncing] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [plaidMessage, setPlaidMessage] = useState<string | null>(null);
+  const [emailConnections, setEmailConnections] = useState<EmailConnection[]>([]);
+  const [emailNamespace, setEmailNamespace] = useState<string | null>(null);
+  const [namespaceClaim, setNamespaceClaim] = useState('');
+  const [emailLoading, setEmailLoading] = useState(false);
 
   useEffect(() => {
     api.getSyncStatus().then(setSyncStatuses).catch((e) => setError(e.message));
     api.getBridgeStatus().then((r) => setServiceStatuses(r.services)).catch((e) => console.error('[Settings] bridge status failed:', e));
+    api.getEmailConnections().then((r) => {
+      setEmailConnections(r.connections);
+      setEmailNamespace(r.namespace);
+    }).catch((e) => console.error('[Settings] email connections failed:', e));
   }, []);
 
   const handlePlaidSuccess = useCallback((itemId: string, count: number) => {
@@ -45,6 +53,54 @@ export function Settings() {
       setError(e instanceof Error ? e.message : 'Sync failed');
     } finally {
       setTriggering(null);
+    }
+  };
+
+  const claimEmailNamespace = async () => {
+    if (!namespaceClaim.trim()) return;
+    setEmailLoading(true);
+    try {
+      const result = await api.claimNamespace(namespaceClaim.trim().toLowerCase());
+      setEmailNamespace(result.namespace);
+      setNamespaceClaim('');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Failed to claim namespace');
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const connectGmail = async () => {
+    setEmailLoading(true);
+    try {
+      const result = await api.initiateGmailOAuth();
+      window.open(result.auth_url, '_blank', 'width=600,height=700');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Gmail OAuth failed');
+    } finally {
+      setEmailLoading(false);
+    }
+  };
+
+  const disconnectEmail = async (id: string) => {
+    try {
+      await api.disconnectEmail(id);
+      setEmailConnections((prev) => prev.map((c) =>
+        c.id === id ? { ...c, status: 'disconnected' } : c
+      ));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Disconnect failed');
+    }
+  };
+
+  const syncEmail = async (id: string) => {
+    try {
+      await api.syncEmailConnection(id);
+      setEmailConnections((prev) => prev.map((c) =>
+        c.id === id ? { ...c, last_synced_at: new Date().toISOString() } : c
+      ));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Sync failed');
     }
   };
 
@@ -194,22 +250,117 @@ export function Settings() {
         </div>
       </Card>
 
-      {/* Email Forwarding */}
+      {/* Email Accounts */}
       <Card>
-        <h2 className="text-card-text font-semibold mb-3">Email Forwarding</h2>
-        <p className="text-card-muted text-sm mb-3">
-          Forward bills and statements to the address below. ChittyCommand will parse them automatically.
+        <h2 className="text-card-text font-semibold mb-3">Email Accounts</h2>
+        <p className="text-card-muted text-sm mb-4">
+          Connect email accounts to automatically parse bills and statements.
         </p>
-        <div className="flex items-center gap-3 bg-card-hover rounded-lg p-3 border border-card-border">
-          <code className="text-chitty-600 text-sm font-mono flex-1">bills@command.chitty.cc</code>
-          <button
-            onClick={() => navigator.clipboard.writeText('bills@command.chitty.cc')}
-            className="px-3 py-1 text-xs bg-card-border text-card-text rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Copy
-          </button>
+
+        {/* Namespace claim or display */}
+        <div className="mb-4">
+          <h3 className="text-card-text text-sm font-medium mb-2">Forwarding Address</h3>
+          {emailNamespace ? (
+            <div className="flex items-center gap-3 bg-card-hover rounded-lg p-3 border border-card-border">
+              <code className="text-chitty-600 text-sm font-mono flex-1">{emailNamespace}</code>
+              <button
+                onClick={() => navigator.clipboard.writeText(emailNamespace)}
+                className="px-3 py-1 text-xs bg-card-border text-card-text rounded-lg hover:bg-gray-200 transition-colors"
+              >
+                Copy
+              </button>
+            </div>
+          ) : (
+            <div className="flex items-center gap-2">
+              <input
+                type="text"
+                placeholder="your-name"
+                value={namespaceClaim}
+                onChange={(e) => setNamespaceClaim(e.target.value)}
+                className="flex-1 px-3 py-2 text-sm border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
+              />
+              <span className="text-card-muted text-sm">@chitty.cc</span>
+              <ActionButton
+                label={emailLoading ? 'Claiming...' : 'Claim'}
+                onClick={claimEmailNamespace}
+                loading={emailLoading}
+                className="px-4 py-2 text-sm"
+              />
+            </div>
+          )}
+          <p className="text-card-muted text-xs mt-2">
+            Forward bills to this address for automatic parsing via ChittyRouter.
+          </p>
         </div>
-        <p className="text-card-muted text-xs mt-2">Phase 2: Cloudflare Email Workers integration</p>
+
+        {/* Connect Gmail */}
+        <div className="mb-4">
+          <h3 className="text-card-text text-sm font-medium mb-2">Connect Gmail</h3>
+          <ActionButton
+            label={emailLoading ? 'Connecting...' : 'Connect Gmail Account'}
+            onClick={connectGmail}
+            loading={emailLoading}
+            className="px-4 py-2 text-sm"
+          />
+          <p className="text-card-muted text-xs mt-2">
+            Read-only access to scan for bills. Supports multiple accounts.
+          </p>
+        </div>
+
+        {/* Connected accounts list */}
+        {emailConnections.length > 0 && (
+          <div>
+            <h3 className="text-card-text text-sm font-medium mb-2">Connected Accounts</h3>
+            <div className="space-y-2">
+              {emailConnections.map((conn) => (
+                <div key={conn.id} className="flex items-center justify-between p-3 rounded-lg bg-card-hover border border-card-border">
+                  <div className="flex items-center gap-3">
+                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 capitalize">
+                      {conn.provider}
+                    </span>
+                    <div>
+                      <p className="text-card-text text-sm font-medium">
+                        {conn.display_name || conn.email_address}
+                      </p>
+                      {conn.display_name && (
+                        <p className="text-card-muted text-xs">{conn.email_address}</p>
+                      )}
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <span className={`text-xs px-2 py-0.5 rounded-full ${
+                      conn.status === 'active' ? 'bg-green-100 text-green-700' :
+                      conn.status === 'error' ? 'bg-red-100 text-red-700' :
+                      conn.status === 'disconnected' ? 'bg-gray-100 text-gray-500' :
+                      'bg-amber-100 text-amber-700'
+                    }`}>
+                      {conn.status}
+                    </span>
+                    {conn.last_synced_at && (
+                      <span className="text-card-muted text-xs">{formatDate(conn.last_synced_at)}</span>
+                    )}
+                    {conn.status === 'active' && conn.provider === 'gmail' && (
+                      <button
+                        onClick={() => syncEmail(conn.id)}
+                        className="px-2 py-1 text-xs bg-card-border text-card-text rounded hover:bg-gray-200 transition-colors"
+                      >
+                        Sync
+                      </button>
+                    )}
+                    {conn.status !== 'disconnected' && (
+                      <button
+                        onClick={() => disconnectEmail(conn.id)}
+                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
+                      >
+                        Disconnect
+                      </button>
+                    )}
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
       </Card>
     </div>
   );
