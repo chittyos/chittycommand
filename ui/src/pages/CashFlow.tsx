@@ -4,6 +4,7 @@ import { Card } from '../components/ui/Card';
 import { MetricCard } from '../components/ui/MetricCard';
 import { ActionButton } from '../components/ui/ActionButton';
 import { PaymentPlanView } from '../components/planner/PaymentPlanView';
+import { ScenarioOverride } from '../components/planner/ScenarioOverride';
 import { StrategySelector } from '../components/planner/StrategySelector';
 import { RevenueSources } from '../components/planner/RevenueSources';
 import { formatCurrency, formatDate, cn } from '../lib/utils';
@@ -125,6 +126,23 @@ export function CashFlow() {
     }
   };
 
+  const handleScenarioSimulate = async (overrides: {
+    defer_ids?: string[];
+    pay_early_ids?: string[];
+    custom_amounts?: Record<string, number>;
+  }) => {
+    try {
+      const result = await api.simulatePaymentPlan({ strategy: planStrategy, ...overrides });
+      setPlan(result);
+      // Sync planDeferIds with scenario overrides
+      if (overrides.defer_ids) {
+        setPlanDeferIds(overrides.defer_ids);
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Simulation failed');
+    }
+  };
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
@@ -168,7 +186,10 @@ export function CashFlow() {
         <div className="space-y-4">
           <StrategySelector value={planStrategy} onChange={setPlanStrategy} disabled={planLoading} />
           {plan ? (
-            <PaymentPlanView plan={plan} onDeferItem={handleDeferInPlan} />
+            <>
+              <PaymentPlanView plan={plan} onDeferItem={handleDeferInPlan} />
+              <ScenarioOverride plan={plan} strategy={planStrategy} onSimulate={handleScenarioSimulate} />
+            </>
           ) : (
             <Card className="text-center py-8">
               <p className="text-card-muted">Select a strategy and click "Generate Plan" to create a payment schedule.</p>
