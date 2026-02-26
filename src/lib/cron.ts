@@ -87,7 +87,16 @@ export async function runCronSync(
         console.error('[projections] failed:', err);
       }
 
-      // Phase 6: Revenue source discovery refresh
+      // Phase 6: Email-parsed bill ingestion from ChittyRouter
+      try {
+        const emailSynced = await syncEmailParsedBills(env, sql);
+        if (emailSynced > 0) console.log(`[cron:email_bills] synced ${emailSynced} bills`);
+        recordsSynced += emailSynced;
+      } catch (err) {
+        console.error('[cron:email_bills] failed:', err);
+      }
+
+      // Phase 7: Revenue source discovery refresh
       try {
         const revResult = await discoverRevenueSources(sql);
         console.log(`[revenue] discovered=${revResult.sources_discovered} updated=${revResult.sources_updated} monthly=$${revResult.total_monthly_expected}`);
@@ -95,13 +104,32 @@ export async function runCronSync(
         console.error('[revenue] failed:', err);
       }
 
-      // Phase 7: Payment plan regeneration
+      // Phase 8: Payment plan regeneration
       try {
         const plan = await generatePaymentPlan(sql, { strategy: 'optimal' });
         await savePaymentPlan(sql, plan);
         console.log(`[planner] ending=$${plan.ending_balance} lowest=$${plan.lowest_balance} fees_risked=$${plan.total_late_fees_risked}`);
       } catch (err) {
         console.error('[planner] failed:', err);
+      }
+    }
+
+    if (source === 'utility_scrape') {
+      // Weekly utility portal scrapes via ChittyRouter
+      const utilityTargets = ['comed', 'peoples_gas', 'xfinity'];
+      for (const target of utilityTargets) {
+        try {
+          recordsSynced += await syncPortal(env, sql, target);
+        } catch (err) {
+          console.error(`[cron:utility:${target}] failed:`, err);
+        }
+      }
+
+      // Also pull email-parsed bills (also called in daily_api — upsert prevents duplicates)
+      try {
+        recordsSynced += await syncEmailParsedBills(env, sql);
+      } catch (err) {
+        console.error('[cron:email_bills] failed:', err);
       }
     }
 
@@ -131,7 +159,7 @@ export async function runCronSync(
       await sql`
         UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)}, completed_at = NOW()
         WHERE id = ${logId}
-      `.catch(() => {});
+      `.catch((dbErr) => console.error('[cron] Failed to update sync_log with error status:', dbErr));
     }
   }
 }
@@ -540,5 +568,74 @@ export async function syncPortal(env: Env, sql: NeonQueryFunction<false, false>,
     synced++;
   }
 
+  return synced;
+}
+
+/**
+ * Pull email-parsed bills from ChittyRouter and upsert into obligations.
+ * ChittyRouter parses inbound bill emails and returns structured data via /email/urgent.
+ */
+export async function syncEmailParsedBills(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const router = routerClient(env);
+  if (!router) {
+    console.warn('[email_bills] ChittyRouter not configured — skipping');
+    return 0;
+  }
+
+  const result = await router.getUrgentItems();
+  if (result === null) {
+    console.error('[email_bills] ChittyRouter /email/urgent call failed — check auth token and router health');
+    return 0;
+  }
+  if (!result.items || result.items.length === 0) return 0;
+
+  let synced = 0;
+
+  for (const item of result.items) {
+    const payee = (item.payee || item.sender || item.from) as string | undefined;
+    if (!payee) continue;
+
+    const rawAmount = item.amount || item.amount_due || 0;
+    const amount = Number(rawAmount);
+    if (isNaN(amount)) {
+      console.warn(`[email_bills] Skipping item with unparseable amount: ${JSON.stringify(rawAmount)} for payee: ${payee}`);
+      continue;
+    }
+    const dueDate = (item.due_date || item.dueDate || null) as string | null;
+    const category = (item.category || 'utility') as string;
+
+    if (amount <= 0 && !dueDate) continue;
+
+    // Escape LIKE wildcards in payee to prevent overly broad matches
+    const escapedPayee = payee.replace(/%/g, '\\%').replace(/_/g, '\\_');
+
+    const [existing] = await sql`
+      SELECT id FROM cc_obligations
+      WHERE payee ILIKE ${`%${escapedPayee}%`}
+        AND status IN ('pending', 'overdue')
+      LIMIT 1
+    `;
+
+    if (existing) {
+      await sql`
+        UPDATE cc_obligations
+        SET amount_due = CASE WHEN ${amount} > 0 THEN ${amount} ELSE amount_due END,
+            due_date = COALESCE(${dueDate}, due_date),
+            metadata = jsonb_set(COALESCE(metadata, '{}'::jsonb), '{last_email_parse}', ${JSON.stringify(item)}::jsonb),
+            updated_at = NOW()
+        WHERE id = ${existing.id}
+      `;
+      synced++;
+    } else if (dueDate && amount > 0) {
+      await sql`
+        INSERT INTO cc_obligations (category, payee, amount_due, due_date, status, metadata)
+        VALUES (${category}, ${payee}, ${amount}, ${dueDate}, 'pending',
+                ${JSON.stringify({ source: 'email_parse', email_data: item })}::jsonb)
+      `;
+      synced++;
+    }
+  }
+
+  console.log(`[email_bills] ingested ${synced} items from ChittyRouter`);
   return synced;
 }

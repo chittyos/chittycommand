@@ -8,6 +8,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
  *
  * Confidence = blend of base confidence and observed acceptance rate.
  * Requires 5+ decisions for a type before influencing confidence.
+ * Payee-specific refinement kicks in at 3+ decisions for that payee.
  */
 
 const BASE_CONFIDENCE: Record<string, number> = {

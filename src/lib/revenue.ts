@@ -10,7 +10,6 @@ import { typedRows } from './db';
  * Sources discovered from:
  *   - Mercury checking/savings inflows (payroll, client payments)
  *   - Stripe payouts (revenue)
- *   - Rental income (DoorLoop/manual)
  *   - Any recurring inflow pattern from cc_transactions
  */
 
@@ -141,7 +140,7 @@ export async function discoverRevenueSources(
       discovered++;
     }
 
-    totalMonthly += typeof p.avg_amount === 'string' ? parseFloat(p.avg_amount) : p.avg_amount;
+    totalMonthly += p.avg_amount;
   }
 
   return {

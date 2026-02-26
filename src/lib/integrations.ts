@@ -519,7 +519,11 @@ export function routerClient(env: Env) {
       'X-Source-Service': 'chittycommand',
     };
     const token = await env.COMMAND_KV.get('scrape:service_token');
-    if (token) headers['Authorization'] = `Bearer ${token}`;
+    if (token) {
+      headers['Authorization'] = `Bearer ${token}`;
+    } else {
+      console.warn('[router] No scrape:service_token in KV — requests will be unauthenticated');
+    }
     return headers;
   }
 
@@ -551,7 +555,10 @@ export function routerClient(env: Env) {
         headers,
         signal: AbortSignal.timeout(10000),
       });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.error(`[router] GET ${path} failed: ${res.status}`);
+        return null;
+      }
       return await res.json() as T;
     } catch (err) {
       console.error(`[router] ${path} error:`, err);
