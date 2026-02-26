@@ -120,7 +120,7 @@ This charter is part of a synchronized documentation triad. Changes to shared fi
 | Tier | CHARTER.md (Classification) | CHITTY.md (blockquote) |
 | Domain | CHARTER.md (Classification) | CHITTY.md (blockquote), CLAUDE.md (header) |
 | Endpoints | CHARTER.md (API Contract) | CHITTY.md (Endpoints table), CLAUDE.md (API section) |
-| Dependencies | CHARTER.md (Dependencies) | CHITTY.md (Dependencies table), CLAUDE.md (Architecture) |
+| Dependencies | CHARTER.md (Dependencies) | CLAUDE.md (Architecture) |
 | Certification badge | CHITTY.md (Certification) | CHARTER.md frontmatter `status` |
 
 **Related docs**: [CHITTY.md](CHITTY.md) (badge/one-pager) | [CLAUDE.md](CLAUDE.md) (developer guide)

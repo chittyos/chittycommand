@@ -68,14 +68,8 @@ Source: `chittycanon://gov/governance#three-aspects`
 - **Lineage**: root (life management)
 
 ### Dependencies
-| Service | Purpose |
-|---------|---------|
-| ChittyAuth | User authentication, token validation |
-| ChittyFinance | Financial data aggregation |
-| ChittyScrape | Browser-based scraping for portals without APIs |
-| ChittyLedger | Evidence and document ledger sync |
-| ChittyConnect | Inter-service connectivity |
-| Neon PostgreSQL | Primary data store (via Hyperdrive) |
+
+See [CHARTER.md](CHARTER.md) (Dependencies section) — canonical source for the full dependency graph.
 
 ### Endpoints
 | Path | Method | Auth | Purpose |
@@ -101,7 +95,7 @@ This badge is part of a synchronized documentation triad. Changes to shared fiel
 | Tier | CHARTER.md (Classification) | CHITTY.md (blockquote) |
 | Domain | CHARTER.md (Classification) | CHITTY.md (blockquote), CLAUDE.md (header) |
 | Endpoints | CHARTER.md (API Contract) | CHITTY.md (Endpoints table), CLAUDE.md (API section) |
-| Dependencies | CHARTER.md (Dependencies) | CHITTY.md (Dependencies table), CLAUDE.md (Architecture) |
+| Dependencies | CHARTER.md (Dependencies) | CLAUDE.md (Architecture) |
 | Certification badge | CHITTY.md (Certification) | CHARTER.md frontmatter `status` |
 
 **Related docs**: [CHARTER.md](CHARTER.md) (charter/policy) | [CLAUDE.md](CLAUDE.md) (developer guide)
