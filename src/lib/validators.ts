@@ -217,6 +217,27 @@ export const updateRevenueSourceSchema = z.object({
   contract_ref: z.string().max(500).optional(),
 });
 
+// ── Email Connections ──────────────────────────────────────
+
+export const createEmailConnectionSchema = z.object({
+  provider: z.enum(['gmail', 'outlook', 'forwarding']),
+  email_address: z.string().email(),
+  display_name: z.string().max(100).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const updateEmailConnectionSchema = z.object({
+  display_name: z.string().max(100).optional(),
+  status: z.enum(['active', 'disconnected']).optional(),
+  config: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const claimNamespaceSchema = z.object({
+  namespace: z.string()
+    .min(2).max(30)
+    .regex(/^[a-z][a-z0-9._-]*$/, 'Must start with a letter; only lowercase letters, numbers, dots, hyphens, underscores'),
+});
+
 // ── Query Param Schemas ──────────────────────────────────────
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
