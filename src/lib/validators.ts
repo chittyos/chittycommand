@@ -238,6 +238,19 @@ export const claimNamespaceSchema = z.object({
     .regex(/^[a-z][a-z0-9._-]*$/, 'Must start with a letter; only lowercase letters, numbers, dots, hyphens, underscores'),
 });
 
+// ── Chat ────────────────────────────────────────────────────
+
+export const chatRequestSchema = z.object({
+  messages: z.array(z.object({
+    role: z.enum(['user', 'assistant']),
+    content: z.string().min(1).max(10000),
+  })).min(1).max(50),
+  context: z.object({
+    page: z.string().max(100).optional(),
+    item_id: z.string().uuid().optional(),
+  }).optional(),
+});
+
 // ── Query Param Schemas ──────────────────────────────────────
 
 const dateString = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD');
