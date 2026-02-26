@@ -48,7 +48,7 @@ export async function discoverRevenueSources(
       FROM cc_transactions t
       JOIN cc_accounts a ON t.account_id = a.id
       WHERE t.direction = 'inflow'
-        AND t.tx_date >= (CURRENT_DATE - INTERVAL '6 months')::text
+        AND t.tx_date::date >= CURRENT_DATE - INTERVAL '6 months'
         AND t.counterparty IS NOT NULL
         AND t.counterparty != ''
       GROUP BY t.counterparty, t.account_id, a.source, DATE_TRUNC('month', t.tx_date::date)
@@ -59,7 +59,7 @@ export async function discoverRevenueSources(
       source,
       ROUND(AVG(monthly_total)::numeric, 2) AS avg_amount,
       COUNT(DISTINCT month)::int AS occurrence_count,
-      EXTRACT(MONTH FROM AGE(MAX(month), MIN(month)))::int + 1 AS months_span,
+      COALESCE(EXTRACT(MONTH FROM AGE(MAX(month), MIN(month)))::int, 0) + 1 AS months_span,
       ROUND(MIN(monthly_total)::numeric, 2) AS min_amount,
       ROUND(MAX(monthly_total)::numeric, 2) AS max_amount,
       MAX(month)::text AS last_date
@@ -73,7 +73,17 @@ export async function discoverRevenueSources(
   let updated = 0;
   let totalMonthly = 0;
 
-  for (const p of patterns) {
+  for (const raw of patterns) {
+    // Parse numeric fields (Neon returns strings for numeric/rounded columns)
+    const p = {
+      ...raw,
+      avg_amount: typeof raw.avg_amount === 'string' ? parseFloat(raw.avg_amount) : raw.avg_amount,
+      min_amount: typeof raw.min_amount === 'string' ? parseFloat(raw.min_amount) : raw.min_amount,
+      max_amount: typeof raw.max_amount === 'string' ? parseFloat(raw.max_amount) : raw.max_amount,
+      occurrence_count: typeof raw.occurrence_count === 'string' ? parseInt(raw.occurrence_count, 10) : raw.occurrence_count,
+      months_span: typeof raw.months_span === 'string' ? parseInt(raw.months_span, 10) : raw.months_span,
+    };
+
     // Compute confidence from consistency
     // 3+ months of regular deposits at similar amounts = high confidence
     const amountVariance = p.max_amount > 0 ? (p.max_amount - p.min_amount) / p.max_amount : 0;
@@ -131,7 +141,7 @@ export async function discoverRevenueSources(
       discovered++;
     }
 
-    totalMonthly += p.avg_amount;
+    totalMonthly += typeof p.avg_amount === 'string' ? parseFloat(p.avg_amount) : p.avg_amount;
   }
 
   return {

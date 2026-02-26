@@ -42,8 +42,13 @@ revenueRoutes.get('/', async (c) => {
 // POST /api/revenue/discover — discover revenue sources from transaction history
 revenueRoutes.post('/discover', async (c) => {
   const sql = getDb(c.env);
-  const result = await discoverRevenueSources(sql);
-  return c.json(result);
+  try {
+    const result = await discoverRevenueSources(sql);
+    return c.json(result);
+  } catch (e: unknown) {
+    console.error('[revenue:discover] failed:', e);
+    return c.json({ error: e instanceof Error ? e.message : 'Discovery failed' }, 500);
+  }
 });
 
 // POST /api/revenue — manually add a revenue source

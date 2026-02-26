@@ -106,22 +106,32 @@ export async function getDecisionStats(
   sql: NeonQueryFunction<false, false>,
   sessionId?: string,
 ): Promise<{ approved: number; rejected: number; deferred: number; modified: number; total: number; savings: number }> {
-  const whereClause = sessionId
-    ? sql`WHERE df.session_id = ${sessionId}::uuid`
-    : sql`WHERE df.created_at > NOW() - INTERVAL '24 hours'`;
-
-  const [stats] = await sql`
-    SELECT
-      COUNT(*) FILTER (WHERE df.decision = 'approved')::int AS approved,
-      COUNT(*) FILTER (WHERE df.decision = 'rejected')::int AS rejected,
-      COUNT(*) FILTER (WHERE df.decision = 'deferred')::int AS deferred,
-      COUNT(*) FILTER (WHERE df.decision = 'modified')::int AS modified,
-      COUNT(*)::int AS total,
-      COALESCE(SUM(r.estimated_savings) FILTER (WHERE df.decision = 'approved'), 0)::numeric AS savings
-    FROM cc_decision_feedback df
-    LEFT JOIN cc_recommendations r ON df.recommendation_id = r.id
-    ${whereClause}
-  `;
+  // Use separate queries since Neon tagged templates don't support dynamic WHERE fragments
+  const [stats] = sessionId
+    ? await sql`
+        SELECT
+          COUNT(*) FILTER (WHERE df.decision = 'approved')::int AS approved,
+          COUNT(*) FILTER (WHERE df.decision = 'rejected')::int AS rejected,
+          COUNT(*) FILTER (WHERE df.decision = 'deferred')::int AS deferred,
+          COUNT(*) FILTER (WHERE df.decision = 'modified')::int AS modified,
+          COUNT(*)::int AS total,
+          COALESCE(SUM(r.estimated_savings) FILTER (WHERE df.decision = 'approved'), 0)::numeric AS savings
+        FROM cc_decision_feedback df
+        LEFT JOIN cc_recommendations r ON df.recommendation_id = r.id
+        WHERE df.session_id = ${sessionId}::uuid
+      `
+    : await sql`
+        SELECT
+          COUNT(*) FILTER (WHERE df.decision = 'approved')::int AS approved,
+          COUNT(*) FILTER (WHERE df.decision = 'rejected')::int AS rejected,
+          COUNT(*) FILTER (WHERE df.decision = 'deferred')::int AS deferred,
+          COUNT(*) FILTER (WHERE df.decision = 'modified')::int AS modified,
+          COUNT(*)::int AS total,
+          COALESCE(SUM(r.estimated_savings) FILTER (WHERE df.decision = 'approved'), 0)::numeric AS savings
+        FROM cc_decision_feedback df
+        LEFT JOIN cc_recommendations r ON df.recommendation_id = r.id
+        WHERE df.created_at > NOW() - INTERVAL '24 hours'
+      `;
 
   const s = stats as Record<string, number>;
   return {
