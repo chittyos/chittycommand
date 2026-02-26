@@ -68,6 +68,11 @@ export interface EmailConnection {
   created_at: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export const api = {
   // Dashboard
   getDashboard: () => request<DashboardData>('/dashboard'),
@@ -229,6 +234,55 @@ export const api = {
 
   syncEmailConnection: (id: string) =>
     request<{ status: string }>(`/email-connections/${id}/sync`, { method: 'POST' }),
+
+  // Chat (streaming)
+  chatStream: async function* (
+    messages: ChatMessage[],
+    context?: { page?: string; item_id?: string },
+  ): AsyncGenerator<string> {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ messages, context }),
+    });
+
+    if (res.status === 401) { logout(); throw new Error('Session expired'); }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    while (true) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+
+      const lines = buffer.split('\n');
+      buffer = lines.pop() || '';
+
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch {
+          // Skip malformed chunks
+        }
+      }
+    }
+  },
 };
 
 // ── Types ─────────────────────────────────────────────────────
