@@ -9,10 +9,23 @@ interface PaymentPlanViewProps {
 }
 
 export function PaymentPlanView({ plan, onDeferItem }: PaymentPlanViewProps) {
-  const schedule: ScheduleEntry[] = typeof plan.schedule === 'string'
-    ? JSON.parse(plan.schedule) : plan.schedule;
-  const warnings: PlanWarning[] = typeof plan.warnings === 'string'
-    ? JSON.parse(plan.warnings) : plan.warnings;
+  let schedule: ScheduleEntry[];
+  try {
+    const raw = typeof plan.schedule === 'string' ? JSON.parse(plan.schedule) : plan.schedule;
+    schedule = Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    console.error('[PaymentPlanView] Failed to parse plan.schedule', e);
+    schedule = [];
+  }
+
+  let warnings: PlanWarning[];
+  try {
+    const raw = typeof plan.warnings === 'string' ? JSON.parse(plan.warnings) : plan.warnings;
+    warnings = Array.isArray(raw) ? raw : [];
+  } catch (e) {
+    console.error('[PaymentPlanView] Failed to parse plan.warnings', e);
+    warnings = [];
+  }
 
   // Group schedule by date
   const byDate = new Map<string, ScheduleEntry[]>();

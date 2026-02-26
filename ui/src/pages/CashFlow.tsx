@@ -34,7 +34,7 @@ export function CashFlow() {
         setObligations(obs);
         setError(null);
       })
-      .catch((e) => setError(e.message))
+      .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load cash flow data'))
       .finally(() => setLoading(false));
   };
 
@@ -42,6 +42,7 @@ export function CashFlow() {
 
   const handleGenerate = async () => {
     setGenerating(true);
+    setError(null);
     try {
       const result = await api.generateCashflowProjections();
       setSummary(result);
@@ -66,6 +67,7 @@ export function CashFlow() {
 
   const runScenario = async () => {
     if (deferIds.size === 0) return;
+    setError(null);
     try {
       const result = await api.runCashflowScenario(Array.from(deferIds));
       setScenario(result);
@@ -82,6 +84,12 @@ export function CashFlow() {
     outflow: parseFloat(p.projected_outflow),
   }));
 
+  // Payment planner state — must be before any conditional returns (Rules of Hooks)
+  const [plan, setPlan] = useState<PaymentPlan | null>(null);
+  const [planStrategy, setPlanStrategy] = useState<'optimal' | 'conservative' | 'aggressive'>('optimal');
+  const [planLoading, setPlanLoading] = useState(false);
+  const [planDeferIds, setPlanDeferIds] = useState<string[]>([]);
+
   const upcoming = obligations
     .filter((o) => o.status === 'pending' || o.status === 'overdue')
     .sort((a, b) => a.due_date.localeCompare(b.due_date))
@@ -97,14 +105,9 @@ export function CashFlow() {
     );
   }
 
-  // Payment planner state
-  const [plan, setPlan] = useState<PaymentPlan | null>(null);
-  const [planStrategy, setPlanStrategy] = useState<'optimal' | 'conservative' | 'aggressive'>('optimal');
-  const [planLoading, setPlanLoading] = useState(false);
-  const [planDeferIds, setPlanDeferIds] = useState<string[]>([]);
-
   const handleGeneratePlan = async () => {
     setPlanLoading(true);
+    setError(null);
     try {
       const result = await api.generatePaymentPlan({ strategy: planStrategy });
       setPlan(result);
@@ -116,12 +119,15 @@ export function CashFlow() {
   };
 
   const handleDeferInPlan = async (obligationId: string) => {
+    const prevDeferIds = planDeferIds;
     const newDeferIds = [...planDeferIds, obligationId];
     setPlanDeferIds(newDeferIds);
+    setError(null);
     try {
       const result = await api.simulatePaymentPlan({ strategy: planStrategy, defer_ids: newDeferIds });
       setPlan(result);
     } catch (e: unknown) {
+      setPlanDeferIds(prevDeferIds);
       setError(e instanceof Error ? e.message : 'Simulation failed');
     }
   };
@@ -131,13 +137,11 @@ export function CashFlow() {
     pay_early_ids?: string[];
     custom_amounts?: Record<string, number>;
   }) => {
+    setError(null);
     try {
       const result = await api.simulatePaymentPlan({ strategy: planStrategy, ...overrides });
       setPlan(result);
-      // Sync planDeferIds with scenario overrides
-      if (overrides.defer_ids) {
-        setPlanDeferIds(overrides.defer_ids);
-      }
+      setPlanDeferIds(overrides.defer_ids ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Simulation failed');
     }
@@ -180,6 +184,13 @@ export function CashFlow() {
           </button>
         ))}
       </div>
+
+      {/* Inline error — visible even after projections load */}
+      {error && projections.length > 0 && (
+        <div className="text-urgency-red text-sm bg-urgency-red/10 rounded-lg px-3 py-2">
+          {error}
+        </div>
+      )}
 
       {/* Payment Planner Tab */}
       {activeTab === 'planner' && (

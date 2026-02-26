@@ -40,8 +40,8 @@ export function ScenarioOverride({ plan, strategy: _strategy, onSimulate }: Scen
     try {
       const raw = typeof plan.schedule === 'string' ? JSON.parse(plan.schedule) : plan.schedule;
       schedule = Array.isArray(raw) ? raw : [];
-    } catch {
-      console.error('[ScenarioOverride] Failed to parse plan.schedule');
+    } catch (e) {
+      console.error('[ScenarioOverride] Failed to parse plan.schedule', e);
       return [];
     }
     const seen = new Map<string, UniqueObligation>();
