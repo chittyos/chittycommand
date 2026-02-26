@@ -382,12 +382,16 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
         if (existingIds.has(tx.id) || tx.status === 'cancelled') continue;
         const direction = tx.amount >= 0 ? 'inflow' : 'outflow';
         const txDate = tx.postedAt ? tx.postedAt.split('T')[0] : tx.createdAt.split('T')[0];
+        const txMetadata = {
+          mercury_kind: tx.kind,
+          ...(tx.note ? { note: tx.note } : {}),
+        };
         await sql`
-          INSERT INTO cc_transactions (account_id, source, source_id, amount, direction, description, counterparty, tx_date, posted_at)
+          INSERT INTO cc_transactions (account_id, source, source_id, amount, direction, description, counterparty, tx_date, posted_at, metadata)
           VALUES (${acct.id}, 'mercury', ${tx.id}, ${Math.abs(tx.amount)}, ${direction},
                   ${tx.externalMemo || tx.bankDescription || tx.counterpartyName},
                   ${tx.counterpartyNickname || tx.counterpartyName || null},
-                  ${txDate}, ${tx.postedAt || null})
+                  ${txDate}, ${tx.postedAt || null}, ${JSON.stringify(txMetadata)}::jsonb)
           ON CONFLICT DO NOTHING
         `;
         recordsSynced++;

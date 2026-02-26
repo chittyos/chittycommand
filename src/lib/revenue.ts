@@ -31,10 +31,30 @@ interface InflowPattern {
   source: string;
 }
 
+// Known revenue platforms with pre-assigned confidence levels.
+// Counterparty names are matched case-insensitively via ILIKE/includes.
+const KNOWN_REVENUE_PLATFORMS: Record<string, number> = {
+  'AIRBNB': 0.95,
+  'TURBOTENANT': 0.95,
+  'DOORLOOP': 0.90,
+  'VENMO': 0.60,       // could be personal or business
+  'CHECK DEPOSIT': 0.75, // likely tenant/client checks
+};
+
+function getPlatformConfidence(counterparty: string): { confidence: number; verified: boolean } | null {
+  const upper = counterparty.toUpperCase();
+  for (const [platform, conf] of Object.entries(KNOWN_REVENUE_PLATFORMS)) {
+    if (upper.includes(platform)) return { confidence: conf, verified: true };
+  }
+  return null;
+}
+
 export async function discoverRevenueSources(
   sql: NeonQueryFunction<false, false>,
 ): Promise<RevenueDiscoveryResult> {
-  // Find recurring inflow patterns from the last 6 months of real transaction data
+  // Find recurring inflow patterns from the last 6 months of real transaction data.
+  // Excludes internal Mercury transfers, auto-transfer rules, bank-to-bank moves,
+  // cashback credits, and counterparties matching internal Mercury account names.
   const patterns = typedRows<InflowPattern>(await sql`
     WITH monthly_inflows AS (
       SELECT
@@ -50,6 +70,22 @@ export async function discoverRevenueSources(
         AND t.tx_date::date >= CURRENT_DATE - INTERVAL '6 months'
         AND t.counterparty IS NOT NULL
         AND t.counterparty != ''
+        -- Exclude internal Mercury transfers
+        AND t.description NOT LIKE 'Transfer between your Mercury%'
+        -- Exclude Mercury auto-transfer rules
+        AND t.description NOT LIKE 'Percentage-based%auto-transfer'
+        -- Exclude external bank-to-bank transfers (not revenue)
+        AND t.description NOT LIKE 'Transfer from another bank%'
+        -- Exclude cashback credits
+        AND t.description != 'Mercury IO Cashback'
+        -- Exclude counterparties that match internal Mercury account names
+        AND NOT EXISTS (
+          SELECT 1 FROM cc_accounts ia
+          WHERE ia.source = 'mercury'
+            AND t.counterparty ILIKE ia.account_name
+        )
+        -- Exclude transactions tagged as internal transfers via Mercury kind
+        AND COALESCE(t.metadata->>'mercury_kind', '') NOT IN ('internalTransfer', 'externalTransfer')
       GROUP BY t.counterparty, t.account_id, a.source, DATE_TRUNC('month', t.tx_date::date)
     )
     SELECT
@@ -83,19 +119,30 @@ export async function discoverRevenueSources(
       months_span: typeof raw.months_span === 'string' ? parseInt(raw.months_span, 10) : raw.months_span,
     };
 
-    // Compute confidence from consistency
-    // 3+ months of regular deposits at similar amounts = high confidence
+    // Compute confidence from consistency + known platform matching
     const amountVariance = p.max_amount > 0 ? (p.max_amount - p.min_amount) / p.max_amount : 0;
     let confidence: number;
+    let verifiedBy = 'transaction_history';
 
-    if (p.occurrence_count >= 5 && amountVariance < 0.1) {
-      confidence = 0.95; // Very consistent — likely payroll or contract
+    // Check if counterparty matches a known revenue platform
+    const platformMatch = getPlatformConfidence(p.counterparty);
+
+    if (platformMatch) {
+      // Known platform — use platform confidence as floor, history can push higher
+      confidence = platformMatch.confidence;
+      verifiedBy = 'validated_match';
+      // Boost further if history is very consistent
+      if (p.occurrence_count >= 5 && amountVariance < 0.1 && confidence < 0.95) {
+        confidence = 0.95;
+      }
+    } else if (p.occurrence_count >= 5 && amountVariance < 0.1) {
+      confidence = 0.90; // Very consistent unknown source
     } else if (p.occurrence_count >= 3 && amountVariance < 0.25) {
-      confidence = 0.85; // Regular with some variation
+      confidence = 0.80; // Regular with some variation
     } else if (p.occurrence_count >= 3) {
-      confidence = 0.70; // Regular but varying amounts
+      confidence = 0.65; // Regular but varying amounts
     } else {
-      confidence = 0.50; // Only 2 occurrences — uncertain
+      confidence = 0.45; // Only 2 occurrences — uncertain
     }
 
     // Determine recurrence
@@ -117,6 +164,7 @@ export async function discoverRevenueSources(
           amount = ${p.avg_amount},
           confidence = ${confidence},
           recurrence = ${recurrence},
+          verified_by = ${verifiedBy},
           next_expected_date = (${p.last_date}::date + INTERVAL '1 month')::date,
           updated_at = NOW()
         WHERE id = ${(existing as { id: string }).id}::uuid
@@ -133,7 +181,7 @@ export async function discoverRevenueSources(
           ${recurrence},
           (${p.last_date}::date + INTERVAL '1 month')::date,
           ${confidence},
-          'transaction_history',
+          ${verifiedBy},
           ${p.account_id}::uuid
         )
       `;
