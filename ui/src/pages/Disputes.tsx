@@ -78,12 +78,12 @@ export function Disputes() {
 
   return (
     <div className="space-y-4">
-      <h1 className="text-xl font-bold text-chrome-text">Active Disputes</h1>
+      <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Active Disputes</h1>
 
       <div className="space-y-3">
         {disputes.map((d) => (
           <Card key={d.id} urgency={priorityUrgency(d.priority)}>
-            <div className="flex items-start justify-between gap-4 mb-3">
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-2 sm:gap-4 mb-3">
               <div className="min-w-0 flex-1">
                 <div className="flex items-center gap-2 mb-1">
                   <span className="text-xs px-2 py-0.5 rounded-full font-medium bg-red-100 text-red-700">
@@ -93,13 +93,13 @@ export function Disputes() {
                     {d.dispute_type}
                   </span>
                 </div>
-                <h2 className="text-lg font-semibold text-card-text">{d.title}</h2>
+                <h2 className="text-base lg:text-lg font-semibold text-card-text">{d.title}</h2>
                 <p className="text-card-muted text-sm">vs {d.counterparty}</p>
               </div>
               {d.amount_at_stake && (
-                <div className="text-right shrink-0">
+                <div className="sm:text-right shrink-0">
                   <p className="text-card-muted text-xs">At Stake</p>
-                  <p className="text-urgency-red text-xl font-bold font-mono">{formatCurrency(d.amount_at_stake)}</p>
+                  <p className="text-urgency-red text-lg lg:text-xl font-bold font-mono">{formatCurrency(d.amount_at_stake)}</p>
                 </div>
               )}
             </div>
@@ -157,7 +157,7 @@ export function Disputes() {
                   <p className="text-card-muted text-xs mb-4">No correspondence yet</p>
                 )}
                 <div className="space-y-2">
-                  <div className="flex gap-2">
+                  <div className="flex flex-col sm:flex-row gap-2">
                     <select
                       value={newCorrespondence.direction}
                       onChange={(e) => setNewCorrespondence({ ...newCorrespondence, direction: e.target.value })}

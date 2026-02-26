@@ -79,8 +79,8 @@ export function Upload() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-chrome-text">Upload Documents</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Upload Documents</h1>
         {files.length > 0 && (
           <div className="flex gap-2">
             <button onClick={clearAll} className="px-3 py-1.5 text-sm text-chrome-muted hover:text-chrome-text transition-colors">

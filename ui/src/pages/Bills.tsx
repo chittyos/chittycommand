@@ -37,15 +37,15 @@ export function Bills() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-chrome-text">Bills & Obligations</h1>
-        <div className="flex gap-1">
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Bills & Obligations</h1>
+        <div className="flex gap-1 overflow-x-auto scrollbar-hide">
           {filters.map((f) => (
             <button
               key={f}
               onClick={() => setFilter(f)}
               className={cn(
-                'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors',
+                'px-3 py-1.5 rounded-lg text-sm font-medium transition-colors whitespace-nowrap',
                 filter === f
                   ? 'bg-chitty-600 text-white'
                   : 'bg-chrome-border/50 text-chrome-muted hover:text-white',
@@ -66,10 +66,22 @@ export function Bills() {
               urgency={urgencyLevel(ob.urgency_score)}
               muted={ob.status === 'paid' || (!ob.urgency_score || ob.urgency_score < 30)}
             >
-              <div className="flex items-center justify-between gap-4">
+              {/* Mobile: stacked layout. Desktop: horizontal */}
+              <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 sm:gap-4">
                 <div className="min-w-0 flex-1">
-                  <p className="font-medium text-card-text">{ob.payee}</p>
-                  <p className="text-card-muted text-xs">
+                  <div className="flex items-center gap-2">
+                    <p className="font-medium text-card-text truncate">{ob.payee}</p>
+                    <span className={cn(
+                      'text-[10px] px-1.5 py-0.5 rounded-full font-medium shrink-0',
+                      ob.status === 'paid' ? 'bg-green-100 text-green-700' :
+                      ob.status === 'overdue' ? 'bg-red-100 text-red-700' :
+                      ob.status === 'pending' ? 'bg-amber-100 text-amber-700' :
+                      'bg-gray-100 text-gray-700',
+                    )}>
+                      {ob.status}
+                    </span>
+                  </div>
+                  <p className="text-card-muted text-xs mt-0.5">
                     {ob.category}
                     {ob.due_date && (
                       <span>
@@ -84,17 +96,8 @@ export function Bills() {
                     )}
                   </p>
                 </div>
-                <div className="flex items-center gap-4 shrink-0">
+                <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0">
                   <p className="font-mono font-semibold text-card-text">{formatCurrency(ob.amount_due)}</p>
-                  <span className={cn(
-                    'text-xs px-2 py-0.5 rounded-full font-medium',
-                    ob.status === 'paid' ? 'bg-green-100 text-green-700' :
-                    ob.status === 'overdue' ? 'bg-red-100 text-red-700' :
-                    ob.status === 'pending' ? 'bg-amber-100 text-amber-700' :
-                    'bg-gray-100 text-gray-700',
-                  )}>
-                    {ob.status}
-                  </span>
                   {ob.status !== 'paid' && (
                     <ActionButton
                       label="Mark Paid"

@@ -32,15 +32,15 @@ export function Accounts() {
   const isDebtType = (type: string) => ['credit_card', 'store_credit', 'mortgage', 'loan'].includes(type);
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-xl font-bold text-chrome-text">Accounts</h1>
+    <div className="space-y-5 lg:space-y-6">
+      <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Accounts</h1>
 
       {Object.entries(grouped).map(([type, accts]) => (
         <div key={type}>
           <h2 className="text-chrome-muted text-sm uppercase tracking-wider font-medium mb-2">
             {typeLabels[type] || type}
           </h2>
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-3">
             {accts.map((a) => (
               <Card key={a.id}>
                 <div className="flex items-center justify-between">
@@ -48,13 +48,13 @@ export function Accounts() {
                     <p className="font-medium text-card-text truncate">{a.account_name}</p>
                     <p className="text-card-muted text-xs">{a.institution}</p>
                   </div>
-                  <p className={`text-lg font-bold font-mono ${isDebtType(a.account_type) ? 'text-urgency-red' : 'text-urgency-green'}`}>
+                  <p className={`text-base lg:text-lg font-bold font-mono ${isDebtType(a.account_type) ? 'text-urgency-red' : 'text-urgency-green'}`}>
                     {formatCurrency(a.current_balance)}
                   </p>
                 </div>
                 {a.credit_limit && (
                   <div className="mt-3">
-                    <div className="h-2 bg-gray-100 rounded-full overflow-hidden">
+                    <div className="h-1.5 lg:h-2 bg-gray-100 rounded-full overflow-hidden">
                       <div
                         className="h-full bg-urgency-red rounded-full transition-all"
                         style={{ width: `${Math.min(100, (parseFloat(a.current_balance || '0') / parseFloat(a.credit_limit)) * 100)}%` }}

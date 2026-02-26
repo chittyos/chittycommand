@@ -18,7 +18,6 @@ export function StatusBar() {
   const overdueCount = data?.obligations?.overdue_count;
   const dueThisWeek = data?.obligations?.due_this_week;
 
-  // Pick the most recent sync per source for freshness display
   const sourceFreshness = syncs.reduce<Record<string, string | null>>((acc, s) => {
     const current = acc[s.source];
     if (!current || (s.completed_at && s.completed_at > current)) {
@@ -28,32 +27,33 @@ export function StatusBar() {
   }, {});
 
   return (
-    <header className="h-12 bg-chrome-surface border-b border-chrome-border flex items-center justify-between px-4 sticky top-0 z-10">
-      <div className="flex items-center gap-6 text-sm">
+    <header className="h-11 lg:h-12 bg-chrome-surface border-b border-chrome-border flex items-center justify-between px-3 lg:px-4 sticky top-0 lg:top-0 z-10">
+      {/* Metrics — horizontally scrollable on mobile */}
+      <div className="flex items-center gap-3 lg:gap-6 text-xs lg:text-sm overflow-x-auto scrollbar-hide flex-1 min-w-0">
         {cashPosition && (
-          <div className="flex items-center gap-2">
-            <span className="text-chrome-muted">Cash</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-chrome-muted hidden sm:inline">Cash</span>
             <span className="text-urgency-green font-mono font-semibold">
               ${Number(cashPosition).toLocaleString('en-US', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}
             </span>
           </div>
         )}
         {overdueCount && Number(overdueCount) > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-chrome-muted">Overdue</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-chrome-muted hidden sm:inline">Overdue</span>
             <span className="text-urgency-red font-mono font-semibold">{overdueCount}</span>
           </div>
         )}
         {dueThisWeek && Number(dueThisWeek) > 0 && (
-          <div className="flex items-center gap-2">
-            <span className="text-chrome-muted">Due This Week</span>
+          <div className="flex items-center gap-1.5 shrink-0">
+            <span className="text-chrome-muted hidden sm:inline">This Week</span>
             <span className="text-urgency-amber font-mono font-semibold">{dueThisWeek}</span>
           </div>
         )}
 
-        {/* Freshness dots */}
+        {/* Freshness dots — hidden on very small screens */}
         {Object.keys(sourceFreshness).length > 0 && (
-          <div className="flex items-center gap-1.5 ml-2">
+          <div className="hidden sm:flex items-center gap-1.5 ml-1">
             {Object.entries(sourceFreshness).map(([source, lastSync]) => (
               <span key={source} title={source}>
                 <FreshnessDot status={freshnessFromDate(lastSync)} />
@@ -65,11 +65,11 @@ export function StatusBar() {
 
       <button
         onClick={toggleFocusMode}
-        className="flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm font-medium transition-colors bg-chrome-border/50 hover:bg-chrome-border text-chrome-text"
+        className="flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs lg:text-sm font-medium transition-colors bg-chrome-border/50 hover:bg-chrome-border text-chrome-text shrink-0 ml-2"
         title={focusMode ? 'Show full dashboard' : 'Focus on urgent items'}
       >
-        {focusMode ? <Eye size={16} /> : <EyeOff size={16} />}
-        {focusMode ? 'Focus' : 'Full View'}
+        {focusMode ? <Eye size={14} /> : <EyeOff size={14} />}
+        <span className="hidden sm:inline">{focusMode ? 'Focus' : 'Full'}</span>
       </button>
     </header>
   );

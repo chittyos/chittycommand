@@ -29,7 +29,7 @@ export function Legal() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-chrome-text">Legal Deadlines</h1>
+      <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Legal Deadlines</h1>
 
       <div className="space-y-2">
         {deadlines.map((dl) => {

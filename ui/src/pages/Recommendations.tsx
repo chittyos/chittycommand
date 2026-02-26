@@ -96,8 +96,8 @@ export function Recommendations() {
 
   return (
     <div className="space-y-6">
-      <div className="flex items-center justify-between">
-        <h1 className="text-xl font-bold text-chrome-text">AI Recommendations</h1>
+      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+        <h1 className="text-lg lg:text-xl font-bold text-chrome-text">AI Recommendations</h1>
         <ActionButton
           label={generating ? 'Analyzing...' : 'Run Triage'}
           onClick={generate}
@@ -110,7 +110,7 @@ export function Recommendations() {
       )}
 
       {triageResult && (
-        <div className="grid grid-cols-4 gap-3">
+        <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
           <MetricCard label="Scored" value={String(triageResult.obligations_scored)} />
           <MetricCard label="New Recs" value={String(triageResult.recommendations_created)} />
           <MetricCard label="Cash Available" value={formatCurrency(triageResult.cash_position.total_cash)} valueClassName="text-urgency-green" />
@@ -127,7 +127,7 @@ export function Recommendations() {
         <div className="space-y-2">
           {recs.map((rec) => (
             <Card key={rec.id} urgency={rec.priority <= 2 ? 'amber' : rec.priority <= 3 ? 'green' : null}>
-              <div className="flex items-start justify-between gap-4">
+              <div className="space-y-3">
                 <div className="flex-1 min-w-0">
                   <div className="flex items-center gap-2 mb-1 flex-wrap">
                     <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColors[rec.priority] || priorityColors[5]}`}>
@@ -142,7 +142,7 @@ export function Recommendations() {
                   <h3 className="font-medium text-card-text">{rec.title}</h3>
                   <p className="text-card-muted text-sm mt-1">{rec.reasoning}</p>
                 </div>
-                <div className="flex gap-2 shrink-0">
+                <div className="flex gap-2">
                   <ActionButton
                     label={actionLabel(rec.action_type)}
                     onClick={() => act(rec.id, rec.action_type || 'acted')}

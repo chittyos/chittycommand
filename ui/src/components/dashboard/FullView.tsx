@@ -18,8 +18,9 @@ export function FullView({ data, onPayNow, onExecute, payingId, executingId }: F
   const { summary, obligations, disputes, deadlines, recommendations } = data;
 
   return (
-    <div className="space-y-6">
-      <div className="grid grid-cols-4 gap-3">
+    <div className="space-y-4 lg:space-y-6">
+      {/* Metric cards — 2 cols mobile, 4 cols desktop */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
         <MetricCard label="Cash Available" value={formatCurrency(summary.total_cash)} valueClassName="text-urgency-green" />
         <MetricCard label="Credit Owed" value={formatCurrency(summary.total_credit_owed)} valueClassName="text-urgency-red" />
         <MetricCard label="Due Next 30d" value={formatCurrency(obligations.total_due_30d)} valueClassName="text-urgency-amber" />
@@ -30,12 +31,13 @@ export function FullView({ data, onPayNow, onExecute, payingId, executingId }: F
         />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      {/* Widgets — stacked mobile, 2-col desktop */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
         <ObligationsWidget obligations={obligations.urgent} onPayNow={onPayNow} payingId={payingId} />
         <DisputesWidget disputes={disputes} />
       </div>
 
-      <div className="grid grid-cols-2 gap-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 lg:gap-6">
         <DeadlinesWidget deadlines={deadlines} />
         <RecommendationsWidget recommendations={recommendations} onExecute={onExecute} executingId={executingId} />
       </div>

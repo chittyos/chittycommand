@@ -66,7 +66,7 @@ export function Settings() {
 
   return (
     <div className="space-y-6">
-      <h1 className="text-xl font-bold text-chrome-text">Settings</h1>
+      <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Settings</h1>
 
       {error && (
         <div className="bg-red-50 border border-red-200 rounded-card p-3 text-urgency-red text-sm">
@@ -133,7 +133,7 @@ export function Settings() {
       {/* Bridge Sync Controls */}
       <Card>
         <h2 className="text-card-text font-semibold mb-3">Integration Sync</h2>
-        <div className="grid grid-cols-2 gap-3">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-3">
           <BridgeSyncButton
             label="Plaid Transactions"
             syncing={bridgeSyncing === 'Plaid Transactions'}
@@ -170,7 +170,7 @@ export function Settings() {
       {/* Service Connections (live status) */}
       <Card>
         <h2 className="text-card-text font-semibold mb-3">Service Connections</h2>
-        <div className="grid grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">
           {serviceStatuses.length > 0 ? (
             serviceStatuses.map((svc) => (
               <ServiceCard
