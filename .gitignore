@@ -6,3 +6,4 @@ ui/node_modules/
 ui/dist/
 .env
 *.log
+.worktrees/
