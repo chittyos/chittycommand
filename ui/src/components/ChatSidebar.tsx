@@ -19,7 +19,17 @@ export function ChatSidebar() {
   const [streaming, setStreaming] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const location = useLocation();
+
+  // Keep messagesRef in sync
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+
+  // Abort any in-flight stream on unmount
+  useEffect(() => {
+    return () => { abortRef.current?.abort(); };
+  }, []);
 
   // Persist open/close state
   useEffect(() => {
@@ -51,8 +61,13 @@ export function ChatSidebar() {
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || streaming) return;
 
+    // Abort any previous in-flight stream
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+
     const userMsg: ChatMessage = { role: 'user', content: content.trim() };
-    const newMessages = [...messages, userMsg];
+    const newMessages = [...messagesRef.current, userMsg];
     setMessages(newMessages);
     setInput('');
     setStreaming(true);
@@ -61,7 +76,7 @@ export function ChatSidebar() {
     setMessages([...newMessages, assistantMsg]);
 
     try {
-      const stream = api.chatStream(newMessages, { page: location.pathname });
+      const stream = api.chatStream(newMessages, { page: location.pathname }, controller.signal);
       let accumulated = '';
 
       for await (const chunk of stream) {
@@ -73,6 +88,7 @@ export function ChatSidebar() {
         });
       }
     } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') return;
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
@@ -84,7 +100,7 @@ export function ChatSidebar() {
     } finally {
       setStreaming(false);
     }
-  }, [messages, streaming, location.pathname]);
+  }, [streaming, location.pathname]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,6 +123,7 @@ export function ChatSidebar() {
         onClick={() => setOpen(true)}
         className="fixed bottom-20 right-4 lg:bottom-6 lg:right-6 z-50 w-12 h-12 rounded-full bg-chitty-600 hover:bg-chitty-500 text-white shadow-lg flex items-center justify-center transition-colors"
         title="Open AI Assistant (Cmd+J)"
+        aria-label="Open AI Assistant"
       >
         <MessageSquare size={20} />
       </button>
@@ -122,20 +139,25 @@ export function ChatSidebar() {
       />
 
       {/* Sidebar panel */}
-      <div className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 lg:w-[400px] bg-chrome-surface border-l border-chrome-border flex flex-col shadow-2xl">
+      <div
+        role="complementary"
+        aria-label="AI Assistant"
+        className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 lg:w-[400px] bg-chrome-surface border-l border-chrome-border flex flex-col shadow-2xl"
+      >
         {/* Header */}
         <div className="flex items-center justify-between h-12 px-4 border-b border-chrome-border shrink-0">
           <span className="text-sm font-semibold text-chrome-text">AI Assistant</span>
           <button
             onClick={() => setOpen(false)}
             className="p-1 text-chrome-muted hover:text-white transition-colors"
+            aria-label="Close AI Assistant"
           >
             <X size={18} />
           </button>
         </div>
 
         {/* Messages */}
-        <div className="flex-1 overflow-y-auto p-4 space-y-3">
+        <div role="log" aria-live="polite" className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
             <div className="text-center py-8">
               <MessageSquare size={32} className="mx-auto text-chrome-muted mb-3" />

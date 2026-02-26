@@ -239,6 +239,7 @@ export const api = {
   chatStream: async function* (
     messages: ChatMessage[],
     context?: { page?: string; item_id?: string },
+    signal?: AbortSignal,
   ): AsyncGenerator<string> {
     const token = getToken();
     const res = await fetch(`${API_BASE}/chat`, {
@@ -248,6 +249,7 @@ export const api = {
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       },
       body: JSON.stringify({ messages, context }),
+      signal,
     });
 
     if (res.status === 401) { logout(); throw new Error('Session expired'); }
@@ -261,26 +263,30 @@ export const api = {
     const decoder = new TextDecoder();
     let buffer = '';
 
-    while (true) {
-      const { done, value } = await reader.read();
-      if (done) break;
-      buffer += decoder.decode(value, { stream: true });
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
 
-      const lines = buffer.split('\n');
-      buffer = lines.pop() || '';
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
 
-      for (const line of lines) {
-        if (!line.startsWith('data: ')) continue;
-        const data = line.slice(6);
-        if (data === '[DONE]') return;
-        try {
-          const parsed = JSON.parse(data);
-          const content = parsed.choices?.[0]?.delta?.content;
-          if (content) yield content;
-        } catch {
-          // Skip malformed chunks
+        for (const line of lines) {
+          if (!line.startsWith('data: ')) continue;
+          const data = line.slice(6);
+          if (data === '[DONE]') return;
+          try {
+            const parsed = JSON.parse(data);
+            const content = parsed.choices?.[0]?.delta?.content;
+            if (content) yield content;
+          } catch {
+            // Skip malformed chunks
+          }
         }
       }
+    } finally {
+      reader.releaseLock();
     }
   },
 };
