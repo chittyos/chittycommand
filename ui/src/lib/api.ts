@@ -51,6 +51,23 @@ export const authApi = {
   },
 };
 
+// ── Email Connection Types ──────────────────────────────────
+
+export interface EmailConnection {
+  id: string;
+  user_id: string;
+  provider: 'gmail' | 'outlook' | 'forwarding';
+  email_address: string;
+  display_name: string | null;
+  connect_ref: string | null;
+  namespace: string | null;
+  status: string;
+  last_synced_at: string | null;
+  error_message: string | null;
+  config: Record<string, unknown>;
+  created_at: string;
+}
+
 export const api = {
   // Dashboard
   getDashboard: () => request<DashboardData>('/dashboard'),
@@ -183,6 +200,35 @@ export const api = {
     request<RevenueSource>('/revenue', { method: 'POST', body: JSON.stringify(data) }),
   updateRevenueSource: (id: string, data: Partial<RevenueSource>) =>
     request<RevenueSource>(`/revenue/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+
+  // Email Connections
+  getEmailConnections: () =>
+    request<{ connections: EmailConnection[]; namespace: string | null }>('/email-connections'),
+
+  claimNamespace: (namespace: string) =>
+    request<{ namespace: string }>('/email-connections/namespace', {
+      method: 'POST', body: JSON.stringify({ namespace }),
+    }),
+
+  addForwardingConnection: (email_address: string, display_name?: string) =>
+    request<EmailConnection>('/email-connections', {
+      method: 'POST',
+      body: JSON.stringify({ provider: 'forwarding', email_address, display_name }),
+    }),
+
+  initiateGmailOAuth: () =>
+    request<{ auth_url: string }>('/email-connections/gmail', { method: 'POST' }),
+
+  completeGmailOAuth: (data: { connect_ref: string; email_address: string; display_name?: string }) =>
+    request<EmailConnection>('/email-connections/gmail/callback', {
+      method: 'POST', body: JSON.stringify(data),
+    }),
+
+  disconnectEmail: (id: string) =>
+    request<EmailConnection>(`/email-connections/${id}`, { method: 'DELETE' }),
+
+  syncEmailConnection: (id: string) =>
+    request<{ status: string }>(`/email-connections/${id}/sync`, { method: 'POST' }),
 };
 
 // ── Types ─────────────────────────────────────────────────────
