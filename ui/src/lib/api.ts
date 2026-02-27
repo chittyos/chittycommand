@@ -263,6 +263,26 @@ export const api = {
     const decoder = new TextDecoder();
     let buffer = '';
 
+    function* parseSSELines(lines: string[]) {
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) {
+            console.error('[chatStream] gateway error in stream:', parsed.error);
+            yield `\n\n[Error: ${parsed.error.message || 'AI service error'}]`;
+            return;
+          }
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch (parseErr) {
+          console.warn('[chatStream] malformed SSE chunk:', data.slice(0, 200));
+        }
+      }
+    }
+
     try {
       while (true) {
         const { done, value } = await reader.read();
@@ -272,17 +292,15 @@ export const api = {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        for (const line of lines) {
-          if (!line.startsWith('data: ')) continue;
-          const data = line.slice(6);
-          if (data === '[DONE]') return;
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) yield content;
-          } catch {
-            // Skip malformed chunks
-          }
+        for (const chunk of parseSSELines(lines)) {
+          yield chunk;
+        }
+      }
+
+      // Process any remaining buffer content
+      if (buffer.trim()) {
+        for (const chunk of parseSSELines([buffer])) {
+          yield chunk;
         }
       }
     } finally {

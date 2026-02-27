@@ -20,11 +20,8 @@ export function ChatSidebar() {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLTextAreaElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const messagesRef = useRef<ChatMessage[]>([]);
+  const streamingRef = useRef(false);
   const location = useLocation();
-
-  // Keep messagesRef in sync
-  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   // Abort any in-flight stream on unmount
   useEffect(() => {
@@ -59,7 +56,7 @@ export function ChatSidebar() {
   }, [open]);
 
   const sendMessage = useCallback(async (content: string) => {
-    if (!content.trim() || streaming) return;
+    if (!content.trim() || streamingRef.current) return;
 
     // Abort any previous in-flight stream
     abortRef.current?.abort();
@@ -67,16 +64,19 @@ export function ChatSidebar() {
     abortRef.current = controller;
 
     const userMsg: ChatMessage = { role: 'user', content: content.trim() };
-    const newMessages = [...messagesRef.current, userMsg];
-    setMessages(newMessages);
+    const assistantMsg: ChatMessage = { role: 'assistant', content: '' };
+
+    let messagesForApi: ChatMessage[] = [];
+    setMessages((prev) => {
+      messagesForApi = [...prev, userMsg];
+      return [...messagesForApi, assistantMsg];
+    });
     setInput('');
     setStreaming(true);
-
-    const assistantMsg: ChatMessage = { role: 'assistant', content: '' };
-    setMessages([...newMessages, assistantMsg]);
+    streamingRef.current = true;
 
     try {
-      const stream = api.chatStream(newMessages, { page: location.pathname }, controller.signal);
+      const stream = api.chatStream(messagesForApi, { page: location.pathname }, controller.signal);
       let accumulated = '';
 
       for await (const chunk of stream) {
@@ -88,7 +88,17 @@ export function ChatSidebar() {
         });
       }
     } catch (err) {
-      if (err instanceof DOMException && err.name === 'AbortError') return;
+      if (err instanceof DOMException && err.name === 'AbortError') {
+        // Remove empty assistant bubble from aborted stream
+        setMessages((prev) => {
+          const last = prev[prev.length - 1];
+          if (last?.role === 'assistant' && last.content === '') {
+            return prev.slice(0, -1);
+          }
+          return prev;
+        });
+        return;
+      }
       setMessages((prev) => {
         const updated = [...prev];
         updated[updated.length - 1] = {
@@ -99,8 +109,9 @@ export function ChatSidebar() {
       });
     } finally {
       setStreaming(false);
+      streamingRef.current = false;
     }
-  }, [streaming, location.pathname]);
+  }, [location.pathname]);
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
