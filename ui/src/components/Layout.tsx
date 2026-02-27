@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom';
 import { Sidebar } from './Sidebar';
 import { MobileNav } from './MobileNav';
 import { StatusBar } from './StatusBar';
+import { ChatSidebar } from './ChatSidebar';
 import { Menu, X } from 'lucide-react';
 
 export function Layout() {
@@ -64,6 +65,8 @@ export function Layout() {
         {/* Mobile bottom nav — hidden on desktop */}
         <MobileNav />
       </div>
+
+      <ChatSidebar />
     </div>
   );
 }

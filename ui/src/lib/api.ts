@@ -68,6 +68,11 @@ export interface EmailConnection {
   created_at: string;
 }
 
+export interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export const api = {
   // Dashboard
   getDashboard: () => request<DashboardData>('/dashboard'),
@@ -229,6 +234,79 @@ export const api = {
 
   syncEmailConnection: (id: string) =>
     request<{ status: string }>(`/email-connections/${id}/sync`, { method: 'POST' }),
+
+  chatStream: async function* (
+    messages: ChatMessage[],
+    context?: { page?: string; item_id?: string },
+    signal?: AbortSignal,
+  ): AsyncGenerator<string> {
+    const token = getToken();
+    const res = await fetch(`${API_BASE}/chat`, {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        ...(token ? { Authorization: `Bearer ${token}` } : {}),
+      },
+      body: JSON.stringify({ messages, context }),
+      signal,
+    });
+
+    if (res.status === 401) {
+      logout();
+      throw new Error('Session expired');
+    }
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: res.statusText }));
+      throw new Error(err.error || `HTTP ${res.status}`);
+    }
+
+    const reader = res.body?.getReader();
+    if (!reader) throw new Error('No response body');
+    const decoder = new TextDecoder();
+    let buffer = '';
+
+    function* parseSSELines(lines: string[]) {
+      for (const line of lines) {
+        if (!line.startsWith('data: ')) continue;
+        const data = line.slice(6);
+        if (data === '[DONE]') return;
+        try {
+          const parsed = JSON.parse(data);
+          if (parsed.error) {
+            console.error('[chatStream] gateway error in stream:', parsed.error);
+            yield `\n\n[Error: ${parsed.error.message || 'AI service error'}]`;
+            return;
+          }
+          const content = parsed.choices?.[0]?.delta?.content;
+          if (content) yield content;
+        } catch {
+          console.warn('[chatStream] malformed SSE chunk:', data.slice(0, 200));
+        }
+      }
+    }
+
+    try {
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        yield* parseSSELines(lines);
+      }
+
+      if (buffer.trim()) {
+        yield* parseSSELines([buffer]);
+      }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      throw new Error(`Connection to AI service lost. ${err instanceof Error ? err.message : 'Unknown error'}`);
+    } finally {
+      reader.releaseLock();
+    }
+  },
 };
 
 // ── Types ─────────────────────────────────────────────────────
@@ -433,7 +511,7 @@ export interface QueueItem {
   suggested_amount: string | null;
   suggested_account_id: string | null;
   escalation_risk: string | null;
-  scenario_impact: unknown;
+  scenario_impact: { approve_balance?: number; skip_consequence?: string } | null;
   obligation_payee: string | null;
   obligation_amount: string | null;
   obligation_due_date: string | null;

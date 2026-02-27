@@ -20,8 +20,10 @@ import { swipeQueueRoutes } from './routes/swipe-queue';
 import { paymentPlanRoutes } from './routes/payment-plan';
 import { revenueRoutes } from './routes/revenue';
 import { emailConnectionRoutes } from './routes/email-connections';
+import { chatRoutes } from './routes/chat';
 
 export type Env = {
+  AI: Ai;
   HYPERDRIVE: Hyperdrive;
   DOCUMENTS: R2Bucket;
   COMMAND_KV: KVNamespace;
@@ -103,6 +105,7 @@ app.route('/api/queue', swipeQueueRoutes);
 app.route('/api/payment-plan', paymentPlanRoutes);
 app.route('/api/revenue', revenueRoutes);
 app.route('/api/email-connections', emailConnectionRoutes);
+app.route('/api/chat', chatRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);

@@ -36,6 +36,10 @@ bucket_name = "chittycommand-documents"
 binding = "COMMAND_KV"
 id = "64eef343b99b46ac909dbbcc1c4b2dee"
 
+# AI Gateway binding
+[ai]
+binding = "AI"
+
 # ChittyTrack observability
 [[tail_consumers]]
 service = "chittytrack"
