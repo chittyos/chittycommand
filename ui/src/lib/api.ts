@@ -511,7 +511,7 @@ export interface QueueItem {
   suggested_amount: string | null;
   suggested_account_id: string | null;
   escalation_risk: string | null;
-  scenario_impact: unknown;
+  scenario_impact: { approve_balance?: number; skip_consequence?: string } | null;
   obligation_payee: string | null;
   obligation_amount: string | null;
   obligation_due_date: string | null;

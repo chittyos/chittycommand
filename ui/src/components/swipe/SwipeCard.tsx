@@ -118,15 +118,15 @@ export function SwipeCard({ item, offset, showDetails, onToggleDetails }: SwipeC
             <div className="p-2 rounded-lg bg-green-50 border border-green-200">
               <p className="text-green-700 font-medium">If approved</p>
               <p className="text-green-600">
-                {(item.scenario_impact as { approve_balance?: number }).approve_balance != null
-                  ? `Balance: ${formatCurrency((item.scenario_impact as { approve_balance: number }).approve_balance)}`
+                {item.scenario_impact.approve_balance != null
+                  ? `Balance: ${formatCurrency(item.scenario_impact.approve_balance)}`
                   : 'Action executed'}
               </p>
             </div>
             <div className="p-2 rounded-lg bg-red-50 border border-red-200">
               <p className="text-red-700 font-medium">If skipped</p>
               <p className="text-red-600">
-                {(item.scenario_impact as { skip_consequence?: string }).skip_consequence || 'No immediate impact'}
+                {item.scenario_impact.skip_consequence || 'No immediate impact'}
               </p>
             </div>
           </div>
