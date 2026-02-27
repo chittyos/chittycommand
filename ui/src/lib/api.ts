@@ -235,7 +235,6 @@ export const api = {
   syncEmailConnection: (id: string) =>
     request<{ status: string }>(`/email-connections/${id}/sync`, { method: 'POST' }),
 
-  // Chat (streaming)
   chatStream: async function* (
     messages: ChatMessage[],
     context?: { page?: string; item_id?: string },
@@ -252,7 +251,10 @@ export const api = {
       signal,
     });
 
-    if (res.status === 401) { logout(); throw new Error('Session expired'); }
+    if (res.status === 401) {
+      logout();
+      throw new Error('Session expired');
+    }
     if (!res.ok) {
       const err = await res.json().catch(() => ({ error: res.statusText }));
       throw new Error(err.error || `HTTP ${res.status}`);
@@ -277,7 +279,7 @@ export const api = {
           }
           const content = parsed.choices?.[0]?.delta?.content;
           if (content) yield content;
-        } catch (parseErr) {
+        } catch {
           console.warn('[chatStream] malformed SSE chunk:', data.slice(0, 200));
         }
       }
@@ -292,17 +294,15 @@ export const api = {
         const lines = buffer.split('\n');
         buffer = lines.pop() || '';
 
-        for (const chunk of parseSSELines(lines)) {
-          yield chunk;
-        }
+        yield* parseSSELines(lines);
       }
 
-      // Process any remaining buffer content
       if (buffer.trim()) {
-        for (const chunk of parseSSELines([buffer])) {
-          yield chunk;
-        }
+        yield* parseSSELines([buffer]);
       }
+    } catch (err) {
+      if (err instanceof DOMException && err.name === 'AbortError') throw err;
+      throw new Error(`Connection to AI service lost. ${err instanceof Error ? err.message : 'Unknown error'}`);
     } finally {
       reader.releaseLock();
     }

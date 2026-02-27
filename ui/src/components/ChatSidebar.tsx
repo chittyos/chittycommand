@@ -23,17 +23,14 @@ export function ChatSidebar() {
   const streamingRef = useRef(false);
   const location = useLocation();
 
-  // Abort any in-flight stream on unmount
   useEffect(() => {
     return () => { abortRef.current?.abort(); };
   }, []);
 
-  // Persist open/close state
   useEffect(() => {
     localStorage.setItem('chat-sidebar-open', String(open));
   }, [open]);
 
-  // Keyboard shortcut: Cmd+J to toggle
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       if ((e.metaKey || e.ctrlKey) && e.key === 'j') {
@@ -45,12 +42,10 @@ export function ChatSidebar() {
     return () => window.removeEventListener('keydown', handler);
   }, []);
 
-  // Auto-scroll to bottom
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
-  // Focus input when opened
   useEffect(() => {
     if (open) inputRef.current?.focus();
   }, [open]);
@@ -58,18 +53,16 @@ export function ChatSidebar() {
   const sendMessage = useCallback(async (content: string) => {
     if (!content.trim() || streamingRef.current) return;
 
-    // Abort any previous in-flight stream
     abortRef.current?.abort();
     const controller = new AbortController();
     abortRef.current = controller;
 
     const userMsg: ChatMessage = { role: 'user', content: content.trim() };
-    const assistantMsg: ChatMessage = { role: 'assistant', content: '' };
 
     let messagesForApi: ChatMessage[] = [];
     setMessages((prev) => {
       messagesForApi = [...prev, userMsg];
-      return [...messagesForApi, assistantMsg];
+      return [...messagesForApi, { role: 'assistant', content: '' }];
     });
     setInput('');
     setStreaming(true);
@@ -89,11 +82,13 @@ export function ChatSidebar() {
       }
     } catch (err) {
       if (err instanceof DOMException && err.name === 'AbortError') {
-        // Remove empty assistant bubble from aborted stream
         setMessages((prev) => {
           const last = prev[prev.length - 1];
-          if (last?.role === 'assistant' && last.content === '') {
-            return prev.slice(0, -1);
+          if (last?.role === 'assistant') {
+            if (last.content === '') return prev.slice(0, -1);
+            const updated = [...prev];
+            updated[updated.length - 1] = { ...last, content: last.content + '\n\n[Response interrupted]' };
+            return updated;
           }
           return prev;
         });
@@ -127,7 +122,6 @@ export function ChatSidebar() {
 
   const prompts = QUICK_PROMPTS[location.pathname] || QUICK_PROMPTS['/'];
 
-  // Toggle button (always visible)
   if (!open) {
     return (
       <button
@@ -155,7 +149,6 @@ export function ChatSidebar() {
         aria-label="AI Assistant"
         className="fixed inset-y-0 right-0 z-50 w-full sm:w-96 lg:w-[400px] bg-chrome-surface border-l border-chrome-border flex flex-col shadow-2xl"
       >
-        {/* Header */}
         <div className="flex items-center justify-between h-12 px-4 border-b border-chrome-border shrink-0">
           <span className="text-sm font-semibold text-chrome-text">AI Assistant</span>
           <button
@@ -167,7 +160,6 @@ export function ChatSidebar() {
           </button>
         </div>
 
-        {/* Messages */}
         <div role="log" aria-live="polite" className="flex-1 overflow-y-auto p-4 space-y-3">
           {messages.length === 0 && (
             <div className="text-center py-8">
@@ -212,7 +204,6 @@ export function ChatSidebar() {
           <div ref={messagesEndRef} />
         </div>
 
-        {/* Quick prompts when mid-conversation */}
         {messages.length > 0 && !streaming && (
           <div className="px-4 pb-2 flex gap-1.5 overflow-x-auto scrollbar-hide">
             {prompts.slice(0, 3).map((prompt) => (
@@ -227,7 +218,6 @@ export function ChatSidebar() {
           </div>
         )}
 
-        {/* Input */}
         <form onSubmit={handleSubmit} className="p-3 border-t border-chrome-border shrink-0">
           <div className="flex items-end gap-2">
             <textarea

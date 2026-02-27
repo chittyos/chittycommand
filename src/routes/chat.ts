@@ -9,14 +9,12 @@ export const chatRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>(
 
 type ChatRequest = z.infer<typeof chatRequestSchema>;
 
-// Build system prompt with financial context from DB
 async function buildSystemPrompt(
   env: Env,
   context?: ChatRequest['context'],
 ): Promise<string> {
   const sql = getDb(env);
 
-  // Fetch cash position snapshot (parallelized)
   const [[cash], [overdue], [dueSoon]] = await Promise.all([
     sql`SELECT COALESCE(SUM(current_balance), 0) as total
         FROM cc_accounts WHERE account_type IN ('checking', 'savings')`,
@@ -32,7 +30,7 @@ async function buildSystemPrompt(
 
   // Add page-specific context (failure here should not block the chat)
   try {
-    if (context?.page === '/queue' && context?.item_id) {
+    if (context?.page === '/queue' && context.item_id) {
       const [item] = await sql`
         SELECT r.*, o.payee, o.amount_due, o.due_date, o.category, o.status as ob_status
         FROM cc_recommendations r
@@ -45,7 +43,7 @@ Payee: ${item.payee || 'N/A'}, Amount: $${item.amount_due || '?'}, Due: ${item.d
 Category: ${item.category || '?'}, Status: ${item.ob_status || '?'}
 AI reasoning: ${item.reasoning || 'N/A'}`;
       }
-    } else if (context?.page === '/bills' && context?.item_id) {
+    } else if (context?.page === '/bills' && context.item_id) {
       const [ob] = await sql`
         SELECT * FROM cc_obligations WHERE id = ${context.item_id}::uuid
       `;
@@ -57,6 +55,7 @@ Category: ${ob.category}, Auto-pay: ${ob.auto_pay}`;
     }
   } catch (err) {
     console.error('[chat] failed to fetch page context:', err instanceof Error ? err.message : err);
+    contextBlock = '\n\n[Note: Unable to load details for the item you are viewing. Responses may lack specific context.]';
   }
 
   return `You are the ChittyCommand Assistant — an AI financial advisor embedded in a life management dashboard.
@@ -71,38 +70,43 @@ You help the user understand their financial position, explain recommendations, 
 }
 
 chatRoutes.post('/', async (c) => {
-  const chatModel = await c.env.COMMAND_KV.get('chat:model');
-
-  let raw: unknown;
-  try {
-    raw = await c.req.json();
-  } catch {
-    return c.json({ error: 'Invalid JSON in request body' }, 400);
-  }
-
+  const raw = await c.req.json().catch(() => null);
   const parsed = chatRequestSchema.safeParse(raw);
   if (!parsed.success) {
     return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
   }
   const body = parsed.data;
 
-  let systemPrompt: string;
-  try {
-    systemPrompt = await buildSystemPrompt(c.env, body.context);
-  } catch (err) {
-    console.error('[chat] failed to build system prompt:', err instanceof Error ? err.message : err);
+  // Fetch model override and system prompt in parallel (independent I/O)
+  const [chatModel, systemPrompt] = await Promise.all([
+    c.env.COMMAND_KV.get('chat:model').catch((err) => {
+      console.error('[chat] KV read failed, using default model:', err instanceof Error ? err.message : err);
+      return null;
+    }),
+    buildSystemPrompt(c.env, body.context).catch((err) => {
+      console.error('[chat] failed to build system prompt:', err instanceof Error ? err.message : err);
+      return null;
+    }),
+  ]);
+
+  if (systemPrompt === null) {
     return c.json({ error: 'Unable to load financial context. Please try again.' }, 503);
   }
 
-  // Use AI Gateway binding to get the compat endpoint URL
-  const gateway = c.env.AI.gateway('chittygateway');
-  const gatewayUrl = await gateway.getUrl();
+  let gatewayUrl: string;
+  try {
+    const gateway = c.env.AI.gateway('chittygateway');
+    gatewayUrl = await gateway.getUrl();
+  } catch (err) {
+    console.error('[chat] AI gateway binding error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'AI service is not configured.' }, 503);
+  }
 
   const model = chatModel || 'dynamic/chittycommand';
 
   let response: Response;
   try {
-    response = await fetch(`${gatewayUrl}compat/chat/completions`, {
+    response = await fetch(new URL('compat/chat/completions', gatewayUrl).toString(), {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -125,16 +129,18 @@ chatRoutes.post('/', async (c) => {
   }
 
   if (!response.ok) {
-    const errText = await response.text().catch(() => 'Gateway error');
+    const errText = await response.text().catch(() => '(unable to read error body)');
     console.error('[chat] gateway error:', response.status, errText);
-    return c.json({ error: 'AI gateway error' }, 502);
+    if (response.status === 429) {
+      return c.json({ error: 'AI service is rate limited. Please wait a moment.' }, 429);
+    }
+    return c.json({ error: `AI gateway error (${response.status})` }, 502);
   }
 
   if (!response.body) {
     return c.json({ error: 'AI gateway returned no data' }, 502);
   }
 
-  // Stream SSE back to client
   return c.newResponse(response.body, {
     headers: {
       'Content-Type': 'text/event-stream',

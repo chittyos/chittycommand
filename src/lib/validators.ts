@@ -246,7 +246,7 @@ export const chatRequestSchema = z.object({
     content: z.string().min(1).max(10000),
   })).min(1).max(50),
   context: z.object({
-    page: z.enum(['/', '/queue', '/cashflow', '/bills', '/disputes', '/legal']).optional(),
+    page: z.string().max(100).optional(),
     item_id: z.string().uuid().optional(),
   }).optional(),
 });
