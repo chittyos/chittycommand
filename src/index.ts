@@ -23,6 +23,7 @@ import { emailConnectionRoutes } from './routes/email-connections';
 import { chatRoutes } from './routes/chat';
 
 export type Env = {
+  AI: Ai;
   HYPERDRIVE: Hyperdrive;
   DOCUMENTS: R2Bucket;
   COMMAND_KV: KVNamespace;

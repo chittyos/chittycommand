@@ -71,14 +71,7 @@ You help the user understand their financial position, explain recommendations, 
 }
 
 chatRoutes.post('/', async (c) => {
-  const [gatewayToken, gatewayUrl, chatModel] = await Promise.all([
-    c.env.COMMAND_KV.get('chat:cf_aig_token'),
-    c.env.COMMAND_KV.get('chat:cf_aig_url'),
-    c.env.COMMAND_KV.get('chat:model'),
-  ]);
-  if (!gatewayToken || !gatewayUrl) {
-    return c.json({ error: 'Chat not configured — missing gateway credentials' }, 503);
-  }
+  const chatModel = await c.env.COMMAND_KV.get('chat:model');
 
   let raw: unknown;
   try {
@@ -101,16 +94,20 @@ chatRoutes.post('/', async (c) => {
     return c.json({ error: 'Unable to load financial context. Please try again.' }, 503);
   }
 
+  // Use AI Gateway binding to get the compat endpoint URL
+  const gateway = c.env.AI.gateway('chittygateway');
+  const gatewayUrl = await gateway.getUrl();
+
+  // Default to dynamic route, fall back to direct provider/model
+  const model = chatModel || 'dynamic/chittycommand';
+
   let response: Response;
   try {
-    response = await fetch(gatewayUrl, {
+    response = await fetch(`${gatewayUrl}compat/chat/completions`, {
       method: 'POST',
-      headers: {
-        'cf-aig-authorization': `Bearer ${gatewayToken}`,
-        'Content-Type': 'application/json',
-      },
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        model: chatModel || 'anthropic/claude-sonnet-4-5',
+        model,
         messages: [
           { role: 'system', content: systemPrompt },
           ...body.messages.slice(-20),
@@ -122,28 +119,20 @@ chatRoutes.post('/', async (c) => {
     });
   } catch (err) {
     if (err instanceof DOMException && err.name === 'TimeoutError') {
-      console.error('[chat] gateway timeout after 30s');
       return c.json({ error: 'AI gateway timed out. Please try again.' }, 504);
     }
-    throw err;
+    console.error('[chat] gateway error:', err instanceof Error ? err.message : err);
+    return c.json({ error: 'AI gateway error' }, 502);
   }
 
   if (!response.ok) {
-    const err = await response.text().catch(() => 'Gateway error');
-    console.error('[chat] gateway error:', response.status, err);
+    const errText = await response.text().catch(() => 'Gateway error');
+    console.error('[chat] gateway error:', response.status, errText);
     return c.json({ error: 'AI gateway error' }, 502);
   }
 
   if (!response.body) {
-    console.error('[chat] gateway returned empty body');
     return c.json({ error: 'AI gateway returned no data' }, 502);
-  }
-
-  const contentType = response.headers.get('content-type') || '';
-  if (!contentType.includes('text/event-stream') && !contentType.includes('text/plain')) {
-    const body = await response.text().catch(() => '(unreadable)');
-    console.error('[chat] gateway unexpected content-type:', contentType, body.slice(0, 500));
-    return c.json({ error: 'AI gateway returned an unexpected response' }, 502);
   }
 
   // Stream SSE back to client
@@ -151,7 +140,6 @@ chatRoutes.post('/', async (c) => {
     headers: {
       'Content-Type': 'text/event-stream',
       'Cache-Control': 'no-cache',
-      'Connection': 'keep-alive',
     },
   });
 });
