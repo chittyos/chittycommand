@@ -98,7 +98,7 @@ chatRoutes.post('/', async (c) => {
   const gateway = c.env.AI.gateway('chittygateway');
   const gatewayUrl = await gateway.getUrl();
 
-  const model = chatModel || 'workers-ai/@cf/meta/llama-3.3-70b-instruct-fp8-fast';
+  const model = chatModel || 'dynamic/chittycommand';
 
   let response: Response;
   try {
