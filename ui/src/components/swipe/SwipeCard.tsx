@@ -113,7 +113,7 @@ export function SwipeCard({ item, offset, showDetails, onToggleDetails }: SwipeC
         <p className="text-card-muted text-sm mt-3 leading-relaxed">{item.reasoning}</p>
 
         {/* Scenario impact preview */}
-        {item.scenario_impact && (
+        {item.scenario_impact != null && (
           <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
             <div className="p-2 rounded-lg bg-green-50 border border-green-200">
               <p className="text-green-700 font-medium">If approved</p>
