@@ -226,6 +226,7 @@ export function ChatSidebar() {
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={handleKeyDown}
               placeholder="Ask anything..."
+              aria-label="Chat message"
               rows={1}
               className="flex-1 resize-none rounded-lg bg-chrome-bg border border-chrome-border px-3 py-2 text-sm text-chrome-text placeholder:text-chrome-muted focus:outline-none focus:border-chitty-600 max-h-24"
             />
