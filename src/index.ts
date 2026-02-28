@@ -13,14 +13,20 @@ import { documentRoutes } from './routes/documents';
 import { recommendationRoutes } from './routes/recommendations';
 import { syncRoutes } from './routes/sync';
 import { cashflowRoutes } from './routes/cashflow';
-import { bridgeRoutes } from './routes/bridge';
+import { bridgeRoutes } from './routes/bridge/index';
 import { mcpRoutes } from './routes/mcp';
+import { metaPublicRoutes, metaRoutes } from './routes/meta';
 import { authRoutes } from './routes/auth';
 import { swipeQueueRoutes } from './routes/swipe-queue';
 import { paymentPlanRoutes } from './routes/payment-plan';
 import { revenueRoutes } from './routes/revenue';
 import { emailConnectionRoutes } from './routes/email-connections';
 import { chatRoutes } from './routes/chat';
+import { sendBeacon } from './lib/beacon';
+import { contextRoutes } from './routes/context';
+import { connectRoutes } from './routes/connect';
+import { ledgerRoutes } from './routes/ledger';
+import { tokenManagementRoutes } from './routes/token-management';
 
 export type Env = {
   AI: Ai;
@@ -38,6 +44,10 @@ export type Env = {
   CHITTYASSETS_URL?: string;
   CHITTYSCRAPE_URL?: string;
   CHITTYROUTER_URL?: string;
+  CHITTYREGISTER_URL?: string;
+  CHITTYCHAT_DATA_API?: string;
+  CHITTYSCHEMA_URL?: string;
+  CHITTYCERT_URL?: string;
   CHITTY_CONNECT_TOKEN?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
@@ -48,7 +58,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // CORS for frontend
 app.use('*', cors({
-  origin: ['https://app.command.chitty.cc', 'https://command.mychitty.com', 'https://chittycommand-ui.pages.dev', 'http://localhost:5173'],
+  origin: ['https://app.command.chitty.cc', 'https://cmd.chitty.cc', 'https://command.mychitty.com', 'https://chittycommand-ui.pages.dev', 'http://localhost:5173'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH'],
   allowHeaders: ['Content-Type', 'Authorization'],
 }));
@@ -81,6 +91,9 @@ app.get('/api/v1/status', (c) => c.json({
   tier: 5,
 }));
 
+// Canon/schema (unauthenticated)
+app.route('/api/v1', metaPublicRoutes);
+
 // Auth routes — unauthenticated (handles login/verify itself)
 app.route('/auth', authRoutes);
 
@@ -106,6 +119,16 @@ app.route('/api/payment-plan', paymentPlanRoutes);
 app.route('/api/revenue', revenueRoutes);
 app.route('/api/email-connections', emailConnectionRoutes);
 app.route('/api/chat', chatRoutes);
+// Identity (authenticated)
+app.route('/api/v1', metaRoutes);
+// Context (authenticated)
+app.route('/api/v1', contextRoutes);
+// ChittyConnect helpers (authenticated)
+app.route('/api/v1', connectRoutes);
+// Ledger (authenticated)
+app.route('/api/v1', ledgerRoutes);
+// Token management (authenticated admin)
+app.route('/api/v1', tokenManagementRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
@@ -116,5 +139,6 @@ export default {
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     const sql = getDb(env);
     ctx.waitUntil(runCronSync(event, env, sql));
+    ctx.waitUntil(sendBeacon(env));
   },
 };
