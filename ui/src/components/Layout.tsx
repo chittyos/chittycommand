@@ -18,7 +18,7 @@ export function Layout() {
   const toggleDrawer = useCallback(() => setDrawerOpen((p) => !p), []);
 
   return (
-    <div className="flex min-h-screen bg-chrome-bg">
+    <div className="flex min-h-screen bg-chrome-bg bg-dotgrid">
       {/* Desktop sidebar — hidden on mobile */}
       <div className="hidden lg:block">
         <Sidebar />
@@ -27,7 +27,7 @@ export function Layout() {
       {/* Mobile drawer overlay */}
       {drawerOpen && (
         <div
-          className="fixed inset-0 bg-black/50 z-40 lg:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 lg:hidden animate-fade-in"
           onClick={() => setDrawerOpen(false)}
         />
       )}
@@ -44,7 +44,7 @@ export function Layout() {
       {/* Main content */}
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
-        <header className="lg:hidden flex items-center justify-between h-14 px-4 bg-chrome-surface border-b border-chrome-border sticky top-0 z-30">
+        <header className="lg:hidden flex items-center justify-between h-14 px-4 bg-chrome-surface/95 backdrop-blur-md border-b border-chrome-border sticky top-0 z-30">
           <button
             onClick={toggleDrawer}
             className="p-2 -ml-2 text-chrome-muted hover:text-white transition-colors"
@@ -52,8 +52,10 @@ export function Layout() {
           >
             {drawerOpen ? <X size={22} /> : <Menu size={22} />}
           </button>
-          <h1 className="text-base font-bold text-white tracking-tight">ChittyCommand</h1>
-          <div className="w-8" /> {/* Spacer for centering */}
+          <h1 className="font-display text-base font-bold text-white tracking-tight">
+            Chitty<span className="text-chitty-400">Command</span>
+          </h1>
+          <div className="w-8" />
         </header>
 
         <StatusBar />
