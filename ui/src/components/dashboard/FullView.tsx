@@ -21,13 +21,14 @@ export function FullView({ data, onPayNow, onExecute, payingId, executingId }: F
     <div className="space-y-4 lg:space-y-6">
       {/* Metric cards — 2 cols mobile, 4 cols desktop */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
-        <MetricCard label="Cash Available" value={formatCurrency(summary.total_cash)} valueClassName="text-urgency-green" />
-        <MetricCard label="Credit Owed" value={formatCurrency(summary.total_credit_owed)} valueClassName="text-urgency-red" />
-        <MetricCard label="Due Next 30d" value={formatCurrency(obligations.total_due_30d)} valueClassName="text-urgency-amber" />
+        <MetricCard label="Cash Available" value={formatCurrency(summary.total_cash)} valueClassName="text-urgency-green" className="stagger-1" />
+        <MetricCard label="Credit Owed" value={formatCurrency(summary.total_credit_owed)} valueClassName="text-urgency-red" className="stagger-2" />
+        <MetricCard label="Due Next 30d" value={formatCurrency(obligations.total_due_30d)} valueClassName="text-urgency-amber" className="stagger-3" />
         <MetricCard
           label="Overdue"
           value={obligations.overdue_count}
           valueClassName={Number(obligations.overdue_count) > 0 ? 'text-urgency-red' : 'text-urgency-green'}
+          className="stagger-4"
         />
       </div>
 
