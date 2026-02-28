@@ -4,31 +4,37 @@
 
 :root {
   /* Chrome (dark shell) */
-  --chrome-bg: #1a1a2e;
-  --chrome-surface: #16213e;
-  --chrome-border: #2a2a4a;
-  --chrome-text: #e2e8f0;
-  --chrome-text-muted: #94a3b8;
+  --chrome-bg: #0f0f1a;
+  --chrome-surface: #161625;
+  --chrome-border: #252540;
+  --chrome-text: #e4e4f0;
+  --chrome-text-muted: #8888a8;
 
-  /* Cards (light surfaces) */
-  --card-bg: #ffffff;
-  --card-bg-hover: #f8fafc;
-  --card-border: #e2e8f0;
-  --card-text: #1e293b;
-  --card-text-muted: #64748b;
+  /* Cards (frosted light surfaces) */
+  --card-bg: rgba(255, 255, 255, 0.97);
+  --card-bg-hover: rgba(248, 250, 255, 0.98);
+  --card-border: rgba(200, 205, 225, 0.5);
+  --card-text: #1a1a2e;
+  --card-text-muted: #5c5c7a;
 
-  /* Urgency */
-  --urgency-red: #ef4444;
+  /* Urgency — vivid, purposeful */
+  --urgency-red: #f43f5e;
   --urgency-amber: #f59e0b;
-  --urgency-green: #22c55e;
-  --urgency-red-bg: #fef2f2;
+  --urgency-green: #10b981;
+  --urgency-red-bg: #fef2f4;
   --urgency-amber-bg: #fffbeb;
-  --urgency-green-bg: #f0fdf4;
+  --urgency-green-bg: #ecfdf5;
 
-  /* Brand */
-  --chitty-500: #4c6ef5;
-  --chitty-600: #3b5bdb;
-  --chitty-700: #364fc7;
+  /* Brand — electric indigo */
+  --chitty-400: #818cf8;
+  --chitty-500: #6366f1;
+  --chitty-600: #4f46e5;
+  --chitty-700: #4338ca;
+
+  /* Glow */
+  --glow-brand: rgba(99, 102, 241, 0.15);
+  --glow-success: rgba(16, 185, 129, 0.15);
+  --glow-danger: rgba(244, 63, 94, 0.15);
 
   /* Safe area insets */
   --safe-top: env(safe-area-inset-top, 0px);
@@ -39,27 +45,159 @@
 
 body {
   margin: 0;
-  font-family: 'Outfit', -apple-system, BlinkMacSystemFont, sans-serif;
+  font-family: 'Figtree', -apple-system, BlinkMacSystemFont, sans-serif;
   background-color: var(--chrome-bg);
   color: var(--chrome-text);
   -webkit-font-smoothing: antialiased;
-  /* Prevent pull-to-refresh on mobile */
   overscroll-behavior-y: contain;
+}
+
+/* Display font for headings */
+h1, h2, .font-display {
+  font-family: 'Syne', 'Figtree', sans-serif;
 }
 
 /* Monospace for financial numbers */
 .font-mono {
   font-family: 'JetBrains Mono', ui-monospace, monospace;
+  font-feature-settings: 'tnum' 1;
 }
 
-/* react-grid-layout overrides */
-.react-grid-item.react-grid-placeholder {
-  background: var(--chitty-500) !important;
-  opacity: 0.15 !important;
-  border-radius: 12px !important;
+/* ── Background texture ────────────────────────── */
+.bg-noise {
+  position: relative;
+}
+.bg-noise::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.025;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='noise'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23noise)' opacity='1'/%3E%3C/svg%3E");
+  background-repeat: repeat;
+  background-size: 256px 256px;
+  pointer-events: none;
+  z-index: 0;
 }
 
-/* Hide scrollbar in horizontal scroll containers */
+/* ── Subtle dot grid background ────────────────── */
+.bg-dotgrid {
+  background-image: radial-gradient(circle at 1px 1px, rgba(255,255,255,0.03) 1px, transparent 0);
+  background-size: 24px 24px;
+}
+
+/* ── Glass card effect ─────────────────────────── */
+.glass-card {
+  background: var(--card-bg);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border: 1px solid var(--card-border);
+  box-shadow:
+    0 1px 3px rgba(0, 0, 0, 0.04),
+    0 4px 16px rgba(0, 0, 0, 0.03),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+.glass-card:hover {
+  box-shadow:
+    0 2px 8px rgba(0, 0, 0, 0.06),
+    0 8px 24px rgba(0, 0, 0, 0.04),
+    inset 0 1px 0 rgba(255, 255, 255, 0.6);
+}
+
+/* ── Animations ────────────────────────────────── */
+@keyframes fadeInUp {
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+@keyframes fadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes slideInLeft {
+  from {
+    opacity: 0;
+    transform: translateX(-12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateX(0);
+  }
+}
+
+@keyframes pulse-glow {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.5; }
+}
+
+@keyframes shimmer {
+  0% { background-position: -200% 0; }
+  100% { background-position: 200% 0; }
+}
+
+.animate-fade-in-up {
+  animation: fadeInUp 0.4s ease-out both;
+}
+
+.animate-fade-in {
+  animation: fadeIn 0.3s ease-out both;
+}
+
+.animate-slide-in-left {
+  animation: slideInLeft 0.3s ease-out both;
+}
+
+.animate-pulse-glow {
+  animation: pulse-glow 2s ease-in-out infinite;
+}
+
+/* Stagger delays for lists */
+.stagger-1 { animation-delay: 0.05s; }
+.stagger-2 { animation-delay: 0.1s; }
+.stagger-3 { animation-delay: 0.15s; }
+.stagger-4 { animation-delay: 0.2s; }
+.stagger-5 { animation-delay: 0.25s; }
+.stagger-6 { animation-delay: 0.3s; }
+
+/* ── Status indicator glow ─────────────────────── */
+.status-dot-ok {
+  box-shadow: 0 0 0 3px var(--glow-success);
+}
+.status-dot-error {
+  box-shadow: 0 0 0 3px var(--glow-danger);
+}
+
+/* ── Active nav glow ───────────────────────────── */
+.nav-active {
+  background: linear-gradient(135deg, var(--chitty-600), var(--chitty-500));
+  box-shadow: 0 2px 12px var(--glow-brand), inset 0 1px 0 rgba(255,255,255,0.1);
+}
+
+/* ── Metric card gradients ─────────────────────── */
+.metric-green {
+  background: linear-gradient(135deg, #ecfdf5 0%, #d1fae5 100%);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.metric-red {
+  background: linear-gradient(135deg, #fef2f4 0%, #fce7f3 100%);
+  border-color: rgba(244, 63, 94, 0.2);
+}
+.metric-amber {
+  background: linear-gradient(135deg, #fffbeb 0%, #fef3c7 100%);
+  border-color: rgba(245, 158, 11, 0.2);
+}
+.metric-brand {
+  background: linear-gradient(135deg, #eef2ff 0%, #e0e7ff 100%);
+  border-color: rgba(99, 102, 241, 0.2);
+}
+
+/* ── Scrollbar ─────────────────────────────────── */
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
@@ -68,7 +206,59 @@ body {
   scrollbar-width: none;
 }
 
+/* Thin styled scrollbar for sidebar */
+.scrollbar-thin::-webkit-scrollbar {
+  width: 4px;
+}
+.scrollbar-thin::-webkit-scrollbar-track {
+  background: transparent;
+}
+.scrollbar-thin::-webkit-scrollbar-thumb {
+  background: var(--chrome-border);
+  border-radius: 2px;
+}
+
+/* ── react-grid-layout overrides ───────────────── */
+.react-grid-item.react-grid-placeholder {
+  background: var(--chitty-500) !important;
+  opacity: 0.12 !important;
+  border-radius: 16px !important;
+}
+
 /* Bottom nav safe area padding */
 .pb-safe {
   padding-bottom: max(1rem, var(--safe-bottom));
+}
+
+/* ── Focus ring ────────────────────────────────── */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--chitty-500);
+  outline-offset: 2px;
+}
+
+/* ── Settings tab underline ────────────────────── */
+.tab-active {
+  color: var(--chitty-500);
+  box-shadow: inset 0 -2px 0 var(--chitty-500);
+}
+
+/* ── Form inputs ───────────────────────────────── */
+.input-field {
+  width: 100%;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  border: 1px solid var(--card-border);
+  border-radius: 0.75rem;
+  background: white;
+  color: var(--card-text);
+  transition: all 0.2s;
+}
+.input-field:focus {
+  outline: none;
+  border-color: var(--chitty-400);
+  box-shadow: 0 0 0 3px var(--glow-brand);
+}
+.input-field::placeholder {
+  color: var(--card-text-muted);
+  opacity: 0.6;
 }

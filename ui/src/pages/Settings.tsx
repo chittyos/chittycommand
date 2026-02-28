@@ -4,8 +4,24 @@ import { formatDate } from '../lib/utils';
 import { PlaidLink } from '../components/PlaidLink';
 import { Card } from '../components/ui/Card';
 import { ActionButton } from '../components/ui/ActionButton';
+import {
+  Database, Link2, RefreshCw, Shield, Mail,
+  CheckCircle2, XCircle, AlertCircle, Clock,
+  Copy, ExternalLink,
+} from 'lucide-react';
+
+const TABS = [
+  { key: 'sources', label: 'Data Sources', icon: Database },
+  { key: 'integrations', label: 'Integrations', icon: Link2 },
+  { key: 'services', label: 'Services', icon: RefreshCw },
+  { key: 'auth', label: 'Auth', icon: Shield },
+  { key: 'email', label: 'Email', icon: Mail },
+] as const;
+
+type TabKey = (typeof TABS)[number]['key'];
 
 export function Settings() {
+  const [activeTab, setActiveTab] = useState<TabKey>('sources');
   const [syncStatuses, setSyncStatuses] = useState<SyncStatus[]>([]);
   const [serviceStatuses, setServiceStatuses] = useState<ServiceStatus[]>([]);
   const [triggering, setTriggering] = useState<string | null>(null);
@@ -216,398 +232,457 @@ export function Settings() {
   ];
 
   return (
-    <div className="space-y-6">
-      <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Settings</h1>
+    <div className="space-y-5 animate-fade-in-up">
+      <h1 className="font-display text-xl lg:text-2xl font-bold text-chrome-text tracking-tight">Settings</h1>
 
       {error && (
-        <div className="bg-red-50 border border-red-200 rounded-card p-3 text-urgency-red text-sm">
-          {error}
+        <div className="flex items-center gap-2 bg-urgency-red/10 border border-urgency-red/20 rounded-xl p-3 text-urgency-red text-sm animate-fade-in">
+          <AlertCircle size={16} className="shrink-0" />
+          <span className="flex-1">{error}</span>
+          <button onClick={() => setError(null)} className="text-urgency-red/60 hover:text-urgency-red transition-colors">&times;</button>
         </div>
       )}
 
-      {/* Data Sources & Sync Status */}
-      <Card>
-        <h2 className="text-card-text font-semibold mb-3">Data Sources & Sync Status</h2>
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="text-card-muted border-b border-card-border">
-                <th className="text-left py-2">Source</th>
-                <th className="text-left py-2">Method</th>
-                <th className="text-left py-2">Schedule</th>
-                <th className="text-left py-2">Last Sync</th>
-                <th className="text-left py-2">Status</th>
-                <th className="text-right py-2">Action</th>
-              </tr>
-            </thead>
-            <tbody>
-              {syncSources.map((src) => {
-                const status = syncStatuses.find((s) => s.source === src.key);
-                return (
-                  <tr key={src.key} className="border-b border-card-border last:border-0">
-                    <td className="py-2 text-card-text">{src.label}</td>
-                    <td className="py-2 text-card-muted">{src.method}</td>
-                    <td className="py-2 text-card-muted">{src.schedule}</td>
-                    <td className="py-2 text-card-muted">
-                      {status?.completed_at ? formatDate(status.completed_at) : 'Never'}
-                    </td>
-                    <td className="py-2">
-                      <SyncStatusBadge status={status?.status} />
-                    </td>
-                    <td className="py-2 text-right">
-                      <ActionButton
-                        label={triggering === src.key ? 'Syncing...' : 'Sync Now'}
-                        onClick={() => triggerSync(src.key)}
-                        loading={triggering === src.key}
-                        className="px-3 py-1 text-xs"
-                      />
-                    </td>
-                  </tr>
-                );
-              })}
-            </tbody>
-          </table>
-        </div>
-      </Card>
+      {/* Tab navigation */}
+      <div className="flex items-center gap-1 overflow-x-auto scrollbar-hide bg-chrome-surface/60 backdrop-blur-sm rounded-2xl p-1 border border-chrome-border">
+        {TABS.map((tab) => (
+          <button
+            key={tab.key}
+            onClick={() => setActiveTab(tab.key)}
+            className={`flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-semibold transition-all duration-200 shrink-0 ${
+              activeTab === tab.key
+                ? 'bg-chitty-600 text-white shadow-glow-brand'
+                : 'text-chrome-muted hover:text-chrome-text hover:bg-chrome-border/40'
+            }`}
+          >
+            <tab.icon size={15} />
+            {tab.label}
+          </button>
+        ))}
+      </div>
 
-      {/* Bank Account Linking (Plaid) */}
-      <Card>
-        <h2 className="text-card-text font-semibold mb-3">Bank Account Linking</h2>
-        <PlaidLink onSuccess={handlePlaidSuccess} />
-        {plaidMessage && (
-          <div className="mt-3 text-sm text-urgency-green bg-green-50 rounded-lg p-2 border border-green-200">
-            {plaidMessage}
+      {/* Tab content */}
+      <div className="animate-fade-in" key={activeTab}>
+        {activeTab === 'sources' && (
+          <Card>
+            <h2 className="font-display text-card-text font-semibold mb-4 text-base">Data Sources & Sync Status</h2>
+            <div className="overflow-x-auto -mx-4 px-4">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-card-muted border-b border-card-border">
+                    <th className="text-left py-2.5 text-[10px] uppercase tracking-widest font-semibold">Source</th>
+                    <th className="text-left py-2.5 text-[10px] uppercase tracking-widest font-semibold">Method</th>
+                    <th className="text-left py-2.5 text-[10px] uppercase tracking-widest font-semibold hidden sm:table-cell">Schedule</th>
+                    <th className="text-left py-2.5 text-[10px] uppercase tracking-widest font-semibold">Last Sync</th>
+                    <th className="text-left py-2.5 text-[10px] uppercase tracking-widest font-semibold">Status</th>
+                    <th className="text-right py-2.5 text-[10px] uppercase tracking-widest font-semibold">Action</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {syncSources.map((src, i) => {
+                    const status = syncStatuses.find((s) => s.source === src.key);
+                    return (
+                      <tr key={src.key} className={`border-b border-card-border/50 last:border-0 animate-fade-in-up stagger-${Math.min(i + 1, 6)}`}>
+                        <td className="py-2.5 text-card-text font-medium">{src.label}</td>
+                        <td className="py-2.5 text-card-muted text-xs">{src.method}</td>
+                        <td className="py-2.5 text-card-muted text-xs hidden sm:table-cell">{src.schedule}</td>
+                        <td className="py-2.5 text-card-muted text-xs font-mono">
+                          {status?.completed_at ? formatDate(status.completed_at) : <span className="opacity-40">Never</span>}
+                        </td>
+                        <td className="py-2.5">
+                          <SyncStatusBadge status={status?.status} />
+                        </td>
+                        <td className="py-2.5 text-right">
+                          <ActionButton
+                            label={triggering === src.key ? 'Syncing...' : 'Sync'}
+                            onClick={() => triggerSync(src.key)}
+                            loading={triggering === src.key}
+                            variant="secondary"
+                            className="px-3 py-1.5 text-xs"
+                          />
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </Card>
+        )}
+
+        {activeTab === 'integrations' && (
+          <div className="space-y-4">
+            <Card>
+              <h2 className="font-display text-card-text font-semibold mb-3 text-base">Bank Account Linking</h2>
+              <p className="text-card-muted text-sm mb-4">Connect bank accounts via Plaid for automatic transaction syncing.</p>
+              <PlaidLink onSuccess={handlePlaidSuccess} />
+              {plaidMessage && (
+                <div className="mt-3 flex items-center gap-2 text-sm text-urgency-green bg-urgency-green/5 rounded-xl p-3 border border-urgency-green/20 animate-fade-in">
+                  <CheckCircle2 size={16} className="shrink-0" />
+                  {plaidMessage}
+                </div>
+              )}
+            </Card>
+
+            <Card>
+              <h2 className="font-display text-card-text font-semibold mb-3 text-base">Bridge Sync Controls</h2>
+              <p className="text-card-muted text-sm mb-4">Manually trigger sync operations between services.</p>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-3">
+                <BridgeSyncButton
+                  label="Plaid Transactions"
+                  syncing={bridgeSyncing === 'Plaid Transactions'}
+                  onClick={() => runBridgeSync('Plaid Transactions', api.syncPlaidTransactions)}
+                />
+                <BridgeSyncButton
+                  label="Plaid Balances"
+                  syncing={bridgeSyncing === 'Plaid Balances'}
+                  onClick={() => runBridgeSync('Plaid Balances', api.syncPlaidBalances)}
+                />
+                <BridgeSyncButton
+                  label="Finance Accounts"
+                  syncing={bridgeSyncing === 'Finance Accounts'}
+                  onClick={() => runBridgeSync('Finance Accounts', api.syncFinanceAccounts)}
+                />
+                <BridgeSyncButton
+                  label="Finance Transactions"
+                  syncing={bridgeSyncing === 'Finance Transactions'}
+                  onClick={() => runBridgeSync('Finance Transactions', api.syncFinanceTransactions)}
+                />
+                <BridgeSyncButton
+                  label="Ledger Documents"
+                  syncing={bridgeSyncing === 'Ledger Documents'}
+                  onClick={() => runBridgeSync('Ledger Documents', api.syncLedgerDocuments)}
+                />
+                <BridgeSyncButton
+                  label="Ledger Disputes"
+                  syncing={bridgeSyncing === 'Ledger Disputes'}
+                  onClick={() => runBridgeSync('Ledger Disputes', api.syncLedgerDisputes)}
+                />
+              </div>
+            </Card>
           </div>
         )}
-      </Card>
 
-      {/* Bridge Sync Controls */}
-      <Card>
-        <h2 className="text-card-text font-semibold mb-3">Integration Sync</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 lg:gap-3">
-          <BridgeSyncButton
-            label="Plaid Transactions"
-            syncing={bridgeSyncing === 'Plaid Transactions'}
-            onClick={() => runBridgeSync('Plaid Transactions', api.syncPlaidTransactions)}
-          />
-          <BridgeSyncButton
-            label="Plaid Balances"
-            syncing={bridgeSyncing === 'Plaid Balances'}
-            onClick={() => runBridgeSync('Plaid Balances', api.syncPlaidBalances)}
-          />
-          <BridgeSyncButton
-            label="Finance Accounts"
-            syncing={bridgeSyncing === 'Finance Accounts'}
-            onClick={() => runBridgeSync('Finance Accounts', api.syncFinanceAccounts)}
-          />
-          <BridgeSyncButton
-            label="Finance Transactions"
-            syncing={bridgeSyncing === 'Finance Transactions'}
-            onClick={() => runBridgeSync('Finance Transactions', api.syncFinanceTransactions)}
-          />
-          <BridgeSyncButton
-            label="Ledger Documents"
-            syncing={bridgeSyncing === 'Ledger Documents'}
-            onClick={() => runBridgeSync('Ledger Documents', api.syncLedgerDocuments)}
-          />
-          <BridgeSyncButton
-            label="Ledger Disputes"
-            syncing={bridgeSyncing === 'Ledger Disputes'}
-            onClick={() => runBridgeSync('Ledger Disputes', api.syncLedgerDisputes)}
-          />
-        </div>
-      </Card>
-
-      {/* Service Connections (live status) */}
-      <Card>
-        <h2 className="text-card-text font-semibold mb-3">Service Connections</h2>
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 lg:gap-4">
-          {serviceStatuses.length > 0 ? (
-            serviceStatuses.map((svc) => (
-              <ServiceCard
-                key={svc.name}
-                name={svc.name}
-                url={`${svc.name.replace('chitty', '')}.chitty.cc`}
-                description={svc.error || `Status: ${svc.status}`}
-                connected={svc.status === 'ok'}
-              />
-            ))
-          ) : (
-            <>
-              <ServiceCard name="ChittyAuth" url="auth.chitty.cc" description="Authentication & identity verification" connected />
-              <ServiceCard name="ChittyConnect" url="connect.chitty.cc" description="API integrations & credential management" connected />
-              <ServiceCard name="ChittyLedger" url="ledger.chitty.cc" description="Legal evidence & case management" connected />
-              <ServiceCard name="ChittyFinance" url="finance.chitty.cc" description="Financial data aggregation" connected={false} />
-              <ServiceCard name="ChittyCharge" url="charge.chitty.cc" description="Payment execution via Stripe" connected />
-              <ServiceCard name="Plaid" url="plaid.com" description="Bank account linking & transactions" connected={false} />
-            </>
-          )}
-        </div>
-      </Card>
-
-      {/* Auth Management */}
-      <Card>
-        <div className="flex items-center justify-between mb-3">
-          <h2 className="text-card-text font-semibold">Auth Management</h2>
-          <button
-            onClick={refreshTokenOverview}
-            className="px-3 py-1 text-xs bg-card-border text-card-text rounded-lg hover:bg-gray-200 transition-colors"
-          >
-            Refresh
-          </button>
-        </div>
-
-        <p className="text-card-muted text-sm mb-4">
-          Use ChittyAuth as the token control plane, with local legacy tokens for compatibility.
-        </p>
-
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-5">
-          <div className="rounded-lg border border-card-border p-3 bg-card-hover">
-            <h3 className="text-card-text text-sm font-medium mb-2">ChittyAuth Status</h3>
-            <p className="text-card-muted text-xs">
-              {tokenOverview?.chittyauth.base_url || 'https://auth.chitty.cc'}
-            </p>
-            <p className="text-card-muted text-xs mt-1">
-              Health: {tokenOverview?.chittyauth.status || 'unknown'}
-              {tokenOverview?.chittyauth.health_code ? ` (${tokenOverview.chittyauth.health_code})` : ''}
-            </p>
-          </div>
-          <div className="rounded-lg border border-card-border p-3 bg-card-hover">
-            <h3 className="text-card-text text-sm font-medium mb-2">Legacy Tokens</h3>
-            <div className="space-y-2">
-              {(tokenOverview?.legacy || []).map((item) => (
-                <div key={item.key} className="flex items-center justify-between gap-2">
-                  <div>
-                    <p className="text-card-text text-xs">{item.key}</p>
-                    <p className="text-card-muted text-xs">{item.configured ? item.preview : 'not configured'}</p>
-                  </div>
-                  <button
-                    onClick={() => rotateLegacyToken(item.key)}
-                    disabled={tokenActionLoading === item.key}
-                    className="px-2 py-1 text-xs bg-card-border text-card-text rounded hover:bg-gray-200 disabled:opacity-50 transition-colors"
-                  >
-                    {tokenActionLoading === item.key ? 'Rotating...' : 'Rotate'}
-                  </button>
+        {activeTab === 'services' && (
+          <Card>
+            <h2 className="font-display text-card-text font-semibold mb-4 text-base">Service Connections</h2>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {serviceStatuses.length > 0 ? (
+                serviceStatuses.map((svc, i) => (
+                  <ServiceCard
+                    key={svc.name}
+                    name={svc.name}
+                    url={`${svc.name.replace('chitty', '')}.chitty.cc`}
+                    description={svc.error || `Status: ${svc.status}`}
+                    connected={svc.status === 'ok'}
+                    index={i}
+                  />
+                ))
+              ) : (
+                <div className="col-span-full flex items-center justify-center py-12 text-card-muted text-sm">
+                  <RefreshCw size={16} className="animate-spin mr-2" />
+                  Loading service status...
                 </div>
-              ))}
+              )}
             </div>
-          </div>
-        </div>
+          </Card>
+        )}
 
-        <div className="space-y-4">
-          <div>
-            <label className="block text-card-text text-sm font-medium mb-1">ChittyAuth Admin Token (optional)</label>
-            <input
-              type="password"
-              value={tokenAdminInput}
-              onChange={(e) => setTokenAdminInput(e.target.value)}
-              placeholder="Bearer token used for provision/revoke"
-              className="w-full px-3 py-2 text-sm border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
-            />
-          </div>
-
-          <div>
-            <label className="block text-card-text text-sm font-medium mb-1">Provision Payload (JSON)</label>
-            <textarea
-              value={tokenProvisionPayload}
-              onChange={(e) => setTokenProvisionPayload(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 text-xs font-mono border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
-            />
-            <button
-              onClick={provisionChittyAuthToken}
-              disabled={tokenActionLoading === 'provision'}
-              className="mt-2 px-3 py-2 text-sm bg-chitty-600 text-white rounded-lg hover:bg-chitty-700 disabled:opacity-50 transition-colors"
-            >
-              {tokenActionLoading === 'provision' ? 'Provisioning...' : 'Provision via ChittyAuth'}
-            </button>
-          </div>
-
-          <div>
-            <label className="block text-card-text text-sm font-medium mb-1">Validate Token</label>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={tokenValidateInput}
-                onChange={(e) => setTokenValidateInput(e.target.value)}
-                placeholder="Token to validate"
-                className="flex-1 px-3 py-2 text-sm border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
+        {activeTab === 'auth' && (
+          <Card>
+            <div className="flex items-center justify-between mb-4">
+              <h2 className="font-display text-card-text font-semibold text-base">Auth Management</h2>
+              <ActionButton
+                label="Refresh"
+                onClick={refreshTokenOverview}
+                variant="secondary"
+                className="px-3 py-1.5 text-xs"
               />
-              <button
-                onClick={validateChittyAuthToken}
-                disabled={tokenActionLoading === 'validate'}
-                className="px-3 py-2 text-sm bg-card-border text-card-text rounded-lg hover:bg-gray-200 disabled:opacity-50 transition-colors"
-              >
-                {tokenActionLoading === 'validate' ? 'Validating...' : 'Validate'}
-              </button>
             </div>
-          </div>
 
-          <div>
-            <label className="block text-card-text text-sm font-medium mb-1">Revoke Payload (JSON)</label>
-            <textarea
-              value={tokenRevokePayload}
-              onChange={(e) => setTokenRevokePayload(e.target.value)}
-              rows={3}
-              className="w-full px-3 py-2 text-xs font-mono border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
-            />
-            <button
-              onClick={revokeChittyAuthToken}
-              disabled={tokenActionLoading === 'revoke'}
-              className="mt-2 px-3 py-2 text-sm bg-red-600 text-white rounded-lg hover:bg-red-700 disabled:opacity-50 transition-colors"
-            >
-              {tokenActionLoading === 'revoke' ? 'Revoking...' : 'Revoke via ChittyAuth'}
-            </button>
-          </div>
+            <p className="text-card-muted text-sm mb-5">
+              ChittyAuth as the token control plane, with local legacy tokens for compatibility.
+            </p>
 
-          {latestLegacyToken && (
-            <div className="rounded-lg border border-green-200 bg-green-50 p-3">
-              <p className="text-green-700 text-xs font-medium mb-1">Latest rotated token: {latestLegacyToken.key}</p>
-              <div className="flex items-center gap-2">
-                <code className="text-xs font-mono text-green-800 break-all flex-1">{latestLegacyToken.token}</code>
-                <button
-                  onClick={() => navigator.clipboard.writeText(latestLegacyToken.token)}
-                  className="px-2 py-1 text-xs bg-green-200 text-green-900 rounded hover:bg-green-300 transition-colors"
-                >
-                  Copy
-                </button>
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 mb-6">
+              <div className="rounded-xl border border-card-border p-4 bg-card-hover">
+                <div className="flex items-center gap-2 mb-2">
+                  <Shield size={14} className="text-chitty-500" />
+                  <h3 className="text-card-text text-sm font-semibold">ChittyAuth Status</h3>
+                </div>
+                <p className="text-card-muted text-xs font-mono">
+                  {tokenOverview?.chittyauth.base_url || 'https://auth.chitty.cc'}
+                </p>
+                <div className="flex items-center gap-2 mt-2">
+                  <span className={`w-2 h-2 rounded-full ${tokenOverview?.chittyauth.status === 'ok' ? 'bg-urgency-green status-dot-ok' : 'bg-chrome-muted'}`} />
+                  <p className="text-card-muted text-xs">
+                    {tokenOverview?.chittyauth.status || 'unknown'}
+                    {tokenOverview?.chittyauth.health_code ? ` (${tokenOverview.chittyauth.health_code})` : ''}
+                  </p>
+                </div>
+              </div>
+              <div className="rounded-xl border border-card-border p-4 bg-card-hover">
+                <h3 className="text-card-text text-sm font-semibold mb-3">Legacy Tokens</h3>
+                <div className="space-y-2.5">
+                  {(tokenOverview?.legacy || []).map((item) => (
+                    <div key={item.key} className="flex items-center justify-between gap-2">
+                      <div className="min-w-0">
+                        <p className="text-card-text text-xs font-medium font-mono truncate">{item.key}</p>
+                        <p className="text-card-muted text-[10px] font-mono truncate">{item.configured ? item.preview : 'not configured'}</p>
+                      </div>
+                      <ActionButton
+                        label={tokenActionLoading === item.key ? 'Rotating...' : 'Rotate'}
+                        onClick={() => rotateLegacyToken(item.key)}
+                        loading={tokenActionLoading === item.key}
+                        variant="secondary"
+                        className="px-2.5 py-1 text-xs shrink-0"
+                      />
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
-          )}
 
-          {tokenActionResult && (
-            <div className="rounded-lg border border-card-border bg-card-hover p-3">
-              <p className="text-card-text text-xs font-medium mb-1">Last auth operation result</p>
-              <pre className="text-xs text-card-muted whitespace-pre-wrap break-all font-mono">{tokenActionResult}</pre>
+            <div className="space-y-5">
+              <InputSection label="ChittyAuth Admin Token">
+                <input
+                  type="password"
+                  value={tokenAdminInput}
+                  onChange={(e) => setTokenAdminInput(e.target.value)}
+                  placeholder="Bearer token for provision/revoke"
+                  className="input-field"
+                />
+              </InputSection>
+
+              <InputSection label="Provision Payload (JSON)">
+                <textarea
+                  value={tokenProvisionPayload}
+                  onChange={(e) => setTokenProvisionPayload(e.target.value)}
+                  rows={3}
+                  className="input-field font-mono text-xs"
+                />
+                <ActionButton
+                  label={tokenActionLoading === 'provision' ? 'Provisioning...' : 'Provision via ChittyAuth'}
+                  onClick={provisionChittyAuthToken}
+                  loading={tokenActionLoading === 'provision'}
+                  className="mt-2"
+                />
+              </InputSection>
+
+              <InputSection label="Validate Token">
+                <div className="flex gap-2">
+                  <input
+                    type="text"
+                    value={tokenValidateInput}
+                    onChange={(e) => setTokenValidateInput(e.target.value)}
+                    placeholder="Token to validate"
+                    className="input-field flex-1"
+                  />
+                  <ActionButton
+                    label={tokenActionLoading === 'validate' ? 'Validating...' : 'Validate'}
+                    onClick={validateChittyAuthToken}
+                    loading={tokenActionLoading === 'validate'}
+                    variant="secondary"
+                  />
+                </div>
+              </InputSection>
+
+              <InputSection label="Revoke Payload (JSON)">
+                <textarea
+                  value={tokenRevokePayload}
+                  onChange={(e) => setTokenRevokePayload(e.target.value)}
+                  rows={3}
+                  className="input-field font-mono text-xs"
+                />
+                <ActionButton
+                  label={tokenActionLoading === 'revoke' ? 'Revoking...' : 'Revoke via ChittyAuth'}
+                  onClick={revokeChittyAuthToken}
+                  loading={tokenActionLoading === 'revoke'}
+                  variant="danger"
+                  className="mt-2"
+                />
+              </InputSection>
+
+              {latestLegacyToken && (
+                <div className="rounded-xl border border-urgency-green/20 bg-urgency-green/5 p-4 animate-fade-in">
+                  <p className="text-urgency-green text-xs font-semibold mb-2">Latest rotated token: {latestLegacyToken.key}</p>
+                  <div className="flex items-center gap-2">
+                    <code className="text-xs font-mono text-card-text break-all flex-1 bg-white/60 rounded-lg px-3 py-2">{latestLegacyToken.token}</code>
+                    <button
+                      onClick={() => navigator.clipboard.writeText(latestLegacyToken.token)}
+                      className="p-2 rounded-lg bg-urgency-green/10 text-urgency-green hover:bg-urgency-green/20 transition-colors shrink-0"
+                      title="Copy token"
+                    >
+                      <Copy size={14} />
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {tokenActionResult && (
+                <div className="rounded-xl border border-card-border bg-card-hover p-4 animate-fade-in">
+                  <p className="text-card-text text-xs font-semibold mb-2">Last auth operation result</p>
+                  <pre className="text-xs text-card-muted whitespace-pre-wrap break-all font-mono bg-white/40 rounded-lg p-3">{tokenActionResult}</pre>
+                </div>
+              )}
             </div>
-          )}
-        </div>
-      </Card>
+          </Card>
+        )}
 
-      {/* Email Accounts */}
-      <Card>
-        <h2 className="text-card-text font-semibold mb-3">Email Accounts</h2>
-        <p className="text-card-muted text-sm mb-4">
-          Connect email accounts to automatically parse bills and statements.
-        </p>
+        {activeTab === 'email' && (
+          <Card>
+            <h2 className="font-display text-card-text font-semibold mb-3 text-base">Email Accounts</h2>
+            <p className="text-card-muted text-sm mb-5">
+              Connect email accounts to automatically parse bills and statements.
+            </p>
 
-        {/* Namespace claim or display */}
-        <div className="mb-4">
-          <h3 className="text-card-text text-sm font-medium mb-2">Forwarding Address</h3>
-          {emailNamespace ? (
-            <div className="flex items-center gap-3 bg-card-hover rounded-lg p-3 border border-card-border">
-              <code className="text-chitty-600 text-sm font-mono flex-1">{emailNamespace}</code>
-              <button
-                onClick={() => navigator.clipboard.writeText(emailNamespace)}
-                className="px-3 py-1 text-xs bg-card-border text-card-text rounded-lg hover:bg-gray-200 transition-colors"
-              >
-                Copy
-              </button>
+            {/* Namespace claim or display */}
+            <div className="mb-6">
+              <h3 className="text-card-text text-sm font-semibold mb-2">Forwarding Address</h3>
+              {emailNamespace ? (
+                <div className="flex items-center gap-3 bg-card-hover rounded-xl p-3 border border-card-border">
+                  <code className="text-chitty-500 text-sm font-mono font-semibold flex-1">{emailNamespace}</code>
+                  <button
+                    onClick={() => navigator.clipboard.writeText(emailNamespace)}
+                    className="p-2 rounded-lg bg-chitty-50 text-chitty-600 hover:bg-chitty-100 transition-colors"
+                    title="Copy address"
+                  >
+                    <Copy size={14} />
+                  </button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    placeholder="your-name"
+                    value={namespaceClaim}
+                    onChange={(e) => setNamespaceClaim(e.target.value)}
+                    className="input-field flex-1"
+                  />
+                  <span className="text-card-muted text-sm font-mono">@chitty.cc</span>
+                  <ActionButton
+                    label={emailLoading ? 'Claiming...' : 'Claim'}
+                    onClick={claimEmailNamespace}
+                    loading={emailLoading}
+                    className="px-4 py-2 text-sm"
+                  />
+                </div>
+              )}
+              <p className="text-card-muted text-xs mt-2">
+                Forward bills to this address for automatic parsing via ChittyRouter.
+              </p>
             </div>
-          ) : (
-            <div className="flex items-center gap-2">
-              <input
-                type="text"
-                placeholder="your-name"
-                value={namespaceClaim}
-                onChange={(e) => setNamespaceClaim(e.target.value)}
-                className="flex-1 px-3 py-2 text-sm border border-card-border rounded-lg bg-white text-card-text focus:outline-none focus:ring-2 focus:ring-chitty-500"
-              />
-              <span className="text-card-muted text-sm">@chitty.cc</span>
+
+            {/* Connect Gmail */}
+            <div className="mb-6">
+              <h3 className="text-card-text text-sm font-semibold mb-2">Connect Gmail</h3>
               <ActionButton
-                label={emailLoading ? 'Claiming...' : 'Claim'}
-                onClick={claimEmailNamespace}
+                label={emailLoading ? 'Connecting...' : 'Connect Gmail Account'}
+                onClick={connectGmail}
                 loading={emailLoading}
                 className="px-4 py-2 text-sm"
               />
+              <p className="text-card-muted text-xs mt-2">
+                Read-only access to scan for bills. Supports multiple accounts.
+              </p>
             </div>
-          )}
-          <p className="text-card-muted text-xs mt-2">
-            Forward bills to this address for automatic parsing via ChittyRouter.
-          </p>
-        </div>
 
-        {/* Connect Gmail */}
-        <div className="mb-4">
-          <h3 className="text-card-text text-sm font-medium mb-2">Connect Gmail</h3>
-          <ActionButton
-            label={emailLoading ? 'Connecting...' : 'Connect Gmail Account'}
-            onClick={connectGmail}
-            loading={emailLoading}
-            className="px-4 py-2 text-sm"
-          />
-          <p className="text-card-muted text-xs mt-2">
-            Read-only access to scan for bills. Supports multiple accounts.
-          </p>
-        </div>
-
-        {/* Connected accounts list */}
-        {emailConnections.length > 0 && (
-          <div>
-            <h3 className="text-card-text text-sm font-medium mb-2">Connected Accounts</h3>
-            <div className="space-y-2">
-              {emailConnections.map((conn) => (
-                <div key={conn.id} className="flex items-center justify-between p-3 rounded-lg bg-card-hover border border-card-border">
-                  <div className="flex items-center gap-3">
-                    <span className="text-xs px-2 py-0.5 rounded-full bg-blue-100 text-blue-700 capitalize">
-                      {conn.provider}
-                    </span>
-                    <div>
-                      <p className="text-card-text text-sm font-medium">
-                        {conn.display_name || conn.email_address}
-                      </p>
-                      {conn.display_name && (
-                        <p className="text-card-muted text-xs">{conn.email_address}</p>
-                      )}
+            {/* Connected accounts list */}
+            {emailConnections.length > 0 && (
+              <div>
+                <h3 className="text-card-text text-sm font-semibold mb-3">Connected Accounts</h3>
+                <div className="space-y-2">
+                  {emailConnections.map((conn) => (
+                    <div key={conn.id} className="flex items-center justify-between p-3 rounded-xl bg-card-hover border border-card-border transition-all duration-200 hover:shadow-card">
+                      <div className="flex items-center gap-3">
+                        <span className="text-[10px] px-2 py-1 rounded-lg bg-chitty-50 text-chitty-600 uppercase tracking-wider font-semibold">
+                          {conn.provider}
+                        </span>
+                        <div>
+                          <p className="text-card-text text-sm font-medium">
+                            {conn.display_name || conn.email_address}
+                          </p>
+                          {conn.display_name && (
+                            <p className="text-card-muted text-xs">{conn.email_address}</p>
+                          )}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-2">
+                        <EmailStatusBadge status={conn.status} />
+                        {conn.last_synced_at && (
+                          <span className="text-card-muted text-xs font-mono hidden sm:inline">{formatDate(conn.last_synced_at)}</span>
+                        )}
+                        {conn.status === 'active' && conn.provider === 'gmail' && (
+                          <ActionButton
+                            label="Sync"
+                            onClick={() => syncEmail(conn.id)}
+                            variant="secondary"
+                            className="px-2.5 py-1 text-xs"
+                          />
+                        )}
+                        {conn.status !== 'disconnected' && (
+                          <ActionButton
+                            label="Disconnect"
+                            onClick={() => disconnectEmail(conn.id)}
+                            variant="danger"
+                            className="px-2.5 py-1 text-xs"
+                          />
+                        )}
+                      </div>
                     </div>
-                  </div>
-                  <div className="flex items-center gap-2">
-                    <span className={`text-xs px-2 py-0.5 rounded-full ${
-                      conn.status === 'active' ? 'bg-green-100 text-green-700' :
-                      conn.status === 'error' ? 'bg-red-100 text-red-700' :
-                      conn.status === 'disconnected' ? 'bg-gray-100 text-gray-500' :
-                      'bg-amber-100 text-amber-700'
-                    }`}>
-                      {conn.status}
-                    </span>
-                    {conn.last_synced_at && (
-                      <span className="text-card-muted text-xs">{formatDate(conn.last_synced_at)}</span>
-                    )}
-                    {conn.status === 'active' && conn.provider === 'gmail' && (
-                      <button
-                        onClick={() => syncEmail(conn.id)}
-                        className="px-2 py-1 text-xs bg-card-border text-card-text rounded hover:bg-gray-200 transition-colors"
-                      >
-                        Sync
-                      </button>
-                    )}
-                    {conn.status !== 'disconnected' && (
-                      <button
-                        onClick={() => disconnectEmail(conn.id)}
-                        className="px-2 py-1 text-xs text-red-600 hover:bg-red-50 rounded transition-colors"
-                      >
-                        Disconnect
-                      </button>
-                    )}
-                  </div>
+                  ))}
                 </div>
-              ))}
-            </div>
-          </div>
+              </div>
+            )}
+          </Card>
         )}
-      </Card>
+      </div>
+    </div>
+  );
+}
+
+function InputSection({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <div>
+      <label className="block text-card-text text-sm font-semibold mb-1.5">{label}</label>
+      {children}
     </div>
   );
 }
 
 function SyncStatusBadge({ status }: { status?: string }) {
-  if (!status) return <span className="text-xs px-2 py-0.5 rounded-full bg-gray-100 text-gray-600">Not synced</span>;
-  const colors: Record<string, string> = {
-    completed: 'bg-green-100 text-green-700',
-    started: 'bg-amber-100 text-amber-700',
-    error: 'bg-red-100 text-red-700',
+  if (!status) return (
+    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg bg-gray-50 text-gray-400 font-medium uppercase tracking-wider">
+      <Clock size={10} />
+      Pending
+    </span>
+  );
+  const styles: Record<string, { bg: string; icon: typeof CheckCircle2 }> = {
+    completed: { bg: 'bg-urgency-green/10 text-urgency-green', icon: CheckCircle2 },
+    started: { bg: 'bg-urgency-amber/10 text-urgency-amber', icon: RefreshCw },
+    error: { bg: 'bg-urgency-red/10 text-urgency-red', icon: XCircle },
   };
-  return <span className={`text-xs px-2 py-0.5 rounded-full ${colors[status] || 'bg-gray-100 text-gray-600'}`}>{status}</span>;
+  const style = styles[status] || { bg: 'bg-gray-50 text-gray-400', icon: Clock };
+  const Icon = style.icon;
+  return (
+    <span className={`inline-flex items-center gap-1 text-[10px] px-2 py-1 rounded-lg font-semibold uppercase tracking-wider ${style.bg}`}>
+      <Icon size={10} className={status === 'started' ? 'animate-spin' : ''} />
+      {status}
+    </span>
+  );
+}
+
+function EmailStatusBadge({ status }: { status: string }) {
+  const styles: Record<string, string> = {
+    active: 'bg-urgency-green/10 text-urgency-green',
+    error: 'bg-urgency-red/10 text-urgency-red',
+    disconnected: 'bg-gray-100 text-gray-400',
+  };
+  return (
+    <span className={`text-[10px] px-2 py-1 rounded-lg font-semibold uppercase tracking-wider ${styles[status] || 'bg-urgency-amber/10 text-urgency-amber'}`}>
+      {status}
+    </span>
+  );
 }
 
 function BridgeSyncButton({ label, syncing, onClick }: { label: string; syncing: boolean; onClick: () => void }) {
@@ -615,25 +690,33 @@ function BridgeSyncButton({ label, syncing, onClick }: { label: string; syncing:
     <button
       onClick={onClick}
       disabled={syncing}
-      className="flex items-center justify-between px-3 py-2 text-sm bg-card-hover border border-card-border rounded-lg hover:border-chitty-500 disabled:opacity-50 transition-colors"
+      className="flex items-center justify-between px-4 py-3 text-sm bg-card-hover border border-card-border rounded-xl hover:border-chitty-400/40 hover:shadow-glow-brand disabled:opacity-50 transition-all duration-200 group"
     >
-      <span className="text-card-text">{label}</span>
-      <span className={`text-xs px-2 py-0.5 rounded-full ${syncing ? 'bg-amber-100 text-amber-700' : 'bg-gray-100 text-gray-600'}`}>
-        {syncing ? 'Syncing...' : 'Sync'}
+      <span className="text-card-text font-medium group-hover:text-chitty-600 transition-colors">{label}</span>
+      <span className={`text-[10px] px-2.5 py-1 rounded-lg font-semibold uppercase tracking-wider ${syncing ? 'bg-urgency-amber/10 text-urgency-amber' : 'bg-card-border/50 text-card-muted'}`}>
+        {syncing ? (
+          <span className="flex items-center gap-1">
+            <RefreshCw size={10} className="animate-spin" />
+            Syncing
+          </span>
+        ) : 'Sync'}
       </span>
     </button>
   );
 }
 
-function ServiceCard({ name, url, description, connected }: { name: string; url: string; description: string; connected: boolean }) {
+function ServiceCard({ name, url, description, connected, index }: { name: string; url: string; description: string; connected: boolean; index: number }) {
   return (
-    <div className="p-3 rounded-card bg-card-hover border border-card-border">
-      <div className="flex items-center justify-between">
-        <h3 className="text-card-text text-sm font-medium">{name}</h3>
-        <span className={`w-2 h-2 rounded-full ${connected ? 'bg-green-500' : 'bg-gray-400'}`} />
+    <div className={`p-4 rounded-xl bg-card-hover border border-card-border transition-all duration-200 hover:shadow-card hover:-translate-y-0.5 animate-fade-in-up stagger-${Math.min(index + 1, 6)}`}>
+      <div className="flex items-center justify-between mb-2">
+        <h3 className="text-card-text text-sm font-semibold">{name}</h3>
+        <span className={`w-2.5 h-2.5 rounded-full transition-shadow ${connected ? 'bg-urgency-green status-dot-ok' : 'bg-gray-300'}`} />
       </div>
-      <p className="text-card-muted text-xs mt-1">{url}</p>
-      <p className="text-card-muted text-xs mt-1">{description}</p>
+      <div className="flex items-center gap-1 text-card-muted text-xs mb-1">
+        <ExternalLink size={10} />
+        <span className="font-mono">{url}</span>
+      </div>
+      <p className="text-card-muted text-xs">{description}</p>
     </div>
   );
 }
