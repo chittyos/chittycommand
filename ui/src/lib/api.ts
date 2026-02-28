@@ -73,6 +73,25 @@ export interface ChatMessage {
   content: string;
 }
 
+export interface TokenOverview {
+  chittyauth: {
+    base_url: string;
+    status: 'ok' | 'error';
+    health_code: number | null;
+  };
+  legacy: Array<{
+    key: 'mcp:service_token' | 'bridge:service_token' | 'scrape:service_token';
+    configured: boolean;
+    preview: string | null;
+  }>;
+}
+
+export interface TokenActionResponse {
+  ok: boolean;
+  status: number;
+  result: unknown;
+}
+
 export const api = {
   // Dashboard
   getDashboard: () => request<DashboardData>('/dashboard'),
@@ -234,6 +253,30 @@ export const api = {
 
   syncEmailConnection: (id: string) =>
     request<{ status: string }>(`/email-connections/${id}/sync`, { method: 'POST' }),
+
+  // Auth management
+  getTokenOverview: () =>
+    request<TokenOverview>('/v1/tokens/overview'),
+  rotateLegacyToken: (key: 'mcp:service_token' | 'bridge:service_token' | 'scrape:service_token') =>
+    request<{ key: string; token: string; rotated_at: string }>('/v1/tokens/legacy/rotate', {
+      method: 'POST',
+      body: JSON.stringify({ key }),
+    }),
+  provisionChittyAuthToken: (adminToken: string, payload: Record<string, unknown>) =>
+    request<TokenActionResponse>('/v1/tokens/chittyauth/provision', {
+      method: 'POST',
+      body: JSON.stringify({ admin_token: adminToken, payload }),
+    }),
+  validateChittyAuthToken: (token: string) =>
+    request<TokenActionResponse>('/v1/tokens/chittyauth/validate', {
+      method: 'POST',
+      body: JSON.stringify({ token }),
+    }),
+  revokeChittyAuthToken: (adminToken: string, payload: Record<string, unknown>) =>
+    request<TokenActionResponse>('/v1/tokens/chittyauth/revoke', {
+      method: 'POST',
+      body: JSON.stringify({ admin_token: adminToken, payload }),
+    }),
 
   chatStream: async function* (
     messages: ChatMessage[],
