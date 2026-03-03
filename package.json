@@ -5,12 +5,20 @@
   "description": "ChittyCommand - Unified life management & action dashboard",
   "scripts": {
     "dev": "wrangler dev",
+    "build": "npm run typecheck",
+    "typecheck": "tsc --noEmit",
+    "backend:typecheck": "tsc --noEmit",
+    "backend:build": "npm run backend:typecheck",
     "deploy": "wrangler deploy",
+    "predeploy": "npm run typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
+    "kv:seed": "bash scripts/seed-kv.sh ${KV_NAMESPACE_ID:-}" ,
     "ui:dev": "cd ui && vite dev",
     "ui:build": "cd ui && vite build",
-    "ui:preview": "cd ui && vite preview"
+    "ui:preview": "cd ui && vite preview",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.6",

@@ -1,0 +1,39 @@
+name: Governance Exception Request
+description: Request a temporary exception to governance automation controls.
+title: "[Governance Exception] "
+labels:
+  - governance
+  - exception-request
+body:
+  - type: input
+    id: repository
+    attributes:
+      label: Repository
+      description: Repository impacted by this exception.
+      placeholder: CHITTYOS/example-repo
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and duration
+      description: Exact control to bypass, start date, and expiry date.
+      placeholder: "Bypass required status checks for release hotfix until 2026-03-10"
+    validations:
+      required: true
+  - type: textarea
+    id: risk
+    attributes:
+      label: Risk and mitigation
+      description: Risks introduced and compensating controls.
+    validations:
+      required: true
+  - type: checkboxes
+    id: attestations
+    attributes:
+      label: Attestations
+      options:
+        - label: I confirm this request is temporary and time-bounded.
+          required: true
+        - label: I confirm this request has rollback and remediation steps.
+          required: true

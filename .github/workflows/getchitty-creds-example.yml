@@ -1,0 +1,23 @@
+name: Example - Get Chitty Creds
+
+on:
+  workflow_dispatch:
+
+jobs:
+  creds:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch ephemeral creds via ChittyConnect
+        id: creds
+        uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'ci-test'
+          service: 'chittycommand'
+      - name: Show outputs (redacted)
+        run: |
+          echo "account_id=${{ steps.creds.outputs.account_id }}"
+          echo "cloudflare_token set: ${{ steps.creds.outputs.cloudflare_token != '' }}"
+          echo "npm_token set: ${{ steps.creds.outputs.npm_token != '' }}"
+

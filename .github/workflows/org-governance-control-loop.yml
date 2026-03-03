@@ -1,0 +1,368 @@
+name: Org Governance Control Loop
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "report | remediate | remediate_pr"
+        required: false
+        default: "remediate"
+        type: choice
+        options:
+          - report
+          - remediate
+          - remediate_pr
+      orgs:
+        description: "Optional comma-separated override org list"
+        required: false
+        default: ""
+        type: string
+  schedule:
+    - cron: "15 */6 * * *"
+  repository_dispatch:
+    types:
+      - governance-signal
+
+concurrency:
+  group: org-governance-control-loop
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: write
+
+jobs:
+  audit:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+      CHITTY_DISPATCH_STRICT: "true"
+      CHITTYCONNECT_ACCESS_BROKER_URL: ${{ vars.CHITTYCONNECT_ACCESS_BROKER_URL }}
+      CHITTYCONNECT_BROKER_TOKEN: ${{ secrets.CHITTYCONNECT_BROKER_TOKEN }}
+      CHITTY_GATEWAY_DISPATCH_URL: ${{ vars.CHITTY_GATEWAY_DISPATCH_URL }}
+      CHITTY_GATEWAY_TOKEN: ${{ secrets.CHITTY_GATEWAY_TOKEN }}
+      CHITTY_AGENT_ORCHESTRATOR_URL: ${{ vars.CHITTY_AGENT_ORCHESTRATOR_URL }}
+      CHITTY_AGENT_TOKEN: ${{ secrets.CHITTY_AGENT_TOKEN }}
+      CHITTY_REVIEW_DELEGATION_MODE: ${{ vars.CHITTY_REVIEW_DELEGATION_MODE || 'approve' }}
+      CHITTY_REVIEW_DELEGATE_TOKEN: ${{ secrets.CHITTY_REVIEW_DELEGATE_TOKEN }}
+      CHITTY_REVIEW_DELEGATE_LOGIN: ${{ vars.CHITTY_REVIEW_DELEGATE_LOGIN || '' }}
+      CHITTY_REVIEW_QUEUE_DIR: reports/review-delegate-queue
+      WORKFLOW_INPUT_ORGS: ${{ inputs.orgs || '' }}
+      EVENT_SOURCE_REPO: ${{ github.event.client_payload.source_repo || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -z "${GH_TOKEN:-}" ]]; then
+            echo "Missing ORG_AUTOMATION_TOKEN secret"
+            exit 1
+          fi
+          if [[ -z "${CHITTYCONNECT_ACCESS_BROKER_URL:-}" ]]; then
+            echo "Missing CHITTYCONNECT_ACCESS_BROKER_URL repo/org variable"
+            exit 1
+          fi
+          if [[ -z "${CHITTYCONNECT_BROKER_TOKEN:-}" ]]; then
+            echo "Missing CHITTYCONNECT_BROKER_TOKEN secret"
+            exit 1
+          fi
+      - name: Audit org governance
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--policy .github/org-governance-policy.json --out-dir reports/org-governance)
+          if [[ -n "${WORKFLOW_INPUT_ORGS}" ]]; then
+            IFS=',' read -ra orgs <<< "${WORKFLOW_INPUT_ORGS}"
+            for org in "${orgs[@]}"; do
+              args+=(--org "${org}")
+            done
+          elif [[ -n "${EVENT_SOURCE_REPO}" ]]; then
+            event_org="${EVENT_SOURCE_REPO%%/*}"
+            if [[ -n "${event_org}" ]]; then
+              args+=(--org "${event_org}")
+            fi
+          fi
+          bash scripts/org-governance-audit.sh "${args[@]}"
+      - name: Upload report artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+
+  enforce-org-rulesets:
+    needs: audit
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Enforce org rulesets
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-enforce-rulesets.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance/latest.json \
+            --targets branch
+
+  enforce-repo-settings:
+    needs: audit
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Enforce repository default branch and push policy
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-enforce-repo-settings.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance/latest.json
+
+  remediate:
+    needs: [audit, enforce-org-rulesets, enforce-repo-settings, enforce-status-checks]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+      CHITTY_DISPATCH_STRICT: "true"
+      CHITTYCONNECT_ACCESS_BROKER_URL: ${{ vars.CHITTYCONNECT_ACCESS_BROKER_URL }}
+      CHITTYCONNECT_BROKER_TOKEN: ${{ secrets.CHITTYCONNECT_BROKER_TOKEN }}
+      CHITTY_GATEWAY_DISPATCH_URL: ${{ vars.CHITTY_GATEWAY_DISPATCH_URL }}
+      CHITTY_GATEWAY_TOKEN: ${{ secrets.CHITTY_GATEWAY_TOKEN }}
+      CHITTY_AGENT_ORCHESTRATOR_URL: ${{ vars.CHITTY_AGENT_ORCHESTRATOR_URL }}
+      CHITTY_AGENT_TOKEN: ${{ secrets.CHITTY_AGENT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+          [[ -n "${CHITTYCONNECT_ACCESS_BROKER_URL:-}" ]] || { echo "Missing CHITTYCONNECT_ACCESS_BROKER_URL variable"; exit 1; }
+          [[ -n "${CHITTYCONNECT_BROKER_TOKEN:-}" ]] || { echo "Missing CHITTYCONNECT_BROKER_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Remediation loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          mode="${{ inputs.mode }}"
+          auto_pr=true
+          max_prs=20
+          pr_sleep=0
+          if [[ "${mode}" == "remediate_pr" ]]; then
+            auto_pr=true
+          fi
+          if [[ "${mode}" == "report" ]]; then
+            auto_pr=false
+          fi
+          # Scheduled runs stay intentionally slow to avoid GitHub abuse throttles.
+          if [[ "${{ github.event_name }}" == "schedule" ]]; then
+            max_prs=3
+            pr_sleep=90
+          fi
+          # Repository-dispatch runs are event-driven and scoped; keep them moderate.
+          if [[ "${{ github.event_name }}" == "repository_dispatch" ]]; then
+            max_prs=5
+            pr_sleep=20
+          fi
+          export CHITTY_PR_CREATE_SLEEP_SEC="${pr_sleep}"
+          bash scripts/org-governance-remediate.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance/latest.json \
+            --auto-pr "${auto_pr}" \
+            --max-prs "${max_prs}"
+
+  enable-auto-merge-settings:
+    needs: audit
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Enforce repo auto-merge settings
+        shell: bash
+        run: |
+          set -euo pipefail
+          if ! bash scripts/org-governance-enable-auto-merge.sh --report reports/org-governance/latest.json; then
+            echo "Auto-merge repo settings encountered permission/config failures. Continuing control loop."
+          fi
+
+  enforce-status-checks:
+    needs: audit
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Enforce required status checks and branch protection
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-enforce-status-checks.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance/latest.json
+
+  integrate-governance-prs:
+    needs: [audit, remediate, enable-auto-merge-settings, project-sync]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+      CHITTY_DISPATCH_STRICT: "true"
+      CHITTYCONNECT_ACCESS_BROKER_URL: ${{ vars.CHITTYCONNECT_ACCESS_BROKER_URL }}
+      CHITTYCONNECT_BROKER_TOKEN: ${{ secrets.CHITTYCONNECT_BROKER_TOKEN }}
+      CHITTY_GATEWAY_DISPATCH_URL: ${{ vars.CHITTY_GATEWAY_DISPATCH_URL }}
+      CHITTY_GATEWAY_TOKEN: ${{ secrets.CHITTY_GATEWAY_TOKEN }}
+      CHITTY_AGENT_ORCHESTRATOR_URL: ${{ vars.CHITTY_AGENT_ORCHESTRATOR_URL }}
+      CHITTY_AGENT_TOKEN: ${{ secrets.CHITTY_AGENT_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: PR integration loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-pr-integration-loop.sh \
+            --report reports/org-governance/latest.json
+      - name: Upload delegate review queue
+        if: ${{ always() }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: review-delegate-queue
+          path: reports/review-delegate-queue
+
+  adversarial-review:
+    needs: [audit, remediate, integrate-governance-prs]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+      CHITTY_DISPATCH_STRICT: "true"
+      CHITTYCONNECT_ACCESS_BROKER_URL: ${{ vars.CHITTYCONNECT_ACCESS_BROKER_URL }}
+      CHITTYCONNECT_BROKER_TOKEN: ${{ secrets.CHITTYCONNECT_BROKER_TOKEN }}
+      CHITTY_GATEWAY_DISPATCH_URL: ${{ vars.CHITTY_GATEWAY_DISPATCH_URL }}
+      CHITTY_GATEWAY_TOKEN: ${{ secrets.CHITTY_GATEWAY_TOKEN }}
+      CHITTY_AGENT_ORCHESTRATOR_URL: ${{ vars.CHITTY_AGENT_ORCHESTRATOR_URL }}
+      CHITTY_AGENT_TOKEN: ${{ secrets.CHITTY_AGENT_TOKEN }}
+      WORKFLOW_INPUT_ORGS: ${{ inputs.orgs || '' }}
+      EVENT_SOURCE_REPO: ${{ github.event.client_payload.source_repo || '' }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+          [[ -n "${CHITTYCONNECT_ACCESS_BROKER_URL:-}" ]] || { echo "Missing CHITTYCONNECT_ACCESS_BROKER_URL variable"; exit 1; }
+          [[ -n "${CHITTYCONNECT_BROKER_TOKEN:-}" ]] || { echo "Missing CHITTYCONNECT_BROKER_TOKEN secret"; exit 1; }
+      - name: Independent re-audit
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=(--policy .github/org-governance-policy.json --out-dir reports/org-governance-adversarial)
+          if [[ -n "${WORKFLOW_INPUT_ORGS}" ]]; then
+            IFS=',' read -ra orgs <<< "${WORKFLOW_INPUT_ORGS}"
+            for org in "${orgs[@]}"; do
+              args+=(--org "${org}")
+            done
+          elif [[ -n "${EVENT_SOURCE_REPO}" ]]; then
+            event_org="${EVENT_SOURCE_REPO%%/*}"
+            if [[ -n "${event_org}" ]]; then
+              args+=(--org "${event_org}")
+            fi
+          fi
+          bash scripts/org-governance-audit.sh "${args[@]}"
+      - name: Adversarial review loop
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-adversarial-review.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance-adversarial/latest.json
+
+  project-sync:
+    needs: [audit, remediate]
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'schedule' || github.event_name == 'repository_dispatch' || inputs.mode == 'remediate' || inputs.mode == 'remediate_pr' }}
+    env:
+      GH_TOKEN: ${{ secrets.ORG_AUTOMATION_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: Validate Required Configuration (Fail Closed)
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ -n "${GH_TOKEN:-}" ]] || { echo "Missing ORG_AUTOMATION_TOKEN secret"; exit 1; }
+      - name: Download report artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: org-governance-report
+          path: reports/org-governance
+      - name: Sync non-compliant repos into governance project board
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/org-governance-project-sync.sh \
+            --policy .github/org-governance-policy.json \
+            --report reports/org-governance/latest.json

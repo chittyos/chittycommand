@@ -8,9 +8,27 @@ registered_with: chittycanon://core/services/canon
 title: "ChittyCommand Charter"
 certifier: chittycanon://core/services/chittycertify
 visibility: PUBLIC
+context_brief: chittycontext://persistent-brief
+discovery_refs:
+  - chittycanon://gov/governance
+  - chittycanon://docs/tech/spec/context-schema
+  - chittycanon://specs/chittydna-session-governance
 ---
 
 # ChittyCommand Charter
+
+<!-- chitty:discovery-links:start -->
+## Persistent Context
+
+- **Working memory brief**: [docs/PERSISTENT_BRIEF.md](docs/PERSISTENT_BRIEF.md)
+- **Canonical governance**: `chittycanon://gov/governance`
+- **TY/VY/RY framework**: `chittycanon://gov/governance#three-aspects-framework`
+- **Context model**: `chittycanon://docs/tech/spec/context-schema`
+- **Session governance genes**: `chittycanon://specs/chittydna-session-governance`
+- **Governance DNA / earned authority**: `chittycanon://gov/governance#written-to-chittydna`
+
+This section is a persistent discovery hint for humans and agents. It is not an authority source.
+<!-- chitty:discovery-links:end -->
 
 ## Classification
 - **Canonical URI**: `chittycanon://core/services/chittycommand`
@@ -34,7 +52,8 @@ Provide a unified life management and action dashboard that ingests data from 15
 - Document storage in R2 for receipts, letters, and evidence
 - Cron-scheduled data sync across all sources
 - Bridge API for inter-service data exchange (ChittyScrape, ChittyLedger)
-- MCP server for Claude-driven dashboard queries
+- Proxy passthrough for ChittySchema validation, ChittyCert verification, ChittyRegister requirements
+- MCP server for Claude-driven queries (28 tools: financial, ledger, schema, cert, connect, chat)
 
 ### IS NOT Responsible For
 - Identity generation (ChittyID)
@@ -57,7 +76,12 @@ Provide a unified life management and action dashboard that ingests data from 15
 | Upstream | ChittyCharge | Billing data |
 | Upstream | ChittyScrape | Browser-based scraping for portals without APIs |
 | Upstream | ChittyLedger | Evidence and document ledger sync |
-| Upstream | ChittyConnect | Inter-service connectivity |
+| Upstream | ChittyConnect | Inter-service connectivity and discovery |
+| Upstream | ChittyRouter | Unified ingestion gateway (scrape, email routing) |
+| Upstream | ChittySchema | Canonical schema validation and drift detection |
+| Upstream | ChittyCert | Certificate verification |
+| Upstream | ChittyRegister | Service registration, beacon, compliance |
+| Upstream | ChittyChat | Project/task data API |
 | Platform | Cloudflare Workers | Compute runtime |
 | Platform | Cloudflare R2 | Document storage |
 | Platform | Cloudflare KV | Sync state, auth tokens, service tokens |
@@ -72,6 +96,17 @@ Provide a unified life management and action dashboard that ingests data from 15
 |----------|--------|------|---------|
 | `/health` | GET | No | Health check |
 | `/api/v1/status` | GET | No | Service metadata |
+| `/api/v1/canon` | GET | No | Canon info and registry status |
+| `/api/v1/schema` | GET | No | Lightweight schema references |
+| `/api/v1/beacon` | GET | No | Last beacon timestamp/status |
+| `/api/v1/cert/verify` | POST | No | Verify a ChittyCert certificate |
+| `/api/v1/cert/:id` | GET | No | Get certificate details |
+| `/api/v1/whoami` | GET | Bearer | Identity: subject and scopes |
+| `/api/v1/context` | GET/POST | Bearer | Get/Set persona, label, and tags |
+| `/api/v1/connect/status` | GET | Bearer | ChittyConnect health |
+| `/api/v1/connect/discover` | POST | Bearer | Resolve service URL via ChittyConnect |
+| `/api/v1/ledger/evidence` | GET | Bearer | List evidence for a case via ChittyLedger |
+| `/api/v1/ledger/record-custody` | POST | Bearer | Record custody entry |
 | `/api/dashboard/summary` | GET | Bearer | Dashboard summary with urgency scores |
 | `/api/accounts` | GET/POST | Bearer | Financial account management |
 | `/api/obligations` | GET/POST | Bearer | Bills, debts, recurring obligations |
@@ -135,4 +170,4 @@ This charter is part of a synchronized documentation triad. Changes to shared fi
 - [x] CHITTY.md present
 
 ---
-*Charter Version: 1.0.0 | Last Updated: 2026-02-23*
+*Charter Version: 1.1.0 | Last Updated: 2026-03-03*
