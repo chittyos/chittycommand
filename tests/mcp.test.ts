@@ -7,6 +7,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../src/index';
 import { mcpAuthMiddleware } from '../src/middleware/auth';
+import type { AuthVariables } from '../src/middleware/auth';
 
 // Mock the db module before importing routes that depend on it
 vi.mock('../src/lib/db', () => ({
@@ -42,7 +43,7 @@ function makeMockEnv(overrides: Partial<MockEnv> = {}): MockEnv {
 // Helper — build a minimal Hono app that exposes the MCP routes.
 // ---------------------------------------------------------------------------
 function buildApp(envOverrides: Partial<MockEnv> = {}) {
-  const app = new Hono<{ Bindings: Env }>();
+  const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
   const env = makeMockEnv(envOverrides);
 
   // Wire the same auth middleware as production — dev bypass sets userId/scopes
@@ -244,7 +245,7 @@ describe('MCP — defensive parsing', () => {
   });
 
   it('handles non-JSON body without crashing', async () => {
-    const app = new Hono<{ Bindings: Env }>();
+    const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
     const env = makeMockEnv();
     app.use('/mcp/*', mcpAuthMiddleware);
     app.route('/mcp', mcpRoutes);
@@ -254,8 +255,12 @@ describe('MCP — defensive parsing', () => {
       body: 'not json at all',
     });
     const res = await app.fetch(req, env as unknown as Env);
-    // Hono's req.json() throws on bad JSON; must surface as 4xx/5xx, not an unhandled crash
-    expect(res.status).toBeGreaterThanOrEqual(400);
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.jsonrpc).toBe('2.0');
+    expect(json.id).toBeNull();
+    const error = json.error as Record<string, unknown>;
+    expect(error.code).toBe(-32700);
   });
 
   it('GET /mcp returns service health info', async () => {
