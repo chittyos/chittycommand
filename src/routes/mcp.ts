@@ -191,18 +191,27 @@ const TOOLS = [
 
 // MCP endpoint — handles JSON-RPC 2.0 requests
 mcpRoutes.post('/', async (c) => {
-  let body: { jsonrpc: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
+  let parsedBody: unknown;
   try {
-    body = await c.req.json();
+    parsedBody = await c.req.json();
   } catch {
     return c.json({ jsonrpc: '2.0', id: null, error: { code: -32700, message: 'Parse error' } }, 400);
   }
+
+  if (!parsedBody || typeof parsedBody !== 'object' || Array.isArray(parsedBody)) {
+    return c.json({ jsonrpc: '2.0', id: null, error: { code: -32600, message: 'Invalid Request' } }, 400);
+  }
+
+  const body = parsedBody as { jsonrpc?: unknown; id?: string | number | null; method?: unknown; params?: unknown };
 
   if (body.jsonrpc !== '2.0' || typeof body.method !== 'string') {
     return c.json({ jsonrpc: '2.0', id: body.id ?? null, error: { code: -32600, message: 'Invalid Request: must be JSON-RPC 2.0' } });
   }
 
-  const { method, params, id } = body;
+  const { method, id } = body;
+  const params = (body.params && typeof body.params === 'object' && !Array.isArray(body.params))
+    ? body.params as Record<string, unknown>
+    : undefined;
 
   switch (method) {
     case 'initialize':
