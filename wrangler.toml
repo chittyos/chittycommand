@@ -14,7 +14,7 @@ CHITTYLEDGER_URL = "https://ledger.chitty.cc"
 CHITTYFINANCE_URL = "https://finance.chitty.cc"
 CHITTYCHARGE_URL = "https://charge.chitty.cc"
 CHITTYCONNECT_URL = "https://connect.chitty.cc"
-PLAID_ENV = "production"
+PLAID_ENV = "sandbox"
 CHITTYBOOKS_URL = "https://chittybooks.chitty.cc"
 CHITTYASSETS_URL = "https://chittyassets.chitty.cc"
 CHITTYSCRAPE_URL = "https://scrape.chitty.cc"
@@ -58,3 +58,7 @@ crons = [
   "0 14 * * 1",   # Weekly Monday 8 AM CT: Utility scrapers
   "0 15 1 * *"    # Monthly 1st 9 AM CT: Mortgage, property tax
 ]
+
+# Production overrides
+[env.production.vars]
+PLAID_ENV = "production"

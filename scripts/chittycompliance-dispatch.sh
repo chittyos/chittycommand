@@ -77,18 +77,14 @@ if [[ -n "${BROKER_URL}" && -n "${BROKER_TOKEN}" ]]; then
   broker_response="$(run_with_timeout curl -fsS -X POST "${BROKER_URL}" \
     -H "Authorization: Bearer ${BROKER_TOKEN}" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"repo\":\"${REPO}\",
-      \"mode\":\"${MODE}\",
-      \"findings\":\"${FINDINGS}\",
-      \"context\":{
-        \"source\":\"org-governance-control-loop\",
-        \"run_id\":\"${GITHUB_RUN_ID:-local}\",
-        \"actor\":\"${GITHUB_ACTOR:-local}\",
-        \"workflow\":\"${GITHUB_WORKFLOW:-local}\"
-      },
-      \"requested_access\":[\"gateway_dispatch\",\"agent_orchestrator\"]
-    }" 2>/dev/null || true)"
+    -d "$(jq -nc \
+      --arg repo "${REPO}" \
+      --arg mode "${MODE}" \
+      --arg findings "${FINDINGS}" \
+      --arg run_id "${GITHUB_RUN_ID:-local}" \
+      --arg actor "${GITHUB_ACTOR:-local}" \
+      --arg workflow "${GITHUB_WORKFLOW:-local}" \
+      '{repo:$repo, mode:$mode, findings:$findings, context:{source:"org-governance-control-loop", run_id:$run_id, actor:$actor, workflow:$workflow}, requested_access:["gateway_dispatch","agent_orchestrator"]}')" 2>/dev/null || true)"
 
   if [[ -n "${broker_response}" ]]; then
     decision="$(jq -r '.decision // "deny"' <<< "${broker_response}" 2>/dev/null || echo "deny")"
@@ -137,7 +133,7 @@ fi
 if [[ -n "${CHITTYCOMPLIANCE_AGENT_ENDPOINT:-}" ]]; then
   run_with_timeout curl -fsS -X POST "${CHITTYCOMPLIANCE_AGENT_ENDPOINT}" \
     -H "Content-Type: application/json" \
-    -d "{\"repo\":\"${REPO}\",\"mode\":\"${MODE}\",\"findings\":\"${FINDINGS}\"}" >/dev/null && dispatch_success=1 || true
+    -d "$(jq -nc --arg repo "${REPO}" --arg mode "${MODE}" --arg findings "${FINDINGS}" '{repo:$repo, mode:$mode, findings:$findings}')" >/dev/null && dispatch_success=1 || true
 fi
 
 # Primary path: ChittyGateway / ChittyAgent orchestrator on Cloudflare Workers AI.
@@ -149,7 +145,7 @@ if [[ -n "${gateway_url}" ]]; then
   run_with_timeout curl -fsS -X POST "${gateway_url}" \
     -H "Content-Type: application/json" \
     "${auth_headers[@]}" \
-    -d "{\"pipeline\":\"chittycompliance\",\"repo\":\"${REPO}\",\"mode\":\"${MODE}\",\"findings\":\"${FINDINGS}\"}" >/dev/null && dispatch_success=1 || true
+    -d "$(jq -nc --arg repo "${REPO}" --arg mode "${MODE}" --arg findings "${FINDINGS}" '{pipeline:"chittycompliance", repo:$repo, mode:$mode, findings:$findings}')" >/dev/null && dispatch_success=1 || true
 fi
 
 if [[ -n "${orchestrator_url}" ]]; then
@@ -160,7 +156,7 @@ if [[ -n "${orchestrator_url}" ]]; then
   run_with_timeout curl -fsS -X POST "${orchestrator_url}" \
     -H "Content-Type: application/json" \
     "${auth_headers[@]}" \
-    -d "{\"operation\":\"governance_review\",\"repo\":\"${REPO}\",\"mode\":\"${MODE}\",\"findings\":\"${FINDINGS}\"}" >/dev/null && dispatch_success=1 || true
+    -d "$(jq -nc --arg repo "${REPO}" --arg mode "${MODE}" --arg findings "${FINDINGS}" '{operation:"governance_review", repo:$repo, mode:$mode, findings:$findings}')" >/dev/null && dispatch_success=1 || true
 fi
 
 if [[ "${STRICT_MODE}" == "true" && "${dispatch_success}" -eq 0 ]]; then

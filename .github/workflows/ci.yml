@@ -14,8 +14,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          secrets_in_use="$(grep -RhoE '\${{\s*secrets\.[A-Za-z_][A-Za-z0-9_]*\s*}}' .github/workflows \
-            | sed -E 's/.*secrets\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
+          secrets_in_use="$(grep -RhoE '\$\{\{\s*secrets(\.[A-Za-z_][A-Za-z0-9_]*|\['"'"'\"[A-Za-z_][A-Za-z0-9_]*'"'"'\"\])\s*\}\}' .github/workflows \
+            | sed -E "s/.*secrets[.\['\"]([A-Za-z_][A-Za-z0-9_]*).*/\1/" \
             | sort -u || true)"
 
           if [[ -z "${secrets_in_use}" ]]; then
@@ -76,6 +76,8 @@ jobs:
         run: npm audit --audit-level=high
       - name: Typecheck
         run: npx tsc -p tsconfig.json --noEmit
+      - name: Test
+        run: npm test
       - name: Governance Pressure Tests
         run: bash scripts/pressure-test-governance.sh
       - name: Lint (skipped)

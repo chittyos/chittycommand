@@ -1,8 +1,9 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
+import type { AuthVariables } from '../middleware/auth';
 import { connectClient } from '../lib/integrations';
 
-export const connectRoutes = new Hono<{ Bindings: Env }>();
+export const connectRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 connectRoutes.get('/connect/status', async (c) => {
   const url = c.env.CHITTYCONNECT_URL;
@@ -23,8 +24,7 @@ connectRoutes.post('/connect/discover', async (c) => {
   // Simple per-minute rate limit (KV-configurable). Subject: userId or token hash.
   const authHeader = c.req.header('Authorization') || '';
   const token = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  // @ts-expect-error app-level variables
-  const userId = (c.get('userId') as string | undefined) || 'anonymous';
+  const userId = c.get('userId') || 'anonymous';
   const subject = userId === 'bridge-service' ? 'svc:bridge-service' : `usr:${userId}`;
   const rateRaw = await c.env.COMMAND_KV.get('discover:rate_limit');
   const limit = rateRaw ? Math.max(1, parseInt(rateRaw)) : 60; // default 60/min

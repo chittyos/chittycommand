@@ -315,7 +315,7 @@ export function connectClient(env: Env) {
   return {
     /** Discover a service URL by name */
     discover: async (serviceName: string): Promise<string | null> => {
-      const key = `connect:discover:${serviceName}`;
+      const key = `connect:discover:${encodeURIComponent(serviceName)}`;
       // KV cache (5 minutes)
       try {
         const cached = await env.COMMAND_KV.get(key);

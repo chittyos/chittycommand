@@ -13,7 +13,7 @@
     "predeploy": "npm run typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
-    "kv:seed": "bash scripts/seed-kv.sh ${KV_NAMESPACE_ID:-}" ,
+    "kv:seed": "bash scripts/seed-kv.sh ${KV_NAMESPACE_ID:-}",
     "ui:dev": "cd ui && vite dev",
     "ui:build": "cd ui && vite build",
     "ui:preview": "cd ui && vite preview",

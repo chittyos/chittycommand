@@ -63,9 +63,9 @@ while IFS= read -r row; do
   [[ -z "${row}" ]] && continue
   full_repo="$(jq -r '.fullRepo' <<< "${row}")"
   score="$(jq -r '.score' <<< "${row}")"
-  missing_files="$(jq -r '.missingFiles | join(", ")' <<< "${row}")"
-  missing_patterns="$(jq -r '.missingPatterns // [] | join(", ")' <<< "${row}")"
-  missing_triggers="$(jq -r '.missingTriggers | join(", ")' <<< "${row}")"
+  missing_files="$(jq -r '(.missingFiles // []) | join(", ")' <<< "${row}")"
+  missing_patterns="$(jq -r '(.missingPatterns // []) | join(", ")' <<< "${row}")"
+  missing_triggers="$(jq -r '(.missingTriggers // []) | join(", ")' <<< "${row}")"
   missing_status_checks="$(jq -r '.missingStatusChecks // [] | join(", ")' <<< "${row}")"
   missing_repo_settings="$(jq -r '.missingRepoSettings // [] | join(", ")' <<< "${row}")"
 
