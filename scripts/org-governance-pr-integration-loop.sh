@@ -118,7 +118,7 @@ while IFS= read -r full_repo; do
 
     # Only process PRs created by known governance automation accounts
     allowed_authors="chitcommit github-actions[bot] dependabot[bot]"
-    if ! echo "${allowed_authors}" | grep -qw "${pr_author}"; then
+    if ! echo "${allowed_authors}" | grep -qFw "${pr_author}"; then
       blocked=$((blocked + 1))
       echo "Blocked ${pr_url}: author '${pr_author}' not in governance automation allowlist"
       queue_event "${full_repo}" "${pr_number}" "${pr_url}" "integration" "blocked" "untrusted_author:${pr_author}"
