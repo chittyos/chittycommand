@@ -45,7 +45,8 @@ function buildApp(envOverrides: Partial<MockEnv> = {}) {
   const app = new Hono<{ Bindings: Env }>();
   const env = makeMockEnv(envOverrides);
 
-  app.use('/mcp', mcpAuthMiddleware);
+  // Wire the same auth middleware as production — dev bypass sets userId/scopes
+  // automatically when ENVIRONMENT !== 'production' (mock uses 'test').
   app.use('/mcp/*', mcpAuthMiddleware);
   app.route('/mcp', mcpRoutes);
 
@@ -58,17 +59,17 @@ function buildApp(envOverrides: Partial<MockEnv> = {}) {
     return app.fetch(req, env as unknown as Env);
   }
 
-  async function get() {
-    const req = new Request('http://localhost/mcp', { method: 'GET' });
-    return app.fetch(req, env as unknown as Env);
-  }
-
-  async function postRaw(body?: BodyInit | null) {
+  async function postRaw(body: string) {
     const req = new Request('http://localhost/mcp', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body,
     });
+    return app.fetch(req, env as unknown as Env);
+  }
+
+  async function get() {
+    const req = new Request('http://localhost/mcp', { method: 'GET' });
     return app.fetch(req, env as unknown as Env);
   }
 
@@ -245,6 +246,7 @@ describe('MCP — defensive parsing', () => {
   it('handles non-JSON body without crashing', async () => {
     const app = new Hono<{ Bindings: Env }>();
     const env = makeMockEnv();
+    app.use('/mcp/*', mcpAuthMiddleware);
     app.route('/mcp', mcpRoutes);
     const req = new Request('http://localhost/mcp', {
       method: 'POST',
