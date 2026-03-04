@@ -6,7 +6,6 @@ export default defineConfig({
     globals: true,
     environment: 'node',
     include: ['tests/**/*.test.ts'],
-    passWithNoTests: true,
     testTimeout: 15000,
     pool: 'threads',
     maxWorkers: 1,
