@@ -235,8 +235,12 @@ describe('MCP — defensive parsing', () => {
   it('handles completely empty body gracefully', async () => {
     const { postRaw } = buildApp();
     const res = await postRaw('');
-    // Must not throw; expect a structured JSON-RPC error response
-    expect(res.status).toBeLessThan(500);
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.jsonrpc).toBe('2.0');
+    expect(json.id).toBeNull();
+    const error = json.error as Record<string, unknown>;
+    expect(error.code).toBe(-32700);
   });
 
   it('handles non-JSON body without crashing', async () => {
