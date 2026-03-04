@@ -1,0 +1,19 @@
+name: Deploy Worker
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ main ]
+    paths:
+      - 'src/**'
+      - 'wrangler.toml'
+      - '.github/workflows/deploy-worker.yml'
+
+jobs:
+  deploy:
+    uses: CHITTYOS/chittyops/.github/workflows/reusable-worker-deploy.yml@main
+    with:
+      service_name: chittycommand
+    secrets:
+      CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
+

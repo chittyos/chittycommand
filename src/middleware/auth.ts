@@ -117,6 +117,53 @@ export async function mcpAuthMiddleware(c: Context<{ Bindings: Env; Variables: A
   }
 
   const token = authHeader.slice(7);
+  const authUrl = c.env.CHITTYAUTH_URL;
+  if (authUrl) {
+    try {
+      const res = await fetch(`${authUrl}/v1/tokens/validate`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${token}`,
+          'X-Source-Service': 'chittycommand',
+        },
+        body: JSON.stringify({ token }),
+      });
+      if (res.ok) {
+        const identity = await res.json() as {
+          valid?: boolean;
+          user_id?: string;
+          chittyId?: string;
+          scopes?: string[] | string;
+          scope?: string[] | string;
+        };
+
+        const rawScopes = identity.scopes ?? identity.scope ?? [];
+        const normalizedScopes = Array.isArray(rawScopes)
+          ? rawScopes.filter((s): s is string => typeof s === 'string')
+          : typeof rawScopes === 'string'
+            ? rawScopes.split(/[,\s]+/).filter(Boolean)
+            : [];
+        const hasMcpScope = normalizedScopes.some(
+          (s) => s === 'mcp' || s.startsWith('mcp:') || s === 'admin' || s === '*'
+        );
+        const isValid = identity.valid === true || normalizedScopes.length > 0;
+
+        if (isValid && (hasMcpScope || normalizedScopes.length === 0)) {
+          c.set('userId', identity.user_id || identity.chittyId || 'mcp-client');
+          c.set('scopes', normalizedScopes.length ? normalizedScopes : ['mcp']);
+          return next();
+        }
+
+        if (isValid) {
+          return c.json({ error: 'Insufficient MCP scope' }, 403);
+        }
+      }
+    } catch {
+      // Fall through to legacy shared-token auth for backward compatibility.
+    }
+  }
+
   const validToken = await c.env.COMMAND_KV.get('mcp:service_token');
 
   if (!validToken || token !== validToken) {

@@ -1,0 +1,64 @@
+name: Adversarial Review Orchestrator
+
+on:
+  pull_request_target:
+    types: [opened, reopened, synchronize, ready_for_review]
+
+permissions:
+  contents: read
+  pull-requests: write
+  issues: write
+
+jobs:
+  orchestrate:
+    runs-on: ubuntu-latest
+    env:
+      REQUEST_REVIEWERS: ${{ vars.CHITTY_REQUEST_REVIEWERS || 'coderabbitai' }}
+      REVIEW_TAG_SEQUENCE: ${{ vars.CHITTY_REVIEW_TAG_SEQUENCE || '@coderabbitai review||@copilot review||@codex review||@claude review' }}
+    steps:
+      - name: Request Reviewer Agents
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const reviewers = (process.env.REQUEST_REVIEWERS || "")
+              .split(",")
+              .map((v) => v.trim())
+              .filter(Boolean);
+            const succeeded = [];
+            const failed = [];
+            for (const reviewer of reviewers) {
+              try {
+                await github.rest.pulls.requestReviewers({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  pull_number: context.payload.pull_request.number,
+                  reviewers: [reviewer]
+                });
+                succeeded.push(reviewer);
+              } catch (error) {
+                failed.push(`${reviewer}: ${error.message}`);
+              }
+            }
+            core.info(`Requested reviewers success: ${succeeded.join(", ") || "none"}`);
+            if (failed.length > 0) {
+              core.warning(`Reviewer request failures: ${failed.join(" | ")}`);
+            }
+      - name: Trigger Bot Review Comments (Sequenced)
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const sequence = (process.env.REVIEW_TAG_SEQUENCE || "")
+              .split("||")
+              .map((v) => v.trim())
+              .filter(Boolean);
+            const lines = [];
+            sequence.forEach((tag, index) => {
+              lines.push(`${index + 1}. ${tag}`);
+            });
+            lines.push("Adversarial review request: evaluate security, policy bypass paths, regression risk, and merge-gating bypass attempts.");
+            await github.rest.issues.createComment({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              issue_number: context.payload.pull_request.number,
+              body: lines.join("\n")
+            });

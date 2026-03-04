@@ -1,0 +1,21 @@
+onboarding:
+  provisions:
+    chitty_id: required
+    service_token: required
+    certificate: required
+    trust_chain: required
+  context_consciousness:
+    enabled: true
+    session_binding: required
+  chittydna:
+    enabled: true
+    identity_lineage: required
+  memorycloude:
+    enabled: true
+    memory_policy: required
+  synthetic_entity:
+    type: person
+    classification: synthetic
+    authority_scope: least_privilege
+    access_scope: explicit_scopes_only
+    actor_binding: required

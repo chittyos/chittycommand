@@ -72,6 +72,28 @@ export function ledgerClient(env: Env) {
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }
     },
+
+    /** Get facts for a case (if supported) */
+    getFactsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
+      try {
+        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/facts`, {
+          headers: { 'X-Source-Service': 'chittycommand' },
+        });
+        if (!res.ok) return [];
+        return await res.json() as Record<string, unknown>[];
+      } catch { return []; }
+    },
+
+    /** Get contradictions for a case (if supported) */
+    getContradictionsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
+      try {
+        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/contradictions`, {
+          headers: { 'X-Source-Service': 'chittycommand' },
+        });
+        if (!res.ok) return [];
+        return await res.json() as Record<string, unknown>[];
+      } catch { return []; }
+    },
   };
 }
 
@@ -293,12 +315,26 @@ export function connectClient(env: Env) {
   return {
     /** Discover a service URL by name */
     discover: async (serviceName: string): Promise<string | null> => {
+      const key = `connect:discover:${encodeURIComponent(serviceName)}`;
+      // KV cache (5 minutes)
       try {
-        const res = await fetch(`${baseUrl}/api/discover/${serviceName}`, {
+        const cached = await env.COMMAND_KV.get(key);
+        if (cached) {
+          try {
+            const obj = JSON.parse(cached) as { url?: string };
+            if (obj?.url) return obj.url;
+          } catch { /* ignore */ }
+        }
+      } catch { /* ignore */ }
+
+      try {
+        const res = await fetch(`${baseUrl}/api/discover/${encodeURIComponent(serviceName)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
         if (!res.ok) return null;
         const data = await res.json() as { url: string };
+        // Store in KV with TTL
+        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch { /* ignore */ }
         return data.url;
       } catch { return null; }
     },

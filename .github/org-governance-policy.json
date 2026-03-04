@@ -1,0 +1,170 @@
+{
+  "orgs": [
+    "CHITTYOS",
+    "CHITTYCORP",
+    "ChittyApps",
+    "ChitCommit",
+    "Furnished-Condos",
+    "ChicagoApps"
+  ],
+  "includeArchived": false,
+  "maxReposPerOrg": 0,
+  "requireBranchProtection": true,
+  "useOrgRulesets": true,
+  "requiredFiles": [
+    ".github/workflows/governance-gates.yml",
+    ".github/workflows/reusable-governance-gates.yml",
+    ".github/workflows/adversarial-review.yml",
+    ".github/workflows/identity-context-onboarding.yml",
+    ".github/workflows/onepassword-rotation-audit.yml",
+    ".github/ISSUE_TEMPLATE/config.yml",
+    ".github/ISSUE_TEMPLATE/governance-exception.yml",
+    "CHITTY.md",
+    "CHARTER.md",
+    "docs/PERSISTENT_BRIEF.md",
+    ".github/release.yml",
+    ".github/secret-catalog.json",
+    ".github/allowed-workflow-secrets.txt",
+    ".gitleaks.toml",
+    "scripts/check-chitty-onboarding.sh",
+    "scripts/onepassword-rotation-audit.sh"
+  ],
+  "requiredWorkflowTriggers": {
+    ".github/workflows/governance-gates.yml": [
+      "pull_request",
+      "push"
+    ],
+    ".github/workflows/adversarial-review.yml": [
+      "pull_request_target"
+    ],
+    ".github/workflows/identity-context-onboarding.yml": [
+      "pull_request",
+      "push"
+    ],
+    ".github/workflows/onepassword-rotation-audit.yml": [
+      "schedule",
+      "workflow_dispatch"
+    ]
+  },
+  "requiredStatusChecks": [
+    "Governance Gates / gates",
+    "Identity & Context Onboarding Gate / identity-onboarding",
+    "Adversarial Review Orchestrator / orchestrate"
+  ],
+  "requiredApprovingReviewCount": 1,
+  "orgRulesets": {
+    "branch": {
+      "name": "Chitty Governance Branch Gate",
+      "enforcement": "active",
+      "conditions": {
+        "repository_name": {
+          "include": [
+            "~ALL"
+          ],
+          "exclude": []
+        },
+        "ref_name": {
+          "include": [
+            "~DEFAULT_BRANCH"
+          ],
+          "exclude": []
+        }
+      },
+      "rules": {
+        "pull_request": {
+          "allowed_merge_methods": [
+            "squash"
+          ],
+          "dismiss_stale_reviews_on_push": true,
+          "require_code_owner_review": false,
+          "require_last_push_approval": false,
+          "required_review_thread_resolution": true
+        },
+        "required_status_checks": {
+          "do_not_enforce_on_create": false,
+          "strict_required_status_checks_policy": true
+        },
+        "non_fast_forward": true,
+        "required_linear_history": true
+      }
+    }
+  },
+  "repoSettings": {
+    "defaultBranchName": "main",
+    "enforceDefaultBranchName": true,
+    "setDefaultBranchWhenPresent": true,
+    "pushPolicy": {
+      "enabled": true,
+      "maxRefUpdates": 10
+    }
+  },
+  "projectAutomation": {
+    "enabled": false,
+    "org": "CHITTYOS",
+    "projectNumber": 0
+  },
+  "issueManagement": {
+    "labels": [
+      "governance",
+      "automation"
+    ],
+    "milestoneTitle": "Governance Compliance"
+  },
+  "reviewDelegation": {
+    "enabled": true,
+    "delegateLoginVar": "CHITTY_REVIEW_DELEGATE_LOGIN",
+    "delegateTokenSecret": "CHITTY_REVIEW_DELEGATE_TOKEN"
+  },
+  "requiredFilePatterns": {
+    "CHITTY.md": [
+      "context_brief:",
+      "chitty:discovery-links:start",
+      "three-aspects-framework",
+      "written-to-chittydna",
+      "not an authority source"
+    ],
+    "CHARTER.md": [
+      "context_brief:",
+      "chitty:discovery-links:start",
+      "three-aspects-framework",
+      "written-to-chittydna",
+      "not an authority source"
+    ],
+    "docs/PERSISTENT_BRIEF.md": [
+      "Persistent Brief",
+      "Discovery Anchors",
+      "TY/VY/RY framework"
+    ],
+    ".github/ISSUE_TEMPLATE/config.yml": [
+      "blank_issues_enabled:",
+      "contact_links:"
+    ],
+    ".github/ISSUE_TEMPLATE/governance-exception.yml": [
+      "Governance Exception Request",
+      "exception-request",
+      "Attestations"
+    ],
+    ".github/release.yml": [
+      "changelog:"
+    ],
+    ".chittyconnect.yml": [
+      "onboarding:",
+      "provisions:",
+      "chitty_id:",
+      "service_token:",
+      "certificate:",
+      "trust_chain:",
+      "context_consciousness:",
+      "enabled:",
+      "chittydna:",
+      "memorycloude:",
+      "synthetic_entity:",
+      "type:",
+      "classification:",
+      "authority_scope:",
+      "access_scope:",
+      "actor_binding:"
+    ]
+  },
+  "complianceIssueTitle": "[Governance] CI/CD compliance gaps"
+}

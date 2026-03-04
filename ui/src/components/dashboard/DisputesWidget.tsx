@@ -1,3 +1,4 @@
+import { Link } from 'react-router-dom';
 import { Card } from '../ui/Card';
 import { ProgressDots } from '../ui/ProgressDots';
 import type { Dispute } from '../../lib/api';
@@ -40,7 +41,7 @@ export function DisputesWidget({ disputes }: Props) {
                 <p className="font-mono font-semibold text-urgency-red">{formatCurrency(d.amount_at_stake)}</p>
               )}
               {d.next_action && (
-                <a href="/disputes" className="text-xs text-chitty-500 hover:underline mt-1 block">{d.next_action}</a>
+                <Link to="/disputes" className="text-xs text-chitty-500 hover:underline mt-1 block">{d.next_action}</Link>
               )}
             </div>
           </div>

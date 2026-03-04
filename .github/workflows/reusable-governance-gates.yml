@@ -1,0 +1,96 @@
+name: Reusable Governance Gates
+
+on:
+  workflow_call:
+    inputs:
+      run_dependency_audit:
+        required: false
+        type: boolean
+        default: true
+
+permissions:
+  contents: read
+
+jobs:
+  workflow-secret-policy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Enforce Workflow Secret Allowlist
+        shell: bash
+        run: |
+          set -euo pipefail
+          secrets_in_use="$(grep -RhoE '\$\{\{\s*secrets(\.[A-Za-z_][A-Za-z0-9_]*|\['"'"'\"[A-Za-z_][A-Za-z0-9_]*'"'"'\"\])\s*\}\}' .github/workflows \
+            | sed -E "s/.*secrets[.\['\"]([A-Za-z_][A-Za-z0-9_]*).*/\1/" \
+            | sort -u || true)"
+
+          if [[ -z "${secrets_in_use}" ]]; then
+            echo "No workflow secrets in use."
+            exit 0
+          fi
+
+          if [[ ! -f .github/allowed-workflow-secrets.txt ]]; then
+            echo "Missing .github/allowed-workflow-secrets.txt"
+            exit 1
+          fi
+
+          disallowed=0
+          while IFS= read -r secret_name; do
+            [[ -z "${secret_name}" ]] && continue
+            if ! grep -qx "${secret_name}" .github/allowed-workflow-secrets.txt; then
+              echo "Disallowed workflow secret reference: ${secret_name}"
+              disallowed=1
+            fi
+          done <<< "${secrets_in_use}"
+
+          if [[ "${disallowed}" -ne 0 ]]; then
+            echo "Workflow secret policy check failed."
+            exit 1
+          fi
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install Gitleaks
+        shell: bash
+        run: |
+          set -euo pipefail
+          GL_VERSION="8.30.0"
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GL_VERSION}/gitleaks_${GL_VERSION}_linux_x64.tar.gz" -o /tmp/gitleaks.tgz
+          tar -xzf /tmp/gitleaks.tgz -C /tmp gitleaks
+          /tmp/gitleaks version
+      - name: Scan Git History
+        run: /tmp/gitleaks git --config .gitleaks.toml --redact --log-opts="--all" --exit-code 1
+
+  dependency-audit:
+    if: ${{ inputs.run_dependency_audit }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Detect lockfile
+        id: lockfile
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ -f package-lock.json ]]; then
+            echo "present=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "present=false" >> "$GITHUB_OUTPUT"
+          fi
+      - uses: actions/setup-node@v4
+        if: ${{ steps.lockfile.outputs.present == 'true' }}
+        with:
+          node-version: "20"
+          cache: npm
+      - name: Install
+        if: ${{ steps.lockfile.outputs.present == 'true' }}
+        run: npm ci
+      - name: Dependency Audit (High+)
+        if: ${{ steps.lockfile.outputs.present == 'true' }}
+        run: npm audit --audit-level=high
+      - name: Skip Dependency Audit (no package-lock.json)
+        if: ${{ steps.lockfile.outputs.present != 'true' }}
+        run: echo "No package-lock.json found; skipping dependency audit."
