@@ -6,6 +6,7 @@
 import { describe, it, expect, vi } from 'vitest';
 import { Hono } from 'hono';
 import type { Env } from '../src/index';
+import { mcpAuthMiddleware } from '../src/middleware/auth';
 
 // Mock the db module before importing routes that depend on it
 vi.mock('../src/lib/db', () => ({
@@ -44,6 +45,8 @@ function buildApp(envOverrides: Partial<MockEnv> = {}) {
   const app = new Hono<{ Bindings: Env }>();
   const env = makeMockEnv(envOverrides);
 
+  app.use('/mcp', mcpAuthMiddleware);
+  app.use('/mcp/*', mcpAuthMiddleware);
   app.route('/mcp', mcpRoutes);
 
   async function post(body: unknown) {
@@ -60,7 +63,16 @@ function buildApp(envOverrides: Partial<MockEnv> = {}) {
     return app.fetch(req, env as unknown as Env);
   }
 
-  return { post, get, env };
+  async function postRaw(body?: BodyInit | null) {
+    const req = new Request('http://localhost/mcp', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    return app.fetch(req, env as unknown as Env);
+  }
+
+  return { post, postRaw, get, env };
 }
 
 // ---------------------------------------------------------------------------
@@ -220,10 +232,14 @@ describe('MCP — tools/call error paths', () => {
 // ---------------------------------------------------------------------------
 describe('MCP — defensive parsing', () => {
   it('handles completely empty body gracefully', async () => {
-    const { post } = buildApp();
-    const res = await post({});
-    // Must not throw; expect a structured JSON-RPC error response
-    expect(res.status).toBeLessThan(500);
+    const { postRaw } = buildApp();
+    const res = await postRaw('');
+    expect(res.status).toBe(400);
+    const json = await res.json() as Record<string, unknown>;
+    expect(json.jsonrpc).toBe('2.0');
+    expect(json.id).toBeNull();
+    const error = json.error as Record<string, unknown>;
+    expect(error.code).toBe(-32700);
   });
 
   it('handles non-JSON body without crashing', async () => {
@@ -240,7 +256,7 @@ describe('MCP — defensive parsing', () => {
     expect(res.status).toBeGreaterThanOrEqual(400);
   });
 
-  it('GET / returns service health info', async () => {
+  it('GET /mcp returns service health info', async () => {
     const { get } = buildApp();
     const res = await get();
     expect(res.status).toBe(200);

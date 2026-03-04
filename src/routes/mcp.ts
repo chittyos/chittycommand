@@ -191,9 +191,19 @@ const TOOLS = [
 
 // MCP endpoint — handles JSON-RPC 2.0 requests
 mcpRoutes.post('/', async (c) => {
-  const body = await c.req.json() as { jsonrpc: string; id?: string | number; method: string; params?: Record<string, unknown> };
+  let body: { jsonrpc: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
 
-  if (body.jsonrpc !== '2.0') {
+  try {
+    body = await c.req.json() as { jsonrpc: string; id?: string | number | null; method?: string; params?: Record<string, unknown> };
+  } catch {
+    return c.json({
+      jsonrpc: '2.0',
+      id: null,
+      error: { code: -32700, message: 'Parse error' },
+    }, 400);
+  }
+
+  if (body.jsonrpc !== '2.0' || typeof body.method !== 'string') {
     return c.json({ jsonrpc: '2.0', id: body.id ?? null, error: { code: -32600, message: 'Invalid Request: must be JSON-RPC 2.0' } });
   }
 
