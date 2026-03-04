@@ -1,9 +1,10 @@
 import { Hono } from 'hono';
 import type { ContentfulStatusCode } from 'hono/utils/http-status';
 import type { Env } from '../index';
+import type { AuthVariables } from '../middleware/auth';
 
 export const metaPublicRoutes = new Hono<{ Bindings: Env }>();
-export const metaRoutes = new Hono<{ Bindings: Env }>();
+export const metaRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // Public: Canon info and lightweight schema refs
 metaPublicRoutes.get('/canon', async (c) => {
@@ -90,7 +91,8 @@ metaPublicRoutes.post('/cert/verify', async (c) => {
     if (!res.ok) return c.json({ valid: false, result: out, code: res.status }, res.status as ContentfulStatusCode);
     return c.json(out);
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    console.error('[cert/verify] upstream request failed:', err);
+    return c.json({ error: 'Certificate verification failed' }, 500);
   }
 });
 
@@ -105,16 +107,14 @@ metaPublicRoutes.get('/cert/:id', async (c) => {
     if (!res.ok) return c.json({ error: 'Not found', code: res.status, result: out }, res.status as ContentfulStatusCode);
     return c.json(out);
   } catch (err) {
-    return c.json({ error: String(err) }, 500);
+    console.error('[cert/:id] upstream request failed:', err);
+    return c.json({ error: 'Certificate fetch failed' }, 500);
   }
 });
 
 // Authenticated: identity resolution
 metaRoutes.get('/whoami', (c) => {
-  // authMiddleware populates userId/scopes into variables
-  // @ts-expect-error hono types for Variables are on app-level
   const userId = c.get('userId') as string | undefined;
-  // @ts-expect-error see above
   const scopes = (c.get('scopes') as string[] | undefined) || [];
   if (!userId) return c.json({ error: 'Unauthorized' }, 401);
   return c.json({

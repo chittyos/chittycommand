@@ -13,7 +13,8 @@ connectRoutes.get('/connect/status', async (c) => {
     const data = await res.json().catch(() => ({})) as Record<string, unknown>;
     return c.json({ status: res.ok ? 'ok' : 'error', code: res.status, ...data });
   } catch (err) {
-    return c.json({ status: 'unreachable', error: String(err) });
+    console.error('[connect/status] upstream health check failed:', err);
+    return c.json({ status: 'unreachable', error: 'Upstream health check failed' });
   }
 });
 
