@@ -7,3 +7,19 @@ ui/dist/
 .env
 *.log
 .worktrees/
+# Local Claude/Playwright artifacts
+.claude/
+.playwright-mcp/
+*.crx
+
+# External service repos (cloned for reference, not tracked)
+_ext/
+
+# Generated governance reports (timestamped artifacts)
+reports/org-governance-*/report-*.json
+reports/org-governance-*/report-*.jsonl
+reports/org-governance-*/report-*.md
+
+# Build infos and OS cruft
+ui/tsconfig.tsbuildinfo
+.DS_Store

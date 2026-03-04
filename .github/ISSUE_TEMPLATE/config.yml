@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Governance triage
+    url: https://github.com/chittyos/chittycommand/issues/new?template=governance-exception.yml
+    about: Use the governance exception template for bypass requests.

@@ -238,8 +238,8 @@ const loginPage = `<!DOCTYPE html>
       if (!res.ok) {
         throw new Error(data.error || 'Login failed');
       }
-      localStorage.setItem('cc_token', data.token);
-      localStorage.setItem('cc_user', data.user_id);
+      localStorage.setItem('chittycommand_token', data.token);
+      localStorage.setItem('chittycommand_user', JSON.stringify({ user_id: data.user_id, scopes: data.scopes || ['admin'] }));
       successEl.textContent = 'Signed in. Redirecting...';
       successEl.style.display = 'block';
       setTimeout(() => { window.location.href = '/'; }, 500);

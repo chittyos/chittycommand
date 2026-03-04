@@ -19,6 +19,13 @@ CHITTYBOOKS_URL = "https://chittybooks.chitty.cc"
 CHITTYASSETS_URL = "https://chittyassets.chitty.cc"
 CHITTYSCRAPE_URL = "https://scrape.chitty.cc"
 CHITTYROUTER_URL = "https://router.chitty.cc"
+# Optional: chittyregister for beacon heartbeats
+CHITTYREGISTER_URL = "https://register.chitty.cc"
+# Optional: chittychat data API for MCP tools
+# CHITTYCHAT_DATA_API = "https://chittychat-api.chitty.cc/api"
+# Optional: ChittySchema and ChittyCert endpoints for MCP tools
+# CHITTYSCHEMA_URL = "https://schema.chitty.cc"
+# CHITTYCERT_URL = "https://cert.chitty.cc"
 # PLAID_CLIENT_ID and PLAID_SECRET set via `wrangler secret put`
 
 # Neon PostgreSQL via Hyperdrive
@@ -51,3 +58,7 @@ crons = [
   "0 14 * * 1",   # Weekly Monday 8 AM CT: Utility scrapers
   "0 15 1 * *"    # Monthly 1st 9 AM CT: Mortgage, property tax
 ]
+
+# Production overrides
+[env.production.vars]
+PLAID_ENV = "production"

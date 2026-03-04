@@ -136,17 +136,25 @@ export const api = {
 
   // Documents
   uploadDocument: async (file: File) => {
+    const token = getToken();
     const formData = new FormData();
     formData.append('file', file);
-    const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', body: formData });
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', headers, body: formData });
+    if (res.status === 401) { logout(); throw new Error('Session expired'); }
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     return res.json();
   },
   getDocumentGaps: () => request<GapsResult>('/documents/gaps'),
   uploadBatch: async (files: File[]) => {
+    const token = getToken();
     const formData = new FormData();
     for (const file of files) formData.append('files', file);
-    const res = await fetch(`${API_BASE}/documents/upload/batch`, { method: 'POST', body: formData });
+    const headers: Record<string, string> = {};
+    if (token) headers['Authorization'] = `Bearer ${token}`;
+    const res = await fetch(`${API_BASE}/documents/upload/batch`, { method: 'POST', headers, body: formData });
+    if (res.status === 401) { logout(); throw new Error('Session expired'); }
     if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || `HTTP ${res.status}`);
     return res.json() as Promise<BatchUploadResult>;
   },

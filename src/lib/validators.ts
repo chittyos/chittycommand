@@ -238,6 +238,14 @@ export const claimNamespaceSchema = z.object({
     .regex(/^[a-z][a-z0-9._-]*$/, 'Must start with a letter; only lowercase letters, numbers, dots, hyphens, underscores'),
 });
 
+// ── Context (persona/tags/label) ────────────────────────────
+
+export const contextUpdateSchema = z.object({
+  persona: z.string().min(1).max(100).optional(),
+  label: z.string().min(1).max(100).optional(),
+  tags: z.array(z.string().min(1).max(50)).max(20).optional(),
+});
+
 // ── Chat ────────────────────────────────────────────────────
 
 export const chatRequestSchema = z.object({

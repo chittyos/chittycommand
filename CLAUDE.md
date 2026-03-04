@@ -45,7 +45,7 @@ Single Cloudflare Worker (`chittycommand`) serving API + cron. Frontend is a sep
 Three auth layers in `src/middleware/auth.ts`:
 1. **`authMiddleware`** (`/api/*`) — KV token lookup, then ChittyAuth fallback
 2. **`bridgeAuthMiddleware`** (`/api/bridge/*`) — Service token OR user token
-3. **`mcpAuthMiddleware`** (`/mcp/*`) — Shared service token from KV (bypassed in dev)
+3. **`mcpAuthMiddleware`** (`/mcp/*`) — ChittyAuth token validation first, shared KV service token fallback (bypassed in dev)
 
 ### Cron Schedule
 
@@ -75,7 +75,13 @@ Three modes:
 - `src/lib/urgency.ts` — Deterministic urgency scoring engine
 - `src/lib/validators.ts` — Zod schemas for request validation
 - `src/routes/bridge.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
-- `src/routes/mcp.ts` — MCP server for Claude integration
+- `src/routes/mcp.ts` — MCP server for Claude integration (28 tools)
+- `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
+- `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
+- `src/routes/ledger.ts` — ChittyLedger evidence/custody passthrough
+- `src/routes/context.ts` — Persona/context management (user + global)
+- `src/routes/auth.ts` — Login/verify flows
+- `src/routes/token-management.ts` — Admin token CRUD
 - `src/routes/dashboard.ts` — Dashboard summary with urgency scoring
 - `src/db/schema.ts` — Drizzle schema for all cc_* tables
 - `migrations/` — SQL migration files (0001-0007)
@@ -88,3 +94,39 @@ Three modes:
 - R2 for document storage (zero egress)
 - CORS restricted to `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`
 - Service tokens stored in KV: `bridge:service_token`, `mcp:service_token`, `scrape:service_token`
+
+## Claude Code Setup
+
+Use Claude Code (or Claude Desktop with MCP support) to connect directly to the `/mcp` HTTP server.
+
+- Server URL: `https://command.chitty.cc/mcp`
+- Transport: HTTP (JSON‑RPC 2.0, streamable HTTP)
+- Auth (production): `Authorization: Bearer <ChittyAuth token>` (preferred) or legacy `Authorization: Bearer <KV mcp:service_token>`
+- Auth (dev): If `ENVIRONMENT != 'production'`, auth is bypassed
+
+Example client-side MCP configuration (conceptual):
+
+```
+{
+  "mcpServers": {
+    "chittycommand": {
+      "type": "http",
+      "url": "https://command.chitty.cc/mcp",
+      "headers": { "Authorization": "Bearer <your_mcp_service_token>" }
+    }
+  }
+}
+```
+
+The server exposes 28 tools across 8 domains:
+
+**Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
+**Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`
+**Ledger** — `ledger_stats`, `ledger_get_evidence`, `ledger_record_custody`, `ledger_facts`, `ledger_contradictions`, `ledger_create_case_for_dispute`, `ledger_link_case_for_dispute`
+**Connect** — `connect_discover`
+**ChittyChat** — `chittychat_list_projects`, `chittychat_list_tasks`, `chittychat_get_task`
+**Schema** — `schema_list_types`, `schema_get`, `schema_validate`, `schema_drift`
+**Cert** — `cert_verify`
+**Register** — `register_requirements`
+
+Tools return structured JSON using MCP `content: [{ type: "json", json: ... }]` where applicable, enabling Claude Code to consume results without text parsing.
