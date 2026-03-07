@@ -51,6 +51,7 @@ export function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
                   )}
                   {toast.actionLabel && toast.onAction && (
                     <button
+                      type="button"
                       onClick={() => {
                         toast.onAction?.();
                         onDismiss(toast.id);
@@ -62,6 +63,7 @@ export function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
                   )}
                 </div>
                 <button
+                  type="button"
                   onClick={() => onDismiss(toast.id)}
                   className="opacity-70 hover:opacity-100 transition-opacity"
                   aria-label="Dismiss notification"
@@ -76,4 +78,3 @@ export function ToastViewport({ toasts, onDismiss }: ToastViewportProps) {
     </div>
   );
 }
-
