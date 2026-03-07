@@ -1,3 +1,4 @@
+import { forwardRef } from 'react';
 import { cn } from '../../lib/utils';
 
 interface ActionButtonProps {
@@ -7,18 +8,30 @@ interface ActionButtonProps {
   loading?: boolean;
   disabled?: boolean;
   className?: string;
+  type?: 'button' | 'submit' | 'reset';
+  autoFocus?: boolean;
 }
 
-export function ActionButton({ label, onClick, variant = 'primary', loading, disabled, className }: ActionButtonProps) {
-  const base = 'px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 focus-ring';
+export const ActionButton = forwardRef<HTMLButtonElement, ActionButtonProps>(function ActionButton(
+  { label, onClick, variant = 'primary', loading, disabled, className, type = 'button', autoFocus },
+  ref,
+) {
+  const base =
+    'px-4 py-2 text-sm font-semibold rounded-xl transition-all duration-200 disabled:opacity-50 focus-ring';
   const variants = {
-    primary: 'bg-gradient-to-b from-chitty-500 to-chitty-600 text-white hover:from-chitty-400 hover:to-chitty-500 shadow-sm hover:shadow-glow-brand active:scale-[0.97]',
-    secondary: 'bg-card-hover text-card-text border border-card-border hover:border-chitty-300 hover:bg-white active:scale-[0.97]',
-    danger: 'bg-gradient-to-b from-urgency-red to-rose-600 text-white hover:from-rose-400 hover:to-rose-500 shadow-sm hover:shadow-glow-danger active:scale-[0.97]',
+    primary:
+      'bg-gradient-to-b from-chitty-500 to-chitty-600 text-white hover:from-chitty-400 hover:to-chitty-500 shadow-sm hover:shadow-glow-brand active:scale-[0.97]',
+    secondary:
+      'bg-card-hover text-card-text border border-card-border hover:border-chitty-300 hover:bg-white active:scale-[0.97]',
+    danger:
+      'bg-gradient-to-b from-urgency-red to-rose-600 text-white hover:from-rose-400 hover:to-rose-500 shadow-sm hover:shadow-glow-danger active:scale-[0.97]',
   };
 
   return (
     <button
+      ref={ref}
+      type={type}
+      autoFocus={autoFocus}
       onClick={onClick}
       disabled={disabled || loading}
       className={cn(base, variants[variant], className)}
@@ -31,4 +44,4 @@ export function ActionButton({ label, onClick, variant = 'primary', loading, dis
       ) : label}
     </button>
   );
-}
+});

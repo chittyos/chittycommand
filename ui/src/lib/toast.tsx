@@ -63,7 +63,25 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       durationMs: toast.durationMs ?? 5000,
     };
 
-    setToasts((prev) => [...prev.slice(-4), nextToast]);
+    setToasts((prev) => {
+      const maxToasts = 4;
+      const updated = [...prev, nextToast];
+      const overflow = updated.length - maxToasts;
+
+      if (overflow > 0) {
+        const evicted = updated.slice(0, overflow);
+        for (const toast of evicted) {
+          const timer = timers.current.get(toast.id);
+          if (timer) {
+            clearTimeout(timer);
+            timers.current.delete(toast.id);
+          }
+        }
+        return updated.slice(overflow);
+      }
+
+      return updated;
+    });
 
     if (nextToast.durationMs > 0) {
       const timer = setTimeout(() => {
@@ -119,4 +137,3 @@ export function useToast() {
   if (!ctx) throw new Error('useToast must be used within ToastProvider');
   return ctx;
 }
-
