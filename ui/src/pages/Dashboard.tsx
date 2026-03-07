@@ -3,13 +3,18 @@ import { api, type DashboardData, type Obligation, type Recommendation } from '.
 import { useFocusMode } from '../lib/focus-mode';
 import { FocusView } from '../components/dashboard/FocusView';
 import { FullView } from '../components/dashboard/FullView';
+import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { useToast } from '../lib/toast';
+import { formatCurrency } from '../lib/utils';
 
 export function Dashboard() {
   const [data, setData] = useState<DashboardData | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [payingId, setPayingId] = useState<string | null>(null);
   const [executingId, setExecutingId] = useState<string | null>(null);
+  const [pendingPayment, setPendingPayment] = useState<Obligation | null>(null);
   const { focusMode } = useFocusMode();
+  const toast = useToast();
 
   const reload = useCallback(() => {
     api.getDashboard().then(setData).catch((e) => setError(e.message));
@@ -17,18 +22,31 @@ export function Dashboard() {
 
   useEffect(() => { reload(); }, [reload]);
 
-  const handlePayNow = async (ob: Obligation) => {
+  const requestPayNow = useCallback((ob: Obligation) => {
     if (payingId) return;
-    setPayingId(ob.id);
+    setPendingPayment(ob);
+  }, [payingId]);
+
+  const handleConfirmPayNow = useCallback(async () => {
+    if (!pendingPayment || payingId) return;
+    setPayingId(pendingPayment.id);
     try {
-      await api.markPaid(ob.id);
+      await api.markPaid(pendingPayment.id);
+      toast.success(
+        'Marked as paid',
+        `${pendingPayment.payee}: ${formatCurrency(pendingPayment.amount_due)}`,
+        { durationMs: 2500 },
+      );
+      setPendingPayment(null);
       reload();
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Payment failed');
+      const message = e instanceof Error ? e.message : 'Payment failed';
+      setError(message);
+      toast.error('Could not mark paid', message);
     } finally {
       setPayingId(null);
     }
-  };
+  }, [payingId, pendingPayment, reload, toast]);
 
   const handleExecute = async (rec: Recommendation) => {
     if (executingId) return;
@@ -56,7 +74,23 @@ export function Dashboard() {
     return <div className="text-center py-20 text-chrome-muted">Loading...</div>;
   }
 
-  const viewProps = { data, onPayNow: handlePayNow, onExecute: handleExecute, payingId, executingId };
+  const viewProps = { data, onPayNow: requestPayNow, onExecute: handleExecute, payingId, executingId };
 
-  return focusMode ? <FocusView {...viewProps} /> : <FullView {...viewProps} />;
+  return (
+    <>
+      {focusMode ? <FocusView {...viewProps} /> : <FullView {...viewProps} />}
+      <ConfirmDialog
+        open={Boolean(pendingPayment)}
+        title={pendingPayment?.action_type === 'charge' ? 'Execute payment?' : 'Mark bill as paid?'}
+        message={pendingPayment?.action_type === 'charge'
+          ? `This will trigger a payment for ${pendingPayment.payee} (${formatCurrency(pendingPayment.amount_due)}).`
+          : `This records a manual payment for ${pendingPayment?.payee} (${formatCurrency(pendingPayment?.amount_due || 0)}).\nNo funds move unless this bill is charge-enabled.`}
+        confirmLabel={pendingPayment?.action_type === 'charge' ? 'Pay now' : 'Mark paid'}
+        variant={pendingPayment?.action_type === 'charge' ? 'primary' : 'danger'}
+        loading={Boolean(payingId)}
+        onConfirm={handleConfirmPayNow}
+        onCancel={() => setPendingPayment(null)}
+      />
+    </>
+  );
 }

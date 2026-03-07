@@ -6,6 +6,7 @@ import { DesktopControls } from '../components/swipe/DesktopControls';
 import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ActionButton } from '../components/ui/ActionButton';
 import { Card } from '../components/ui/Card';
+import { useToast } from '../lib/toast';
 
 export function ActionQueue() {
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -14,17 +15,63 @@ export function ActionQueue() {
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const sessionId = useRef(crypto.randomUUID());
+  const autoTriageAttempted = useRef(false);
+  const toast = useToast();
 
-  const loadQueue = useCallback(async () => {
+  const runTriage = useCallback(async (auto = false) => {
+    setGenerating(true);
+    setError(null);
+
+    if (auto) {
+      toast.info('Queue is empty', 'Running triage automatically...');
+    }
+
+    try {
+      const result = await api.generateRecommendations();
+      const created = result.recommendations_created;
+      if (created > 0) {
+        toast.success(
+          auto ? 'Queue ready' : 'Triage complete',
+          `Created ${created} recommendation${created === 1 ? '' : 's'}.`,
+          { durationMs: 2500 },
+        );
+      } else {
+        toast.info('No new recommendations', 'Everything is already up to date.', { durationMs: 2500 });
+      }
+      return true;
+    } catch (e: unknown) {
+      const message = e instanceof Error ? e.message : 'Triage failed';
+      setError(message);
+      toast.error('Triage failed', message);
+      return false;
+    } finally {
+      setGenerating(false);
+    }
+  }, [toast]);
+
+  const loadQueue = useCallback(async (allowAutoTriage = true) => {
     try {
       const data = await api.getQueue(10);
+
+      if (data.length === 0 && allowAutoTriage && !autoTriageAttempted.current) {
+        autoTriageAttempted.current = true;
+        const generated = await runTriage(true);
+        if (generated) {
+          const refreshed = await api.getQueue(10);
+          setItems(refreshed);
+          return;
+        }
+      }
+
       setItems(data);
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Failed to load queue');
+      const message = e instanceof Error ? e.message : 'Failed to load queue';
+      setError(message);
+      toast.error('Could not load queue', message);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [runTriage, toast]);
 
   const loadStats = useCallback(async () => {
     try {
@@ -42,26 +89,34 @@ export function ActionQueue() {
 
   const handleDecide = useCallback(async (id: string, decision: 'approved' | 'rejected' | 'deferred') => {
     try {
+      const current = items.find((item) => item.id === id);
       await api.decideQueue(id, decision, sessionId.current);
       setItems((prev) => prev.filter((item) => item.id !== id));
       loadStats();
+
+      if (current) {
+        const title = current.title.length > 60 ? `${current.title.slice(0, 57)}...` : current.title;
+        if (decision === 'approved') {
+          toast.success('Approved', title, { durationMs: 2000 });
+        } else if (decision === 'rejected') {
+          toast.info('Rejected', title, { durationMs: 2000 });
+        } else {
+          toast.info('Deferred', title, { durationMs: 2000 });
+        }
+      }
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Decision failed');
+      const message = e instanceof Error ? e.message : 'Decision failed';
+      setError(message);
+      toast.error('Decision failed', message);
     }
-  }, [loadStats]);
+  }, [items, loadStats, toast]);
 
   const handleGenerate = useCallback(async () => {
-    setGenerating(true);
-    setError(null);
-    try {
-      await api.generateRecommendations();
-      await loadQueue();
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : 'Triage failed');
-    } finally {
-      setGenerating(false);
+    const generated = await runTriage(false);
+    if (generated) {
+      await loadQueue(false);
     }
-  }, [loadQueue]);
+  }, [loadQueue, runTriage]);
 
   // Keyboard shortcuts for desktop
   const currentItem = items[0];
@@ -108,7 +163,7 @@ export function ActionQueue() {
       <SwipeStack
         items={items}
         onDecide={handleDecide}
-        onLoadMore={loadQueue}
+        onLoadMore={() => loadQueue(false)}
       />
 
       {/* Desktop controls */}

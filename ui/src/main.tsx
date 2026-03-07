@@ -15,6 +15,7 @@ import { ActionQueue } from './pages/ActionQueue';
 import { Login } from './pages/Login';
 import { isAuthenticated } from './lib/auth';
 import { FocusModeProvider } from './lib/focus-mode';
+import { ToastProvider } from './lib/toast';
 import './index.css';
 
 function ProtectedRoute({ children }: { children: React.ReactNode }) {
@@ -26,24 +27,26 @@ function ProtectedRoute({ children }: { children: React.ReactNode }) {
 
 ReactDOM.createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
-    <FocusModeProvider>
-      <BrowserRouter>
-        <Routes>
-          <Route path="/login" element={<Login />} />
-          <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
-            <Route path="/" element={<Dashboard />} />
-            <Route path="/queue" element={<ActionQueue />} />
-            <Route path="/bills" element={<Bills />} />
-            <Route path="/disputes" element={<Disputes />} />
-            <Route path="/accounts" element={<Accounts />} />
-            <Route path="/legal" element={<Legal />} />
-            <Route path="/recommendations" element={<Recommendations />} />
-            <Route path="/cashflow" element={<CashFlow />} />
-            <Route path="/upload" element={<Upload />} />
-            <Route path="/settings" element={<Settings />} />
-          </Route>
-        </Routes>
-      </BrowserRouter>
-    </FocusModeProvider>
+    <ToastProvider>
+      <FocusModeProvider>
+        <BrowserRouter>
+          <Routes>
+            <Route path="/login" element={<Login />} />
+            <Route element={<ProtectedRoute><Layout /></ProtectedRoute>}>
+              <Route path="/" element={<Dashboard />} />
+              <Route path="/queue" element={<ActionQueue />} />
+              <Route path="/bills" element={<Bills />} />
+              <Route path="/disputes" element={<Disputes />} />
+              <Route path="/accounts" element={<Accounts />} />
+              <Route path="/legal" element={<Legal />} />
+              <Route path="/recommendations" element={<Recommendations />} />
+              <Route path="/cashflow" element={<CashFlow />} />
+              <Route path="/upload" element={<Upload />} />
+              <Route path="/settings" element={<Settings />} />
+            </Route>
+          </Routes>
+        </BrowserRouter>
+      </FocusModeProvider>
+    </ToastProvider>
   </React.StrictMode>,
 );
