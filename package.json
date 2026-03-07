@@ -24,7 +24,7 @@
     "@hono/zod-validator": "^0.7.6",
     "@neondatabase/serverless": "^0.10.0",
     "drizzle-orm": "^0.33.0",
-    "hono": "^4.4.0",
+    "hono": "^4.12.5",
     "zod": "^3.23.0"
   },
   "devDependencies": {
