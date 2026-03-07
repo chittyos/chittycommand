@@ -43,7 +43,7 @@ export function ObligationsWidget({ obligations, onPayNow, payingId }: Props) {
                     disabled={payingId === ob.id}
                     className="px-3 py-1 text-xs font-medium bg-chitty-600 text-white rounded-lg hover:bg-chitty-700 disabled:opacity-50"
                   >
-                    {payingId === ob.id ? '...' : 'Pay'}
+                    {payingId === ob.id ? '...' : 'Mark Paid'}
                   </button>
                 )}
               </div>

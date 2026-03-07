@@ -40,7 +40,7 @@ export function FocusView({ data, onPayNow, onExecute, payingId, executingId }: 
         : `Due ${formatDate(ob.due_date)}`,
       metric: formatCurrency(ob.amount_due),
       action: {
-        label: 'Pay Now',
+        label: 'Mark Paid',
         onClick: () => onPayNow(ob),
         loading: payingId === ob.id,
       },
