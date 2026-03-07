@@ -16,6 +16,7 @@ export function ActionQueue() {
   const [error, setError] = useState<string | null>(null);
   const sessionId = useRef(crypto.randomUUID());
   const autoTriageAttempted = useRef(false);
+  const pendingDecisionsRef = useRef<Set<string>>(new Set());
   const toast = useToast();
 
   const runTriage = useCallback(async (auto = false) => {
@@ -88,6 +89,8 @@ export function ActionQueue() {
   }, [loadQueue, loadStats]);
 
   const handleDecide = useCallback(async (id: string, decision: 'approved' | 'rejected' | 'deferred') => {
+    if (pendingDecisionsRef.current.has(id)) return;
+    pendingDecisionsRef.current.add(id);
     try {
       const current = items.find((item) => item.id === id);
       await api.decideQueue(id, decision, sessionId.current);
@@ -108,6 +111,8 @@ export function ActionQueue() {
       const message = e instanceof Error ? e.message : 'Decision failed';
       setError(message);
       toast.error('Decision failed', message);
+    } finally {
+      pendingDecisionsRef.current.delete(id);
     }
   }, [items, loadStats, toast]);
 

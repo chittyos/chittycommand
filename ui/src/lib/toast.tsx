@@ -64,23 +64,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     };
 
     setToasts((prev) => {
-      const maxToasts = 4;
-      const updated = [...prev, nextToast];
-      const overflow = updated.length - maxToasts;
+      const kept = prev.slice(-3);
+      const keptIds = new Set(kept.map((toast) => toast.id));
+      const dropped = prev.filter((toast) => !keptIds.has(toast.id));
 
-      if (overflow > 0) {
-        const evicted = updated.slice(0, overflow);
-        for (const toast of evicted) {
-          const timer = timers.current.get(toast.id);
-          if (timer) {
-            clearTimeout(timer);
-            timers.current.delete(toast.id);
-          }
+      for (const toast of dropped) {
+        const timer = timers.current.get(toast.id);
+        if (timer) {
+          clearTimeout(timer);
+          timers.current.delete(toast.id);
         }
-        return updated.slice(overflow);
       }
 
-      return updated;
+      return [...kept, nextToast];
     });
 
     if (nextToast.durationMs > 0) {

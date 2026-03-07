@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useState, useCallback, useRef } from 'react';
 import { api, type DashboardData, type Obligation, type Recommendation } from '../lib/api';
 import { useFocusMode } from '../lib/focus-mode';
 import { FocusView } from '../components/dashboard/FocusView';
@@ -15,6 +15,7 @@ export function Dashboard() {
   const [pendingPayment, setPendingPayment] = useState<Obligation | null>(null);
   const { focusMode } = useFocusMode();
   const toast = useToast();
+  const payingIdRef = useRef<string | null>(null);
 
   const reload = useCallback(() => {
     api.getDashboard().then(setData).catch((e) => setError(e.message));
@@ -28,13 +29,15 @@ export function Dashboard() {
   }, [payingId]);
 
   const handleConfirmPayNow = useCallback(async () => {
-    if (!pendingPayment || payingId) return;
-    setPayingId(pendingPayment.id);
+    const currentPayment = pendingPayment;
+    if (!currentPayment || payingIdRef.current) return;
+    payingIdRef.current = currentPayment.id;
+    setPayingId(currentPayment.id);
     try {
-      await api.markPaid(pendingPayment.id);
+      await api.markPaid(currentPayment.id);
       toast.success(
         'Marked as paid',
-        `${pendingPayment.payee}: ${formatCurrency(pendingPayment.amount_due)}`,
+        `${currentPayment.payee}: ${formatCurrency(currentPayment.amount_due)}`,
         { durationMs: 2500 },
       );
       setPendingPayment(null);
@@ -44,9 +47,10 @@ export function Dashboard() {
       setError(message);
       toast.error('Could not mark paid', message);
     } finally {
+      payingIdRef.current = null;
       setPayingId(null);
     }
-  }, [payingId, pendingPayment, reload, toast]);
+  }, [pendingPayment, reload, toast]);
 
   const handleExecute = async (rec: Recommendation) => {
     if (executingId) return;

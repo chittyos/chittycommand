@@ -29,18 +29,23 @@ export function ConfirmDialog({
   const confirmButtonRef = useRef<HTMLButtonElement>(null);
   const cancelButtonRef = useRef<HTMLButtonElement>(null);
   const previouslyFocusedElement = useRef<HTMLElement | null>(null);
+  const loadingRef = useRef(loading);
   const titleId = useId();
   const descriptionId = useId();
+
+  useEffect(() => {
+    loadingRef.current = loading;
+  }, [loading]);
 
   useEffect(() => {
     if (!open) return;
 
     previouslyFocusedElement.current =
       document.activeElement instanceof HTMLElement ? document.activeElement : null;
-    (confirmButtonRef.current ?? cancelButtonRef.current)?.focus();
+    confirmButtonRef.current?.focus();
 
     const onKeyDown = (event: KeyboardEvent) => {
-      if (event.key === 'Escape' && !loading) {
+      if (event.key === 'Escape' && !loadingRef.current) {
         onCancel();
       }
 
@@ -53,13 +58,20 @@ export function ConfirmDialog({
 
         if (focusable.length === 0) return;
 
+        const activeElement = document.activeElement;
         const first = focusable[0];
         const last = focusable[focusable.length - 1];
 
-        if (!event.shiftKey && document.activeElement === last) {
+        if (!dialogRef.current.contains(activeElement)) {
           event.preventDefault();
           first.focus();
-        } else if (event.shiftKey && document.activeElement === first) {
+          return;
+        }
+
+        if (!event.shiftKey && activeElement === last) {
+          event.preventDefault();
+          first.focus();
+        } else if (event.shiftKey && activeElement === first) {
           event.preventDefault();
           last.focus();
         }
@@ -76,7 +88,7 @@ export function ConfirmDialog({
         previouslyFocusedElement.current.focus();
       }
     };
-  }, [loading, onCancel, open]);
+  }, [onCancel, open]);
 
   if (!open || typeof document === 'undefined') return null;
 
