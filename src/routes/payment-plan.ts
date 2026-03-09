@@ -89,3 +89,87 @@ paymentPlanRoutes.post('/:id/activate', async (c) => {
   if (!plan) return c.json({ error: 'Plan not found' }, 404);
   return c.json(plan);
 });
+
+// POST /api/payment-plan/:id/enqueue — convert plan schedule entries into queue recommendations
+paymentPlanRoutes.post('/:id/enqueue', async (c) => {
+  const id = c.req.param('id');
+  const sql = getDb(c.env);
+
+  const [plan] = await sql`
+    SELECT id, plan_type, schedule
+    FROM cc_payment_plans
+    WHERE id = ${id}::uuid
+  `;
+  if (!plan) return c.json({ error: 'Plan not found' }, 404);
+
+  let schedule: Array<{
+    date: string;
+    obligation_id: string;
+    payee: string;
+    amount: number;
+    action: string;
+    escalation_risk?: string | null;
+  }> = [];
+  try {
+    const raw = typeof plan.schedule === 'string' ? JSON.parse(plan.schedule) : plan.schedule;
+    if (Array.isArray(raw)) schedule = raw;
+  } catch {
+    return c.json({ error: 'Invalid plan schedule payload' }, 400);
+  }
+
+  let created = 0;
+  let skipped = 0;
+  for (const entry of schedule) {
+    if (!entry?.obligation_id) {
+      skipped++;
+      continue;
+    }
+    if (entry.action !== 'pay_full' && entry.action !== 'pay_minimum') {
+      skipped++;
+      continue;
+    }
+
+    const dueDate = new Date(entry.date);
+    const daysOut = Math.floor((dueDate.getTime() - Date.now()) / 86400000);
+    const priority = daysOut <= 3 ? 1 : daysOut <= 7 ? 2 : daysOut <= 14 ? 3 : 4;
+    const actionType = entry.action === 'pay_minimum' ? 'pay_minimum' : 'pay_full';
+    const title = `Plan: ${actionType === 'pay_minimum' ? 'Pay minimum' : 'Pay'} ${entry.payee} on ${entry.date}`;
+    const reasoning = `Scheduled by ${plan.plan_type} plan ${plan.id} for ${entry.date}.`;
+
+    const [existing] = await sql`
+      SELECT id
+      FROM cc_recommendations
+      WHERE obligation_id = ${entry.obligation_id}::uuid
+        AND status = 'active'
+        AND action_type = ${actionType}
+        AND title = ${title}
+      LIMIT 1
+    `;
+    if (existing) {
+      skipped++;
+      continue;
+    }
+
+    await sql`
+      INSERT INTO cc_recommendations (
+        obligation_id, rec_type, priority, title, reasoning, action_type,
+        suggested_amount, escalation_risk, model_version, confidence
+      )
+      VALUES (
+        ${entry.obligation_id}::uuid,
+        'payment_plan',
+        ${priority},
+        ${title},
+        ${reasoning},
+        ${actionType},
+        ${entry.amount || null},
+        ${entry.escalation_risk || null},
+        'plan-enqueue-v1',
+        0.90
+      )
+    `;
+    created++;
+  }
+
+  return c.json({ plan_id: id, created, skipped });
+});

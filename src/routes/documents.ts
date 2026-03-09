@@ -4,6 +4,7 @@ import { getDb } from '../lib/db';
 import { ledgerClient } from '../lib/integrations';
 
 export const documentRoutes = new Hono<{ Bindings: Env }>();
+const UUID_V4ISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 documentRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
@@ -22,7 +23,14 @@ const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 documentRoutes.post('/upload', async (c) => {
   const formData = await c.req.formData();
   const file = formData.get('file') as unknown as File | null;
+  const linkedDisputeRaw = formData.get('linked_dispute_id');
+  const linkedDisputeId = typeof linkedDisputeRaw === 'string' && linkedDisputeRaw.trim().length > 0
+    ? linkedDisputeRaw.trim()
+    : null;
   if (!file || typeof file === 'string') return c.json({ error: 'No file provided' }, 400);
+  if (linkedDisputeId && !UUID_V4ISH.test(linkedDisputeId)) {
+    return c.json({ error: 'Invalid linked_dispute_id' }, 400);
+  }
 
   if (!ALLOWED_TYPES.has(file.type)) {
     return c.json({ error: 'Unsupported file type', allowed: [...ALLOWED_TYPES] }, 400);
@@ -43,8 +51,8 @@ documentRoutes.post('/upload', async (c) => {
 
   // Create DB record
   const [doc] = await sql`
-    INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status)
-    VALUES ('upload', 'manual', ${safeName}, ${r2Key}, 'pending')
+    INSERT INTO cc_documents (doc_type, source, filename, r2_key, linked_dispute_id, processing_status)
+    VALUES ('upload', 'manual', ${safeName}, ${r2Key}, ${linkedDisputeId}, 'pending')
     RETURNING *
   `;
 

@@ -9,6 +9,7 @@ import { StrategySelector } from '../components/planner/StrategySelector';
 import { RevenueSources } from '../components/planner/RevenueSources';
 import { formatCurrency, formatDate, cn } from '../lib/utils';
 import { AreaChart, Area, XAxis, YAxis, Tooltip, ResponsiveContainer, ReferenceLine } from 'recharts';
+import { useToast } from '../lib/toast';
 
 type CashFlowTab = 'projections' | 'planner' | 'revenue';
 
@@ -18,20 +19,25 @@ export function CashFlow() {
   const [summary, setSummary] = useState<ProjectionResult | null>(null);
   const [obligations, setObligations] = useState<Obligation[]>([]);
   const [scenario, setScenario] = useState<ScenarioResult | null>(null);
+  const [revenueSummary, setRevenueSummary] = useState<{ count: number; total_monthly: number; weighted_monthly: number } | null>(null);
   const [deferIds, setDeferIds] = useState<Set<string>>(new Set());
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [enqueueLoading, setEnqueueLoading] = useState(false);
+  const toast = useToast();
 
   const load = () => {
     setLoading(true);
     Promise.all([
       api.getCashflowProjections(),
       api.getObligations({ status: 'pending' }),
+      api.getRevenueSources(),
     ])
-      .then(([proj, obs]) => {
+      .then(([proj, obs, rev]) => {
         setProjections(proj);
         setObligations(obs);
+        setRevenueSummary(rev.summary);
         setError(null);
       })
       .catch((e) => setError(e instanceof Error ? e.message : 'Failed to load cash flow data'))
@@ -83,6 +89,8 @@ export function CashFlow() {
     inflow: parseFloat(p.projected_inflow),
     outflow: parseFloat(p.projected_outflow),
   }));
+  const projectedEnding = chartData.length > 0 ? chartData[chartData.length - 1].balance : null;
+  const projectedLowest = chartData.length > 0 ? Math.min(...chartData.map((c) => c.balance)) : null;
 
   // Payment planner state — must be before any conditional returns (Rules of Hooks)
   const [plan, setPlan] = useState<PaymentPlan | null>(null);
@@ -125,7 +133,7 @@ export function CashFlow() {
     setError(null);
     try {
       const result = await api.simulatePaymentPlan({ strategy: planStrategy, defer_ids: newDeferIds });
-      setPlan(result);
+      setPlan((prev) => ({ ...result, id: prev?.id }));
     } catch (e: unknown) {
       setPlanDeferIds(prevDeferIds);
       setError(e instanceof Error ? e.message : 'Simulation failed');
@@ -140,10 +148,28 @@ export function CashFlow() {
     setError(null);
     try {
       const result = await api.simulatePaymentPlan({ strategy: planStrategy, ...overrides });
-      setPlan(result);
+      setPlan((prev) => ({ ...result, id: prev?.id }));
       setPlanDeferIds(overrides.defer_ids ?? []);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Simulation failed');
+    }
+  };
+
+  const handleSendPlanToQueue = async () => {
+    if (!plan?.id) return;
+    setEnqueueLoading(true);
+    try {
+      const result = await api.enqueuePlan(plan.id);
+      toast.success(
+        'Plan sent to queue',
+        `${result.created} created, ${result.skipped} skipped`,
+        { durationMs: 2500 },
+      );
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Failed to send plan to queue';
+      toast.error('Could not send plan to queue', msg);
+    } finally {
+      setEnqueueLoading(false);
     }
   };
 
@@ -166,6 +192,27 @@ export function CashFlow() {
           />
         )}
       </div>
+
+      {/* Tabs */}
+      <Card>
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 lg:gap-3">
+          <MetricCard
+            label="Projected Ending"
+            value={projectedEnding != null ? formatCurrency(projectedEnding) : '--'}
+            valueClassName={projectedEnding != null && projectedEnding < 0 ? 'text-urgency-red' : 'text-urgency-green'}
+          />
+          <MetricCard
+            label="Projected Lowest"
+            value={projectedLowest != null ? formatCurrency(projectedLowest) : '--'}
+            valueClassName={projectedLowest != null && projectedLowest < 0 ? 'text-urgency-red' : 'text-urgency-amber'}
+          />
+          <MetricCard
+            label="Weighted Revenue/mo"
+            value={revenueSummary ? formatCurrency(revenueSummary.weighted_monthly) : '--'}
+            valueClassName="text-urgency-green"
+          />
+        </div>
+      </Card>
 
       {/* Tabs */}
       <div className="flex gap-1 bg-card-hover rounded-lg p-1 border border-card-border">
@@ -198,7 +245,12 @@ export function CashFlow() {
           <StrategySelector value={planStrategy} onChange={setPlanStrategy} disabled={planLoading} />
           {plan ? (
             <>
-              <PaymentPlanView plan={plan} onDeferItem={handleDeferInPlan} />
+              <PaymentPlanView
+                plan={plan}
+                onDeferItem={handleDeferInPlan}
+                onSendToQueue={handleSendPlanToQueue}
+                enqueueLoading={enqueueLoading}
+              />
               <ScenarioOverride plan={plan} strategy={planStrategy} onSimulate={handleScenarioSimulate} />
             </>
           ) : (
