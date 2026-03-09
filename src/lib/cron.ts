@@ -6,6 +6,7 @@ import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
 import { discoverRevenueSources } from './revenue';
 import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
+import { reconcileNotionDisputes } from './dispute-sync';
 
 /**
  * Cron sync orchestrator.
@@ -119,6 +120,18 @@ export async function runCronSync(
         if (tasksSynced > 0) console.log(`[cron:notion_tasks] synced ${tasksSynced} tasks`);
       } catch (err) {
         console.error('[cron:notion_tasks] failed:', err);
+      }
+
+      // Phase 10: Dispute-Notion reconciliation
+      // Auto-creates cc_disputes from legal tasks not yet linked.
+      try {
+        const disputesSynced = await reconcileNotionDisputes(env, sql);
+        if (disputesSynced > 0) {
+          recordsSynced += disputesSynced;
+          console.log(`[cron:dispute_reconcile] created ${disputesSynced} disputes from Notion legal tasks`);
+        }
+      } catch (err) {
+        console.error('[cron:dispute_reconcile] failed:', err);
       }
     }
 

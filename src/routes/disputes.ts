@@ -1,8 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { ledgerClient } from '../lib/integrations';
 import { createDisputeSchema, updateDisputeSchema, createCorrespondenceSchema, disputeQuerySchema } from '../lib/validators';
+import { fireDisputeSideEffects } from '../lib/dispute-sync';
 
 export const disputeRoutes = new Hono<{ Bindings: Env }>();
 const TERMINAL_STATUSES = new Set(['resolved', 'dismissed']);
@@ -80,20 +80,23 @@ disputeRoutes.post('/', async (c) => {
     VALUES (${body.title}, ${body.counterparty}, ${body.dispute_type}, ${body.amount_claimed || null}, ${body.amount_at_stake || null}, ${stage}, ${status}, ${body.priority || 5}, ${body.description || null}, ${body.next_action || null}, ${body.next_action_date || null}, ${body.resolution_target || null}, ${JSON.stringify(body.metadata || {})})
     RETURNING *
   `;
-  // Fire-and-forget: push to ChittyLedger as a case
-  const ledger = ledgerClient(c.env);
-  if (ledger) {
-    ledger.createCase({
-      caseNumber: `CC-DISPUTE-${(dispute.id as string).slice(0, 8)}`,
-      title: body.title,
-      caseType: 'CIVIL',
-      description: body.description || undefined,
-    }).then((caseResult) => {
-      if (caseResult?.id) {
-        sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseResult.id })}::jsonb WHERE id = ${dispute.id}`.catch(() => {});
-      }
-    }).catch(() => {});
-  }
+  // Fire-and-forget: Notion task, TriageAgent scoring, and ChittyLedger case
+  c.executionCtx.waitUntil(
+    fireDisputeSideEffects(
+      {
+        id: dispute.id as string,
+        title: body.title,
+        counterparty: body.counterparty,
+        dispute_type: body.dispute_type,
+        amount_at_stake: body.amount_at_stake ?? null,
+        description: body.description ?? null,
+        priority: (body.priority ?? 5) as number,
+        metadata: (dispute.metadata as Record<string, unknown>) ?? {},
+      },
+      c.env,
+      sql,
+    )
+  );
 
   return c.json(dispute, 201);
 });
