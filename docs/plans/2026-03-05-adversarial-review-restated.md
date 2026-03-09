@@ -81,3 +81,25 @@
   - Added reusable confirmation dialog.
   - Added Dashboard pay confirmation and feedback toasts.
   - Added Action Queue auto-triage on first empty load and decision feedback toasts.
+
+## Update (2026-03-08)
+
+- P1 double-write fix implemented:
+  - `POST /api/queue/:id/decide` no longer mutates obligation status.
+  - Action Queue approval now explicitly calls `/api/obligations/:id/pay` for payment-type recommendations.
+  - Queue decision state and payment execution are now separated to avoid duplicate writes.
+
+- P2 dispute lifecycle foundation implemented:
+  - Added `cc_disputes.stage` via migration + schema/validators.
+  - Added stage/status consistency rules in dispute create/update APIs.
+  - Replaced synthetic dispute progress with DB-backed stage progress in UI.
+  - Added dispute creation form in frontend.
+  - Added direct document upload from dispute context (`linked_dispute_id` flow).
+
+- P3 flow-connection updates implemented:
+  - Legal deadlines now include linked dispute metadata (via `case_ref` to dispute metadata case ids).
+  - Added `GET /api/disputes/:id/deadlines` for dispute-context deadline visibility.
+  - Legal page now deep-links into Disputes using `?expand={dispute_id}`.
+  - Disputes page supports `Deadlines` panel and URL-based auto-expand.
+  - Added `POST /api/payment-plan/:id/enqueue` to convert plan schedule items into queue recommendations.
+  - Payment Planner UI now supports `Send to Queue` with success/error feedback.

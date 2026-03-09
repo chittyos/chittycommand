@@ -8,8 +8,22 @@ export const legalRoutes = new Hono<{ Bindings: Env }>();
 legalRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
   const deadlines = await sql`
-    SELECT * FROM cc_legal_deadlines
-    WHERE status != 'completed'
+    SELECT
+      l.*,
+      d.id AS dispute_id,
+      d.title AS dispute_title
+    FROM cc_legal_deadlines l
+    LEFT JOIN LATERAL (
+      SELECT id, title, status, priority, created_at
+      FROM cc_disputes d
+      WHERE l.case_ref = COALESCE(d.metadata->>'ledger_case_id', d.metadata->>'case_ref')
+      ORDER BY
+        CASE WHEN d.status = 'open' THEN 0 ELSE 1 END,
+        d.priority ASC NULLS LAST,
+        d.created_at DESC
+      LIMIT 1
+    ) d ON TRUE
+    WHERE l.status != 'completed'
     ORDER BY deadline_date ASC
   `;
   return c.json(deadlines);
