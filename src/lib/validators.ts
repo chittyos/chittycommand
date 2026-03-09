@@ -53,6 +53,16 @@ export const updateObligationSchema = z.object({
 });
 
 // ── Disputes ──────────────────────────────────────────────────
+export const disputeStageSchema = z.enum([
+  'filed',
+  'response_pending',
+  'evidence_gathering',
+  'in_review',
+  'negotiation',
+  'resolved',
+]);
+
+export const disputeStatusSchema = z.enum(['open', 'resolved', 'dismissed']);
 
 export const createDisputeSchema = z.object({
   title: z.string().min(1).max(500),
@@ -60,7 +70,8 @@ export const createDisputeSchema = z.object({
   dispute_type: z.string().min(1).max(100),
   amount_claimed: z.number().min(0).optional(),
   amount_at_stake: z.number().min(0).optional(),
-  status: z.enum(['open', 'resolved', 'dismissed']).optional(),
+  stage: disputeStageSchema.optional(),
+  status: disputeStatusSchema.optional(),
   priority: z.number().int().min(1).max(10).optional(),
   description: z.string().max(5000).optional(),
   next_action: z.string().max(1000).optional(),
@@ -70,11 +81,19 @@ export const createDisputeSchema = z.object({
 });
 
 export const updateDisputeSchema = z.object({
-  status: z.enum(['open', 'resolved', 'dismissed']).optional(),
+  status: disputeStatusSchema.optional(),
+  stage: disputeStageSchema.optional(),
+  title: z.string().min(1).max(500).optional(),
+  counterparty: z.string().min(1).max(255).optional(),
+  dispute_type: z.string().min(1).max(100).optional(),
+  amount_claimed: z.number().min(0).optional(),
+  amount_at_stake: z.number().min(0).optional(),
   priority: z.number().int().min(1).max(10).optional(),
   next_action: z.string().max(1000).optional(),
   next_action_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
   description: z.string().max(5000).optional(),
+  resolution_target: z.string().max(1000).optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
 
 export const createCorrespondenceSchema = z.object({
@@ -279,4 +298,67 @@ export const disputeQuerySchema = z.object({
 
 export const recommendationQuerySchema = z.object({
   status: z.string().max(50).optional(),
+});
+
+// ── Tasks ────────────────────────────────────────────────────
+
+export const taskStatusSchema = z.enum(['queued', 'running', 'needs_review', 'verified', 'done', 'failed']);
+
+export const taskTypeSchema = z.enum(['general', 'financial', 'legal', 'administrative', 'maintenance', 'communication']);
+
+export const verificationTypeSchema = z.enum(['hard', 'soft']);
+
+export const createTaskSchema = z.object({
+  external_id: z.string().min(1).max(500),
+  notion_page_id: z.string().max(500).optional(),
+  title: z.string().min(1).max(1000),
+  description: z.string().max(10000).optional(),
+  task_type: taskTypeSchema.optional(),
+  source: z.enum(['notion', 'email', 'mention', 'manual', 'api']).optional(),
+  priority: z.number().int().min(1).max(10).optional(),
+  assigned_to: z.string().max(255).optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Must be YYYY-MM-DD').optional(),
+  verification_type: verificationTypeSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const updateTaskStatusSchema = z.object({
+  status: taskStatusSchema,
+  notes: z.string().max(2000).optional(),
+});
+
+export const verifyTaskSchema = z.object({
+  verification_artifact: z.string().min(1).max(2000),
+  verification_notes: z.string().max(5000).optional(),
+  ledger_record_id: z.string().max(500).optional(),
+});
+
+export const spawnRecommendationFromTaskSchema = z.object({
+  rec_type: z.string().min(1).max(100),
+  priority: z.number().int().min(1).max(5).optional(),
+  action_type: z.string().max(100).optional(),
+  estimated_savings: z.number().min(0).optional(),
+});
+
+export const taskQuerySchema = z.object({
+  status: taskStatusSchema.optional(),
+  task_type: taskTypeSchema.optional(),
+  source: z.string().max(50).optional(),
+  priority_max: z.coerce.number().int().min(1).max(10).optional(),
+  limit: z.coerce.number().int().min(1).max(100).optional(),
+  offset: z.coerce.number().int().min(0).optional(),
+});
+
+export const notionWebhookPayloadSchema = z.object({
+  external_id: z.string().min(1).max(500),
+  notion_page_id: z.string().max(500).optional(),
+  title: z.string().min(1).max(1000),
+  description: z.string().max(10000).optional(),
+  task_type: taskTypeSchema.optional(),
+  source: z.enum(['email', 'mention', 'manual']).optional(),
+  priority: z.number().int().min(1).max(10).optional(),
+  assigned_to: z.string().max(255).optional(),
+  due_date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable().optional(),
+  verification_type: verificationTypeSchema.optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
 });
