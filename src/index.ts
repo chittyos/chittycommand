@@ -22,6 +22,7 @@ import { paymentPlanRoutes } from './routes/payment-plan';
 import { revenueRoutes } from './routes/revenue';
 import { emailConnectionRoutes } from './routes/email-connections';
 import { chatRoutes } from './routes/chat';
+import { taskRoutes } from './routes/tasks';
 import { sendBeacon } from './lib/beacon';
 import { contextRoutes } from './routes/context';
 import { connectRoutes } from './routes/connect';
@@ -120,6 +121,7 @@ app.route('/api/payment-plan', paymentPlanRoutes);
 app.route('/api/revenue', revenueRoutes);
 app.route('/api/email-connections', emailConnectionRoutes);
 app.route('/api/chat', chatRoutes);
+app.route('/api/tasks', taskRoutes);
 // Identity (authenticated)
 app.route('/api/v1', metaRoutes);
 // Context (authenticated)

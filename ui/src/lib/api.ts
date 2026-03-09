@@ -119,11 +119,40 @@ export const api = {
     request<Dispute[]>(`/disputes${status ? '?status=' + status : ''}`),
   getDispute: (id: string) =>
     request<Dispute & { correspondence: Correspondence[]; documents: Document[] }>(`/disputes/${id}`),
+  createDispute: (data: {
+    title: string;
+    counterparty: string;
+    dispute_type: string;
+    amount_claimed?: number;
+    amount_at_stake?: number;
+    stage?: string;
+    status?: string;
+    priority?: number;
+    description?: string;
+    next_action?: string;
+    next_action_date?: string;
+  }) =>
+    request<Dispute>('/disputes', { method: 'POST', body: JSON.stringify(data) }),
+  updateDispute: (id: string, data: Partial<{
+    title: string;
+    counterparty: string;
+    dispute_type: string;
+    amount_claimed: number;
+    amount_at_stake: number;
+    stage: string;
+    status: string;
+    priority: number;
+    description: string;
+    next_action: string;
+    next_action_date: string;
+  }>) =>
+    request<Dispute>(`/disputes/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
   addCorrespondence: (disputeId: string, data: Partial<Correspondence>) =>
     request<Correspondence>(`/disputes/${disputeId}/correspondence`, { method: 'POST', body: JSON.stringify(data) }),
 
   // Legal
   getLegalDeadlines: () => request<LegalDeadline[]>('/legal'),
+  getDisputeDeadlines: (id: string) => request<LegalDeadline[]>(`/disputes/${id}/deadlines`),
 
   // Recommendations
   getRecommendations: () => request<Recommendation[]>('/recommendations'),
@@ -135,10 +164,13 @@ export const api = {
     request<{ obligations_scored: number; recommendations_created: number; overdue_flipped: number; cash_position: { total_cash: number; total_due_30d: number; surplus: number } }>('/recommendations/generate', { method: 'POST' }),
 
   // Documents
-  uploadDocument: async (file: File) => {
+  uploadDocument: async (file: File, options?: { linked_dispute_id?: string }) => {
     const token = getToken();
     const formData = new FormData();
     formData.append('file', file);
+    if (options?.linked_dispute_id) {
+      formData.append('linked_dispute_id', options.linked_dispute_id);
+    }
     const headers: Record<string, string> = {};
     if (token) headers['Authorization'] = `Bearer ${token}`;
     const res = await fetch(`${API_BASE}/documents/upload`, { method: 'POST', headers, body: formData });
@@ -222,6 +254,8 @@ export const api = {
     request<PaymentPlan>(`/payment-plan/${id}/schedule`),
   activatePlan: (id: string) =>
     request<PaymentPlan>(`/payment-plan/${id}/activate`, { method: 'POST' }),
+  enqueuePlan: (id: string) =>
+    request<{ plan_id: string; created: number; skipped: number }>(`/payment-plan/${id}/enqueue`, { method: 'POST' }),
 
   // Revenue
   getRevenueSources: () =>
@@ -285,6 +319,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ admin_token: adminToken, payload }),
     }),
+
+  // Tasks
+  getTasks: (params?: { status?: string; task_type?: string; source?: string; limit?: number; offset?: number }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])),
+    ).toString();
+    return request<{ tasks: Task[]; total: number; limit: number; offset: number }>(`/tasks${qs ? '?' + qs : ''}`);
+  },
+  getTask: (id: string) =>
+    request<{ task: Task; actions: TaskAction[] }>(`/tasks/${id}`),
+  updateTaskStatus: (id: string, status: string, notes?: string) =>
+    request<Task>(`/tasks/${id}/status`, { method: 'PATCH', body: JSON.stringify({ status, notes }) }),
+  verifyTask: (id: string, data: { verification_artifact: string; verification_notes?: string; ledger_record_id?: string }) =>
+    request<Task>(`/tasks/${id}/verify`, { method: 'POST', body: JSON.stringify(data) }),
+  spawnRecommendation: (id: string, data: { rec_type: string; priority?: number; action_type?: string; estimated_savings?: number }) =>
+    request<{ task_id: string; recommendation_id: string }>(`/tasks/${id}/spawn-recommendation`, { method: 'POST', body: JSON.stringify(data) }),
 
   chatStream: async function* (
     messages: ChatMessage[],
@@ -426,6 +476,7 @@ export interface Dispute {
   dispute_type: string;
   amount_claimed: string | null;
   amount_at_stake: string | null;
+  stage: string;
   status: string;
   priority: number;
   description: string | null;
@@ -450,6 +501,8 @@ export interface LegalDeadline {
   deadline_type: string;
   status: string;
   urgency_score: number | null;
+  dispute_id?: string | null;
+  dispute_title?: string | null;
 }
 
 export interface Recommendation {
@@ -619,6 +672,7 @@ export interface PlanWarning {
 }
 
 export interface PaymentPlan {
+  id?: string;
   plan_type: string;
   horizon_days: number;
   starting_balance: number;
@@ -654,4 +708,37 @@ export interface RevenueSource {
   status: string;
   account_name?: string;
   institution?: string;
+}
+
+// ── Task Types ──────────────────────────────────────────────
+
+export interface Task {
+  id: string;
+  external_id: string;
+  notion_page_id: string | null;
+  title: string;
+  description: string | null;
+  task_type: string;
+  source: string;
+  priority: number;
+  backend_status: string;
+  assigned_to: string | null;
+  due_date: string | null;
+  verification_type: string;
+  verification_artifact: string | null;
+  verification_notes: string | null;
+  verified_at: string | null;
+  spawned_recommendation_id: string | null;
+  ledger_record_id: string | null;
+  metadata: Record<string, unknown>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface TaskAction {
+  id: string;
+  action_type: string;
+  description: string;
+  status: string;
+  executed_at: string;
 }

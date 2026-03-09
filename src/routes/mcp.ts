@@ -187,6 +187,52 @@ const TOOLS = [
     description: 'Fetch ChittyRegister compliance requirements schema.',
     inputSchema: { type: 'object' as const, properties: {}, required: [] as string[] },
   },
+  {
+    name: 'query_tasks',
+    description: 'List tasks from the backend task system. Filter by status, type, source, or priority.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', description: 'Filter: queued, running, needs_review, verified, done, failed', enum: ['queued', 'running', 'needs_review', 'verified', 'done', 'failed'] },
+        task_type: { type: 'string', description: 'Filter: general, financial, legal, administrative, maintenance, communication', enum: ['general', 'financial', 'legal', 'administrative', 'maintenance', 'communication'] },
+        source: { type: 'string', description: 'Filter: notion, email, mention, manual, api' },
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_task',
+    description: 'Get a single task by ID with its action history.',
+    inputSchema: { type: 'object' as const, properties: { id: { type: 'string', description: 'Task UUID' } }, required: ['id'] },
+  },
+  {
+    name: 'update_task_status',
+    description: 'Transition a task to a new status. Enforces state machine: queued->running->needs_review->verified->done. Failed can retry to queued.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Task UUID' },
+        status: { type: 'string', description: 'Target status', enum: ['queued', 'running', 'needs_review', 'verified', 'done', 'failed'] },
+        notes: { type: 'string', description: 'Optional transition notes' },
+      },
+      required: ['id', 'status'],
+    },
+  },
+  {
+    name: 'verify_task',
+    description: 'Attach a verification artifact to a task and mark it verified. Task must be in needs_review. Hard verification also requires ledger_record_id.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Task UUID' },
+        verification_artifact: { type: 'string', description: 'URL or reference to the verification artifact' },
+        verification_notes: { type: 'string', description: 'Optional notes about the verification' },
+        ledger_record_id: { type: 'string', description: 'Required for hard verification — ledger record reference' },
+      },
+      required: ['id', 'verification_artifact'],
+    },
+  },
 ];
 
 // MCP endpoint — handles JSON-RPC 2.0 requests
@@ -696,6 +742,104 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         if (!res.ok) return { error: 'Failed to fetch requirements', code: res.status };
         return { requirements: await res.json() };
       } catch (err) { return { error: String(err) }; }
+    }
+
+    case 'query_tasks': {
+      const status = args.status || null;
+      const taskType = args.task_type || null;
+      const source = args.source || null;
+      const limit = Math.min(Number(args.limit) || 20, 50);
+      const rows = await sql`
+        SELECT id, external_id, title, task_type, source, priority, backend_status, assigned_to,
+               due_date, verification_type, verified_at, created_at, updated_at
+        FROM cc_tasks
+        WHERE (${status}::text IS NULL OR backend_status = ${status})
+          AND (${taskType}::text IS NULL OR task_type = ${taskType})
+          AND (${source}::text IS NULL OR source = ${source})
+        ORDER BY priority ASC, due_date ASC NULLS LAST, created_at DESC
+        LIMIT ${limit}
+      `;
+      return { count: rows.length, tasks: rows };
+    }
+
+    case 'get_task': {
+      const id = String(args.id || '').trim();
+      if (!id) throw new Error('Missing argument: id');
+      const rows = await sql`SELECT * FROM cc_tasks WHERE id = ${id}`;
+      if (rows.length === 0) return { error: 'Task not found' };
+      const actions = await sql`
+        SELECT id, action_type, description, status, executed_at
+        FROM cc_actions_log WHERE target_type = 'task' AND target_id = ${id}
+        ORDER BY executed_at DESC LIMIT 20
+      `;
+      return { task: rows[0], actions };
+    }
+
+    case 'update_task_status': {
+      const id = String(args.id || '').trim();
+      const newStatus = String(args.status || '').trim();
+      const notes = args.notes ? String(args.notes) : undefined;
+      if (!id || !newStatus) throw new Error('Missing arguments: id, status');
+      const validStatuses = ['queued', 'running', 'needs_review', 'verified', 'done', 'failed'];
+      if (!validStatuses.includes(newStatus)) throw new Error(`Invalid status: ${newStatus}`);
+
+      const taskRows = await sql`SELECT id, backend_status, verification_type, verification_artifact, ledger_record_id FROM cc_tasks WHERE id = ${id}`;
+      if (taskRows.length === 0) throw new Error('Task not found');
+      const task = taskRows[0] as { backend_status: string; verification_type: string; verification_artifact: string | null; ledger_record_id: string | null };
+
+      const machine: Record<string, string[]> = {
+        queued: ['running', 'failed'], running: ['needs_review', 'failed'],
+        needs_review: ['verified', 'failed'], verified: ['done', 'failed'], failed: ['queued'],
+      };
+      const allowed = machine[task.backend_status];
+      if (!allowed || !allowed.includes(newStatus)) {
+        return { error: 'Invalid status transition', current: task.backend_status, requested: newStatus, allowed: allowed || [] };
+      }
+      if (newStatus === 'verified' && !task.verification_artifact) {
+        return { error: 'Cannot verify without artifact. Use verify_task tool first.' };
+      }
+      if (newStatus === 'verified' && task.verification_type === 'hard' && !task.ledger_record_id) {
+        return { error: 'Hard verification requires ledger_record_id' };
+      }
+
+      const updated = await sql`UPDATE cc_tasks SET backend_status = ${newStatus}, updated_at = NOW() WHERE id = ${id} RETURNING *`;
+      await sql`
+        INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
+        VALUES ('status_transition', 'task', ${id}, ${`${task.backend_status} -> ${newStatus}`}, 'completed',
+                ${JSON.stringify({ notes, via: 'mcp' })}::jsonb)
+      `;
+      return { ok: true, task: updated[0] };
+    }
+
+    case 'verify_task': {
+      const id = String(args.id || '').trim();
+      const artifact = String(args.verification_artifact || '').trim();
+      const vNotes = args.verification_notes ? String(args.verification_notes) : undefined;
+      const ledgerId = args.ledger_record_id ? String(args.ledger_record_id) : undefined;
+      if (!id || !artifact) throw new Error('Missing arguments: id, verification_artifact');
+
+      const taskRows = await sql`SELECT id, backend_status, verification_type FROM cc_tasks WHERE id = ${id}`;
+      if (taskRows.length === 0) throw new Error('Task not found');
+      const task = taskRows[0] as { backend_status: string; verification_type: string };
+
+      if (task.backend_status !== 'needs_review') {
+        return { error: 'Task must be in needs_review to verify', current: task.backend_status };
+      }
+      if (task.verification_type === 'hard' && !ledgerId) {
+        return { error: 'Hard verification requires ledger_record_id' };
+      }
+
+      const updated = await sql`
+        UPDATE cc_tasks SET verification_artifact = ${artifact}, verification_notes = ${vNotes || null},
+          ledger_record_id = ${ledgerId || null}, verified_at = NOW(), backend_status = 'verified', updated_at = NOW()
+        WHERE id = ${id} RETURNING *
+      `;
+      await sql`
+        INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
+        VALUES ('verify', 'task', ${id}, ${`Verified via MCP: ${artifact}`}, 'completed',
+                ${JSON.stringify({ verification_notes: vNotes, ledger_record_id: ledgerId })}::jsonb)
+      `;
+      return { ok: true, task: updated[0] };
     }
 
     default:

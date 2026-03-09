@@ -118,6 +118,7 @@ export const ccDisputes = pgTable('cc_disputes', {
   disputeType: text('dispute_type').notNull(),
   amountClaimed: numeric('amount_claimed', { precision: 12, scale: 2 }),
   amountAtStake: numeric('amount_at_stake', { precision: 12, scale: 2 }),
+  stage: text('stage').default('filed'),
   status: text('status').default('open'),
   priority: integer('priority').default(5),
   description: text('description'),
@@ -291,3 +292,34 @@ export const ccSyncLog = pgTable('cc_sync_log', {
   startedAt: timestamp('started_at', { withTimezone: true }).defaultNow(),
   completedAt: timestamp('completed_at', { withTimezone: true }),
 });
+
+// ── Tasks ────────────────────────────────────────────────────
+export const ccTasks = pgTable('cc_tasks', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  externalId: text('external_id').unique().notNull(),
+  notionPageId: text('notion_page_id').unique(),
+  title: text('title').notNull(),
+  description: text('description'),
+  taskType: text('task_type').notNull().default('general'),
+  source: text('source').notNull().default('notion'),
+  priority: integer('priority').default(5),
+  backendStatus: text('backend_status').notNull().default('queued'),
+  assignedTo: text('assigned_to'),
+  dueDate: date('due_date'),
+  verificationType: text('verification_type').notNull().default('soft'),
+  verificationArtifact: text('verification_artifact'),
+  verificationNotes: text('verification_notes'),
+  verifiedAt: timestamp('verified_at', { withTimezone: true }),
+  spawnedRecommendationId: uuid('spawned_recommendation_id').references(() => ccRecommendations.id),
+  ledgerRecordId: text('ledger_record_id'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  statusIdx: index('idx_cc_tasks_status').on(table.backendStatus),
+  externalIdIdx: index('idx_cc_tasks_external_id').on(table.externalId),
+  notionPageIdIdx: index('idx_cc_tasks_notion_page_id').on(table.notionPageId),
+  dueDateIdx: index('idx_cc_tasks_due_date').on(table.dueDate),
+  priorityIdx: index('idx_cc_tasks_priority').on(table.priority),
+  typeIdx: index('idx_cc_tasks_type').on(table.taskType),
+}));

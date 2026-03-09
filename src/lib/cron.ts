@@ -112,6 +112,14 @@ export async function runCronSync(
       } catch (err) {
         console.error('[planner] failed:', err);
       }
+
+      // Phase 9: Notion task reconciliation
+      try {
+        const tasksSynced = await syncNotionTasks(env, sql);
+        if (tasksSynced > 0) console.log(`[cron:notion_tasks] synced ${tasksSynced} tasks`);
+      } catch (err) {
+        console.error('[cron:notion_tasks] failed:', err);
+      }
     }
 
     if (source === 'utility_scrape') {
@@ -574,6 +582,125 @@ export async function syncPortal(env: Env, sql: NeonQueryFunction<false, false>,
   }
 
   return synced;
+}
+
+/**
+ * Sync tasks from Notion task database into cc_tasks.
+ * Queries Notion for pages edited in the last 25 hours and upserts by external_id.
+ * Won't overwrite tasks in terminal states (done, verified).
+ */
+export async function syncNotionTasks(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const token = await env.COMMAND_KV.get('notion:task_agent_token');
+  const dbId = await env.COMMAND_KV.get('notion:task_database_id');
+  if (!token || !dbId) return 0;
+
+  const cutoff = new Date(Date.now() - 25 * 60 * 60 * 1000).toISOString();
+
+  let synced = 0;
+  let hasMore = true;
+  let startCursor: string | undefined;
+
+  while (hasMore) {
+    const body: Record<string, unknown> = {
+      filter: { timestamp: 'last_edited_time', last_edited_time: { after: cutoff } },
+      page_size: 100,
+    };
+    if (startCursor) body.start_cursor = startCursor;
+
+    const res = await fetch(`https://api.notion.com/v1/databases/${dbId}/query`, {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${token}`,
+        'Notion-Version': '2022-06-28',
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body),
+      signal: AbortSignal.timeout(15000),
+    });
+
+    if (!res.ok) {
+      console.error(`[notion_tasks] Notion API error: ${res.status}`);
+      break;
+    }
+
+    const data = await res.json() as {
+      results: Array<{ id: string; properties: Record<string, unknown> }>;
+      has_more: boolean;
+      next_cursor?: string;
+    };
+
+    for (const page of data.results) {
+      const props = page.properties;
+      const externalId = page.id;
+      const title = extractNotionTitle(props['Title'] || props['Name']);
+      if (!title) continue;
+
+      const description = extractNotionRichText(props['Description']);
+      const taskType = extractNotionSelect(props['Type']) || 'general';
+      const priority = extractNotionNumber(props['Priority']) || 5;
+      const dueDate = extractNotionDate(props['Due Date']);
+      const source = extractNotionSelect(props['Source']) || 'notion';
+      const verificationType = extractNotionSelect(props['Verification']) || 'soft';
+      const assignedTo = extractNotionPeople(props['Assigned To']);
+
+      await sql`
+        INSERT INTO cc_tasks (external_id, notion_page_id, title, description, task_type, source, priority, assigned_to, due_date, verification_type)
+        VALUES (${externalId}, ${externalId}, ${title}, ${description}, ${taskType}, ${source}, ${priority}, ${assignedTo}, ${dueDate}, ${verificationType})
+        ON CONFLICT (external_id) DO UPDATE SET
+          title = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.title ELSE cc_tasks.title END,
+          description = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.description ELSE cc_tasks.description END,
+          task_type = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.task_type ELSE cc_tasks.task_type END,
+          priority = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.priority ELSE cc_tasks.priority END,
+          assigned_to = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.assigned_to ELSE cc_tasks.assigned_to END,
+          due_date = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.due_date ELSE cc_tasks.due_date END,
+          verification_type = CASE WHEN cc_tasks.backend_status NOT IN ('done', 'verified') THEN EXCLUDED.verification_type ELSE cc_tasks.verification_type END,
+          updated_at = NOW()
+      `;
+      synced++;
+    }
+
+    hasMore = data.has_more;
+    startCursor = data.next_cursor;
+  }
+
+  return synced;
+}
+
+// Notion property extractors
+function extractNotionTitle(prop: unknown): string | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { title?: Array<{ plain_text?: string }> };
+  return p.title?.[0]?.plain_text || null;
+}
+
+function extractNotionRichText(prop: unknown): string | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { rich_text?: Array<{ plain_text?: string }> };
+  return p.rich_text?.map(t => t.plain_text).join('') || null;
+}
+
+function extractNotionSelect(prop: unknown): string | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { select?: { name?: string } };
+  return p.select?.name?.toLowerCase() || null;
+}
+
+function extractNotionNumber(prop: unknown): number | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { number?: number | null };
+  return p.number ?? null;
+}
+
+function extractNotionDate(prop: unknown): string | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { date?: { start?: string } };
+  return p.date?.start || null;
+}
+
+function extractNotionPeople(prop: unknown): string | null {
+  if (!prop || typeof prop !== 'object') return null;
+  const p = prop as { people?: Array<{ name?: string }> };
+  return p.people?.[0]?.name || null;
 }
 
 /**
