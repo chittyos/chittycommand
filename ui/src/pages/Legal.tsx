@@ -2,6 +2,7 @@ import { useEffect, useState } from 'react';
 import { api, type LegalDeadline } from '../lib/api';
 import { formatDate, daysUntil } from '../lib/utils';
 import { Card } from '../components/ui/Card';
+import { Link } from 'react-router-dom';
 
 export function Legal() {
   const [deadlines, setDeadlines] = useState<LegalDeadline[]>([]);
@@ -45,6 +46,14 @@ export function Legal() {
                       {dl.deadline_type}
                     </span>
                     <span className="text-xs text-card-muted">{dl.case_ref}</span>
+                    {dl.dispute_id && (
+                      <Link
+                        to={`/disputes?expand=${dl.dispute_id}`}
+                        className="text-xs px-2 py-0.5 rounded-full bg-chitty-100 text-chitty-700 hover:bg-chitty-200"
+                      >
+                        {dl.dispute_title ? `Dispute: ${dl.dispute_title}` : 'Open Dispute'}
+                      </Link>
+                    )}
                   </div>
                   <h3 className="text-card-text font-medium mt-1">{dl.title}</h3>
                 </div>

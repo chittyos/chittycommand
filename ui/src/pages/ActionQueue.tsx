@@ -87,17 +87,36 @@ export function ActionQueue() {
     loadStats();
   }, [loadQueue, loadStats]);
 
+  const isPaymentAction = useCallback((item: QueueItem) => {
+    const type = item.action_type;
+    return type === 'pay_now' || type === 'pay_full' || type === 'pay_minimum';
+  }, []);
+
   const handleDecide = useCallback(async (id: string, decision: 'approved' | 'rejected' | 'deferred') => {
     try {
       const current = items.find((item) => item.id === id);
       await api.decideQueue(id, decision, sessionId.current);
+
+      // Queue approval now only records decision; execute payment explicitly.
+      if (decision === 'approved' && current?.obligation_id && isPaymentAction(current)) {
+        try {
+          await api.markPaid(current.obligation_id);
+          toast.success('Payment executed', current.title, { durationMs: 2200 });
+        } catch (paymentErr: unknown) {
+          const message = paymentErr instanceof Error ? paymentErr.message : 'Payment execution failed';
+          toast.error('Approved, but execution failed', message);
+        }
+      }
+
       setItems((prev) => prev.filter((item) => item.id !== id));
       loadStats();
 
       if (current) {
         const title = current.title.length > 60 ? `${current.title.slice(0, 57)}...` : current.title;
         if (decision === 'approved') {
-          toast.success('Approved', title, { durationMs: 2000 });
+          if (!current.obligation_id || !isPaymentAction(current)) {
+            toast.success('Approved', title, { durationMs: 2000 });
+          }
         } else if (decision === 'rejected') {
           toast.info('Rejected', title, { durationMs: 2000 });
         } else {
@@ -109,7 +128,7 @@ export function ActionQueue() {
       setError(message);
       toast.error('Decision failed', message);
     }
-  }, [items, loadStats, toast]);
+  }, [isPaymentAction, items, loadStats, toast]);
 
   const handleGenerate = useCallback(async () => {
     const generated = await runTriage(false);

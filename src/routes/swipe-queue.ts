@@ -119,7 +119,7 @@ swipeQueueRoutes.post('/:id/decide', async (c) => {
     )
   `;
 
-  // Execute the decision — require 'admin' or 'chittycommand:execute' scope for approvals
+  // Record the decision — require 'admin' or 'chittycommand:execute' scope for approvals
   if (decision === 'approved') {
     const scopes = c.get('scopes') || [];
     if (!scopes.includes('admin') && !scopes.includes('chittycommand:execute')) {
@@ -143,23 +143,9 @@ swipeQueueRoutes.post('/:id/decide', async (c) => {
         'completed'
       )
     `;
+    // Keep queue decision and obligation execution separate.
+    // Payment/defer side-effects are executed explicitly via dedicated endpoints.
 
-    // If it's a payment action tied to an obligation, mark obligation as paid
-    const actionType = modified_action || r.action_type as string;
-    if ((actionType === 'pay_now' || actionType === 'pay_full' || actionType === 'pay_minimum') && r.obligation_id) {
-      await sql`
-        UPDATE cc_obligations SET status = 'paid', updated_at = NOW()
-        WHERE id = ${r.obligation_id as string}::uuid
-      `;
-    }
-
-    // If it's a defer action, mark as deferred
-    if (actionType === 'defer' && r.obligation_id) {
-      await sql`
-        UPDATE cc_obligations SET status = 'deferred', updated_at = NOW()
-        WHERE id = ${r.obligation_id as string}::uuid
-      `;
-    }
   } else if (decision === 'rejected') {
     await sql`
       UPDATE cc_recommendations SET status = 'dismissed', acted_on_at = NOW()

@@ -6,9 +6,11 @@ import { MetricCard } from '../ui/MetricCard';
 interface PaymentPlanViewProps {
   plan: PaymentPlan;
   onDeferItem?: (obligationId: string) => void;
+  onSendToQueue?: () => void;
+  enqueueLoading?: boolean;
 }
 
-export function PaymentPlanView({ plan, onDeferItem }: PaymentPlanViewProps) {
+export function PaymentPlanView({ plan, onDeferItem, onSendToQueue, enqueueLoading }: PaymentPlanViewProps) {
   let schedule: ScheduleEntry[];
   try {
     const raw = typeof plan.schedule === 'string' ? JSON.parse(plan.schedule) : plan.schedule;
@@ -43,6 +45,22 @@ export function PaymentPlanView({ plan, onDeferItem }: PaymentPlanViewProps) {
 
   return (
     <div className="space-y-4">
+      {onSendToQueue && plan.id && (
+        <Card className="flex items-center justify-between gap-3">
+          <div>
+            <p className="text-card-text text-sm font-semibold">Execution Bridge</p>
+            <p className="text-card-muted text-xs">Send scheduled payments to Action Queue.</p>
+          </div>
+          <button
+            onClick={onSendToQueue}
+            disabled={enqueueLoading}
+            className="px-3 py-1.5 text-sm font-medium rounded-lg bg-chitty-600 text-white hover:bg-chitty-700 disabled:opacity-50"
+          >
+            {enqueueLoading ? 'Sending...' : 'Send to Queue'}
+          </button>
+        </Card>
+      )}
+
       {/* Summary metrics */}
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-2 lg:gap-3">
         <MetricCard label="Starting" value={formatCurrency(plan.starting_balance)} />
