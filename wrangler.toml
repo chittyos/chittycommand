@@ -4,7 +4,8 @@ main = "src/index.ts"
 compatibility_date = "2026-01-15"
 compatibility_flags = ["nodejs_compat"]
 routes = [
-  { pattern = "command.chitty.cc", custom_domain = true }
+  { pattern = "command.chitty.cc", custom_domain = true },
+  { pattern = "disputes.chitty.cc", custom_domain = true }
 ]
 
 [vars]

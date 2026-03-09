@@ -677,7 +677,7 @@ export function notionClient(env: Env) {
           'Type': {
             select: { name: payload.task_type },
           },
-          'Priority': {
+          'Priority 1': {
             number: payload.priority,
           },
           'Source': {
