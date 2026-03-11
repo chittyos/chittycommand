@@ -46,7 +46,7 @@ export async function fireDisputeSideEffects(
 
   // Notion task — skip if already linked (loop guard)
   if (!meta.notion_task_id) {
-    tasks.push(linkDisputeToNotion(dispute.id, dispute, env, sql));
+    tasks.push(linkDisputeToNotion(dispute.id, dispute, env, sql).then(() => {}));
   }
 
   // TriageAgent scoring — always runs
@@ -191,8 +191,8 @@ export async function pushUnlinkedDisputesToNotion(
 
   for (const dispute of unlinked) {
     try {
-      await linkDisputeToNotion(dispute.id as string, dispute as unknown as DisputeCore, env, sql);
-      pushed++;
+      const linked = await linkDisputeToNotion(dispute.id as string, dispute as unknown as DisputeCore, env, sql);
+      if (linked) pushed++;
     } catch (err) {
       console.error(`[dispute-sync:push] Failed for dispute ${dispute.id}:`, err);
     }
@@ -208,12 +208,12 @@ async function linkDisputeToNotion(
   dispute: Pick<DisputeCore, 'title' | 'dispute_type' | 'priority' | 'description'>,
   env: Env,
   sql: NeonQueryFunction<false, false>,
-): Promise<void> {
+): Promise<boolean> {
   try {
     const notion = notionClient(env);
     if (!notion) {
       console.warn('[dispute-sync:notion] notionClient unavailable');
-      return;
+      return false;
     }
 
     const page = await notion.createTask({
@@ -227,7 +227,7 @@ async function linkDisputeToNotion(
 
     if (!page?.page_id) {
       console.warn(`[dispute-sync:notion] createTask returned null for dispute ${disputeId}`);
-      return;
+      return false;
     }
 
     await sql`
@@ -238,8 +238,10 @@ async function linkDisputeToNotion(
     `;
 
     console.log(`[dispute-sync:notion] Linked dispute ${disputeId} → Notion page ${page.page_id}`);
+    return true;
   } catch (err) {
     console.error(`[dispute-sync:notion] Failed for dispute ${disputeId}:`, err);
+    return false;
   }
 }
 
@@ -261,7 +263,7 @@ async function scoreDisputeWithTriage(
       entity_type: 'dispute',
       title: dispute.title,
       dispute_type: dispute.dispute_type,
-      amount: dispute.amount_at_stake ? Number(dispute.amount_at_stake) : undefined,
+      amount: dispute.amount_at_stake != null ? Number(dispute.amount_at_stake) : undefined,
       description: dispute.description || undefined,
     });
 

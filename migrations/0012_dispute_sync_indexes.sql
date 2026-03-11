@@ -1,8 +1,8 @@
 -- 0012_dispute_sync_indexes.sql
 -- Indexes for dispute ↔ Notion ↔ TriageAgent sync lookups.
 
--- Fast lookup: find disputes by notion_task_id (loop guard in reconcileNotionDisputes)
-CREATE INDEX IF NOT EXISTS idx_cc_disputes_notion_task_id
+-- Unique constraint: one dispute per Notion page (prevents duplicates from concurrent sync runs)
+CREATE UNIQUE INDEX IF NOT EXISTS idx_cc_disputes_notion_task_id_unique
   ON cc_disputes ((metadata->>'notion_task_id'))
   WHERE metadata->>'notion_task_id' IS NOT NULL;
 
