@@ -217,6 +217,10 @@ export const api = {
     request<{ total: number; synced: number }>('/bridge/ledger/sync-documents', { method: 'POST' }),
   syncLedgerDisputes: () =>
     request<{ total: number; synced: number }>('/bridge/ledger/sync-disputes', { method: 'POST' }),
+  syncDisputesNotion: (direction: 'to_notion' | 'from_notion' | 'both' = 'both') =>
+    request<{ pushed: number; reconciled: number; direction: string; duration_ms: number }>(
+      '/bridge/disputes/sync-notion', { method: 'POST', body: JSON.stringify({ direction }) },
+    ),
 
   // Cash Flow
   getCashflowProjections: () =>
@@ -482,6 +486,7 @@ export interface Dispute {
   description: string | null;
   next_action: string | null;
   next_action_date: string | null;
+  metadata?: Record<string, unknown> | null;
 }
 
 export interface Correspondence {
