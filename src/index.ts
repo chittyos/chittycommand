@@ -59,7 +59,7 @@ const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // CORS for frontend
 app.use('*', cors({
-  origin: ['https://app.command.chitty.cc', 'https://cmd.chitty.cc', 'https://command.mychitty.com', 'https://chittycommand-ui.pages.dev', 'http://localhost:5173'],
+  origin: ['https://app.command.chitty.cc', 'https://cmd.chitty.cc', 'https://command.mychitty.com', 'https://disputes.chitty.cc', 'https://chittycommand-ui.pages.dev', 'http://localhost:5173'],
   allowMethods: ['GET', 'POST', 'PUT', 'DELETE', 'PATCH', 'OPTIONS'],
   allowHeaders: ['Content-Type', 'Authorization'],
   credentials: true,

@@ -9,6 +9,7 @@ import { mercuryRoutes } from './mercury';
 import { booksRoutes } from './books';
 import { assetsBridgeRoutes } from './assets';
 import { scrapeRoutes } from './scrape';
+import { disputesBridgeRoutes } from './disputes';
 import { statusRoutes } from './status';
 
 export const bridgeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -21,4 +22,5 @@ bridgeRoutes.route('/mercury', mercuryRoutes);
 bridgeRoutes.route('/books', booksRoutes);
 bridgeRoutes.route('/assets', assetsBridgeRoutes);
 bridgeRoutes.route('/scrape', scrapeRoutes);
+bridgeRoutes.route('/disputes', disputesBridgeRoutes);
 bridgeRoutes.route('/', statusRoutes);

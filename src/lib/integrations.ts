@@ -611,5 +611,122 @@ export function routerClient(env: Env) {
 
     getEmailStatus: () =>
       get<Record<string, unknown>>('/email/status'),
+
+    /** Classify a dispute via ChittyRouter TriageAgent */
+    classifyDispute: (payload: {
+      entity_id: string;
+      entity_type: 'dispute';
+      title: string;
+      dispute_type: string;
+      amount?: number;
+      description?: string;
+    }) =>
+      post<{
+        severity: number;
+        priority: number;
+        labels: string[];
+        reasoning?: string;
+      }>('/agents/triage/classify', payload),
+  };
+}
+
+// ── Notion (write path) ───────────────────────────────────────
+// Reading Notion is handled by syncNotionTasks() in cron.ts.
+// This client covers the write path: creating task pages from disputes.
+
+export interface NotionTaskPayload {
+  title: string;
+  description?: string;
+  task_type: string;
+  priority: number;
+  due_date?: string;
+  source: string;
+  tags?: string[];
+}
+
+export interface NotionPageResult {
+  page_id: string;
+  url: string;
+}
+
+export function notionClient(env: Env) {
+  if (!env.COMMAND_KV) return null;
+
+  async function resolveCredentials(): Promise<{ token: string; dbId: string } | null> {
+    const [token, dbId] = await Promise.all([
+      env.COMMAND_KV.get('notion:task_agent_token'),
+      env.COMMAND_KV.get('notion:dispute_database_id'),
+    ]);
+    if (!token || !dbId) return null;
+    return { token, dbId };
+  }
+
+  return {
+    createTask: async (payload: NotionTaskPayload): Promise<NotionPageResult | null> => {
+      try {
+        const creds = await resolveCredentials();
+        if (!creds) {
+          console.warn('[notion] Missing notion:task_agent_token or notion:dispute_database_id in KV');
+          return null;
+        }
+
+        const properties: Record<string, unknown> = {
+          'Title': {
+            title: [{ type: 'text', text: { content: payload.title.slice(0, 2000) } }],
+          },
+          'Type': {
+            select: { name: payload.task_type },
+          },
+          'Priority 1': {
+            number: payload.priority,
+          },
+          'Source': {
+            select: { name: payload.source },
+          },
+        };
+
+        if (payload.description) {
+          properties['Description'] = {
+            rich_text: [{ type: 'text', text: { content: payload.description.slice(0, 2000) } }],
+          };
+        }
+
+        if (payload.due_date) {
+          properties['Due Date'] = { date: { start: payload.due_date } };
+        }
+
+        if (payload.tags?.length) {
+          properties['Tags'] = {
+            multi_select: payload.tags.map((t) => ({ name: t })),
+          };
+        }
+
+        const res = await fetch('https://api.notion.com/v1/pages', {
+          method: 'POST',
+          headers: {
+            'Authorization': `Bearer ${creds.token}`,
+            'Notion-Version': '2022-06-28',
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            parent: { database_id: creds.dbId },
+            properties,
+          }),
+          signal: AbortSignal.timeout(10000),
+        });
+
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          console.error(`[notion] createTask failed: ${res.status} ${errBody}`);
+          return null;
+        }
+
+        const page = await res.json() as { id: string; url: string };
+        return { page_id: page.id, url: page.url };
+      } catch (err) {
+        console.error('[notion] createTask error:', err);
+        return null;
+      }
+    },
   };
 }

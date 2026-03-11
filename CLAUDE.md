@@ -5,7 +5,7 @@
 ChittyCommand is a unified life management and action dashboard for the ChittyOS ecosystem. It ingests data from 15+ financial, legal, and administrative sources, scores urgency with AI, recommends actions, and executes them via APIs, email, or browser automation.
 
 **Repo:** `CHITTYOS/chittycommand`
-**Deploy:** Cloudflare Workers at `command.chitty.cc`
+**Deploy:** Cloudflare Workers at `command.chitty.cc` (alias: `disputes.chitty.cc`)
 **Stack:** Hono TypeScript, React + Tailwind, Neon PostgreSQL (via Hyperdrive), Cloudflare R2/KV
 **Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 5
 
@@ -39,6 +39,7 @@ Single Cloudflare Worker (`chittycommand`) serving API + cron. Frontend is a sep
 **Email Parse:** ComEd, Peoples Gas, Xfinity, Citi, Home Depot, Lowe's
 **Manual:** IRS quarterly, HOA fees, Personal loans
 **Historical Only:** DoorLoop (sunset, data archived)
+**Via Notion Task Triager (bidirectional):** Legal/dispute emails auto-ingested into Business Task Tracker, synced to `cc_disputes` via daily cron Phase 10
 
 ### Auth Flow
 
@@ -55,9 +56,11 @@ Defined in `wrangler.toml`, dispatched via `src/lib/cron.ts`:
 - `0 14 * * 1` — Weekly Mon 8 AM CT: Utility scrapers
 - `0 15 1 * *` — Monthly 1st 9 AM CT: Mortgage, property tax
 
+Cron Phase 9 syncs Notion tasks → `cc_tasks`. Phase 10 reconciles legal tasks → `cc_disputes`.
+
 ### Database
 
-Neon PostgreSQL via Hyperdrive binding. All tables prefixed `cc_`. Schema in `src/db/schema.ts`, SQL migrations in `migrations/` (0001-0007).
+Neon PostgreSQL via Hyperdrive binding. All tables prefixed `cc_`. Schema in `src/db/schema.ts`, SQL migrations in `migrations/` (0001-0012).
 
 ### Action Execution
 
@@ -74,7 +77,9 @@ Three modes:
 - `src/lib/integrations.ts` — Service clients (Mercury, Plaid, ChittyScrape, etc.)
 - `src/lib/urgency.ts` — Deterministic urgency scoring engine
 - `src/lib/validators.ts` — Zod schemas for request validation
+- `src/lib/dispute-sync.ts` — Dispute ↔ Notion ↔ TriageAgent sync coordinator
 - `src/routes/bridge.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
+- `src/routes/bridge/disputes.ts` — Dispute-Notion manual sync bridge
 - `src/routes/mcp.ts` — MCP server for Claude integration (28 tools)
 - `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
 - `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
@@ -84,7 +89,8 @@ Three modes:
 - `src/routes/token-management.ts` — Admin token CRUD
 - `src/routes/dashboard.ts` — Dashboard summary with urgency scoring
 - `src/db/schema.ts` — Drizzle schema for all cc_* tables
-- `migrations/` — SQL migration files (0001-0007)
+- `migrations/` — SQL migration files (0001-0012)
+- `docs/notion-task-triager-instructions.md` — Task Triager agent configuration for dispute ingestion
 - `ui/` — React frontend (Vite + Tailwind)
 
 ## Security
@@ -92,8 +98,9 @@ Three modes:
 - Credentials via 1Password (`op run`) — never expose in terminal output
 - Secrets via `wrangler secret put` — never in `[vars]`
 - R2 for document storage (zero egress)
-- CORS restricted to `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`
+- CORS restricted to `app.command.chitty.cc`, `cmd.chitty.cc`, `command.mychitty.com`, `disputes.chitty.cc`, `chittycommand-ui.pages.dev`, `localhost:5173`
 - Service tokens stored in KV: `bridge:service_token`, `mcp:service_token`, `scrape:service_token`
+- Notion credentials in KV: `notion:task_agent_token`, `notion:task_database_id`, `notion:dispute_database_id`
 
 ## Claude Code Setup
 
