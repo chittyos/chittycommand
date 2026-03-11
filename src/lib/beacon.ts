@@ -9,6 +9,7 @@ export async function sendBeacon(env: Env) {
       version: '0.1.0',
       environment: env.ENVIRONMENT || 'production',
       canonicalUri: 'chittycanon://core/services/chittycommand',
+      aliases: ['disputes.chitty.cc'],
       timestamp: new Date().toISOString(),
     };
     const headers: Record<string, string> = { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' };
