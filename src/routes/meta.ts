@@ -51,6 +51,10 @@ metaPublicRoutes.get('/schema', (c) => {
       'cc_actions_log',
       'cc_sync_log',
       'cc_properties',
+      'cc_decision_feedback',
+      'cc_revenue_sources',
+      'cc_payment_plans',
+      'cc_tasks',
     ],
     canonicalRefs: {
       chittyschema_base: 'https://schema.chitty.cc/api/v1',

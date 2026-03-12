@@ -1,7 +1,7 @@
 ---
 uri: chittycanon://docs/ops/summary/chittycommand
 namespace: chittycanon://docs/ops
-type: summary
+type: architecture
 version: 1.0.0
 status: DRAFT
 registered_with: chittycanon://core/services/canon
@@ -121,7 +121,7 @@ See [CHARTER.md](CHARTER.md) (Dependencies section) — canonical source for the
 | `/auth/*` | Various | No | Login/verify flows |
 | `/api/bridge/*` | Various | Service | Inter-service bridge routes |
 | `/api/bridge/credentials/get` | POST | Service | Allowlisted credential proxy via ChittyConnect |
-| `/mcp/*` | Various | Service | MCP server (28 tools) |
+| `/mcp/*` | Various | Service | MCP server (32 tools) |
 
 ## Document Triad
 

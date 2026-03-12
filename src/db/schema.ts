@@ -118,7 +118,7 @@ export const ccDisputes = pgTable('cc_disputes', {
   disputeType: text('dispute_type').notNull(),
   amountClaimed: numeric('amount_claimed', { precision: 12, scale: 2 }),
   amountAtStake: numeric('amount_at_stake', { precision: 12, scale: 2 }),
-  stage: text('stage').default('filed'),
+  stage: text('stage').notNull().default('filed'),
   status: text('status').default('open'),
   priority: integer('priority').default(5),
   description: text('description'),

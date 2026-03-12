@@ -78,9 +78,9 @@ Three modes:
 - `src/lib/urgency.ts` — Deterministic urgency scoring engine
 - `src/lib/validators.ts` — Zod schemas for request validation
 - `src/lib/dispute-sync.ts` — Dispute ↔ Notion ↔ TriageAgent sync coordinator
-- `src/routes/bridge.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
+- `src/routes/bridge/index.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
 - `src/routes/bridge/disputes.ts` — Dispute-Notion manual sync bridge
-- `src/routes/mcp.ts` — MCP server for Claude integration (28 tools)
+- `src/routes/mcp.ts` — MCP server for Claude integration (32 tools)
 - `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
 - `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
 - `src/routes/ledger.ts` — ChittyLedger evidence/custody passthrough
@@ -89,7 +89,7 @@ Three modes:
 - `src/routes/token-management.ts` — Admin token CRUD
 - `src/routes/dashboard.ts` — Dashboard summary with urgency scoring
 - `src/db/schema.ts` — Drizzle schema for all cc_* tables
-- `migrations/` — SQL migration files (0001-0012)
+- `migrations/` — SQL migration files (0001–0012)
 - `docs/notion-task-triager-instructions.md` — Task Triager agent configuration for dispute ingestion
 - `ui/` — React frontend (Vite + Tailwind)
 
@@ -125,7 +125,7 @@ Example client-side MCP configuration (conceptual):
 }
 ```
 
-The server exposes 28 tools across 8 domains:
+The server exposes 32 tools across 9 domains:
 
 **Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
 **Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`
@@ -135,5 +135,6 @@ The server exposes 28 tools across 8 domains:
 **Schema** — `schema_list_types`, `schema_get`, `schema_validate`, `schema_drift`
 **Cert** — `cert_verify`
 **Register** — `register_requirements`
+**Tasks** — `query_tasks`, `get_task`, `update_task_status`, `verify_task`
 
 Tools return structured JSON using MCP `content: [{ type: "json", json: ... }]` where applicable, enabling Claude Code to consume results without text parsing.
