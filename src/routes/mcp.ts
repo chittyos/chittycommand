@@ -8,7 +8,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
  * MCP (Model Context Protocol) server for ChittyCommand.
  *
  * Implements JSON-RPC 2.0 over HTTP (Streamable HTTP transport).
- * Provides 28 tools across 8 domains for Claude Code sessions.
+ * Provides 32 tools across 9 domains for Claude Code sessions.
  */
 
 export const mcpRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();

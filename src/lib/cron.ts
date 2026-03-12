@@ -505,9 +505,9 @@ export async function syncCookCountyTax(env: Env, sql: NeonQueryFunction<false, 
   if (!token) return 0;
 
   let synced = 0;
-  const properties = await sql`SELECT id, property_name, pin FROM cc_properties WHERE pin IS NOT NULL`;
+  const properties = await sql`SELECT id, tax_pin FROM cc_properties WHERE tax_pin IS NOT NULL`;
   for (const prop of properties) {
-    const taxResult = await scrape.scrapeCookCountyTax(prop.pin as string, token);
+    const taxResult = await scrape.scrapeCookCountyTax(prop.tax_pin as string, token);
     if (taxResult?.success && taxResult.data) {
       await sql`
         UPDATE cc_properties
