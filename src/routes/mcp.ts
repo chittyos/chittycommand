@@ -824,11 +824,11 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const limit = Math.min(Number(args.limit) || 20, 50);
       const rows = await sql`
         SELECT d.id, d.case_ref, d.title, d.deadline_date, d.deadline_type, d.status, d.urgency_score,
-               d.dispute_id, disp.title AS dispute_title
+               (d.metadata->>'dispute_id') AS dispute_id, disp.title AS dispute_title
         FROM cc_legal_deadlines d
-        LEFT JOIN cc_disputes disp ON d.dispute_id = disp.id
+        LEFT JOIN cc_disputes disp ON (d.metadata->>'dispute_id')::uuid = disp.id
         WHERE (${status}::text IS NULL OR d.status = ${status})
-          AND (${disputeId}::text IS NULL OR d.dispute_id::text = ${disputeId})
+          AND (${disputeId}::text IS NULL OR d.metadata->>'dispute_id' = ${disputeId})
         ORDER BY d.deadline_date ASC NULLS LAST, d.urgency_score DESC NULLS LAST
         LIMIT ${limit}
       `;
@@ -855,7 +855,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         SELECT id, plan_type, horizon_days, starting_balance, ending_balance,
                lowest_balance, lowest_balance_date, total_inflows, total_outflows,
                total_late_fees_avoided, total_late_fees_risked, schedule, warnings,
-               revenue_summary, status, created_at
+               status, created_at
         FROM cc_payment_plans
         WHERE status IN ('active', 'draft')
         ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC
@@ -863,7 +863,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       `;
       if (rows.length === 0) return { plan: null, message: 'No active or draft payment plan. Generate one via POST /api/payment-plan/generate.' };
       const plan = rows[0] as Record<string, unknown>;
-      for (const field of ['schedule', 'warnings', 'revenue_summary']) {
+      for (const field of ['schedule', 'warnings']) {
         if (typeof plan[field] === 'string') {
           try { plan[field] = JSON.parse(plan[field] as string); } catch {}
         }
@@ -904,8 +904,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const validSources = ['plaid', 'finance', 'ledger', 'scrape', 'mercury', 'books', 'assets'];
       if (!validSources.includes(source)) throw new Error(`Invalid source: ${source}. Valid: ${validSources.join(', ')}`);
       await sql`
-        INSERT INTO cc_sync_log (source, status, records_synced, started_at)
-        VALUES (${source}, 'triggered', 0, NOW())
+        INSERT INTO cc_sync_log (source, sync_type, status, records_synced, started_at)
+        VALUES (${source}, 'manual', 'triggered', 0, NOW())
       `;
       return { ok: true, source, message: `Sync triggered for ${source}. Check status with get_sync_status.` };
     }
