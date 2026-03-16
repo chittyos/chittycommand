@@ -85,6 +85,8 @@ jobs:
 
   build-ui:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs:
       - workflow-secret-policy
       - secret-scan

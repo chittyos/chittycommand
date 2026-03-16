@@ -11,6 +11,8 @@ on:
 jobs:
   get-credentials:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     outputs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
@@ -53,7 +55,7 @@ jobs:
         working-directory: ui
 
       - name: Deploy to Cloudflare Pages
-        uses: cloudflare/wrangler-action@v3
+        uses: cloudflare/wrangler-action@da0e0dfe58b7a431659754fdf3f186c529afbe65 # v3
         with:
           apiToken: ${{ needs.get-credentials.outputs.cloudflare_token }}
           accountId: ${{ needs.get-credentials.outputs.account_id }}
