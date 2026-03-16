@@ -82,3 +82,22 @@ jobs:
         run: bash scripts/pressure-test-governance.sh
       - name: Lint (skipped)
         run: echo "no linter configured"
+
+  build-ui:
+    runs-on: ubuntu-latest
+    needs:
+      - workflow-secret-policy
+      - secret-scan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: ui/package-lock.json
+      - name: Install
+        run: npm ci
+        working-directory: ui
+      - name: Build (includes typecheck)
+        run: npm run build
+        working-directory: ui
