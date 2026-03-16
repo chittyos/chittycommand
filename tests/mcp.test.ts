@@ -141,13 +141,13 @@ describe('MCP — tools/list', () => {
     expect(tools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('exposes at least 28 tools', async () => {
+  it('exposes exactly 38 tools', async () => {
     const { post } = buildApp();
     const res = await post({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const json = await res.json() as Record<string, unknown>;
     const result = json.result as Record<string, unknown>;
     const tools = result.tools as unknown[];
-    expect(tools.length).toBeGreaterThanOrEqual(28);
+    expect(tools.length).toBe(38);
   });
 
   it('each tool has a name and inputSchema', async () => {

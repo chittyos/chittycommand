@@ -125,10 +125,10 @@ Example client-side MCP configuration (conceptual):
 }
 ```
 
-The server exposes 32 tools across 9 domains:
+The server exposes 38 tools across 9 domains:
 
 **Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
-**Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`
+**Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`, `query_revenue_sources`, `get_payment_plan`
 **Ledger** — `ledger_stats`, `ledger_get_evidence`, `ledger_record_custody`, `ledger_facts`, `ledger_contradictions`, `ledger_create_case_for_dispute`, `ledger_link_case_for_dispute`
 **Connect** — `connect_discover`
 **ChittyChat** — `chittychat_list_projects`, `chittychat_list_tasks`, `chittychat_get_task`
@@ -136,5 +136,8 @@ The server exposes 32 tools across 9 domains:
 **Cert** — `cert_verify`
 **Register** — `register_requirements`
 **Tasks** — `query_tasks`, `get_task`, `update_task_status`, `verify_task`
+**Legal** — `query_legal_deadlines`
+**Documents** — `query_documents`
+**Sync** — `get_sync_status`, `trigger_sync`
 
 Tools return structured JSON using MCP `content: [{ type: "json", json: ... }]` where applicable, enabling Claude Code to consume results without text parsing.
