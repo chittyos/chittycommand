@@ -9,7 +9,28 @@ on:
       - '.github/workflows/deploy-pages.yml'
 
 jobs:
+  get-credentials:
+    runs-on: ubuntu-latest
+    outputs:
+      cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
+      account_id: ${{ steps.creds.outputs.account_id }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: CHITTYOS/chittyops
+          sparse-checkout: .github/actions/getchitty-creds
+          path: .chittyops
+
+      - name: Fetch ephemeral credentials
+        id: creds
+        uses: ./.chittyops/.github/actions/getchitty-creds
+        with:
+          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
+          purpose: 'pages-deploy'
+          service: 'chittycommand-ui'
+
   deploy:
+    needs: get-credentials
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,7 +55,7 @@ jobs:
       - name: Deploy to Cloudflare Pages
         uses: cloudflare/wrangler-action@v3
         with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: 0bc21e3a5a9de1a4cc843be9c3e98121
+          apiToken: ${{ needs.get-credentials.outputs.cloudflare_token }}
+          accountId: ${{ needs.get-credentials.outputs.account_id }}
           command: pages deploy dist --project-name=chittycommand-ui
           workingDirectory: ui
