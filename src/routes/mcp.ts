@@ -8,7 +8,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
  * MCP (Model Context Protocol) server for ChittyCommand.
  *
  * Implements JSON-RPC 2.0 over HTTP (Streamable HTTP transport).
- * Provides 32 tools across 9 domains for Claude Code sessions.
+ * Provides 38 tools across 9 domains for Claude Code sessions.
  */
 
 export const mcpRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -188,6 +188,64 @@ const TOOLS = [
     inputSchema: { type: 'object' as const, properties: {}, required: [] as string[] },
   },
   {
+    name: 'query_legal_deadlines',
+    description: 'List legal deadlines. Filter by status or dispute. Shows urgency scores and deadline types.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', description: 'Filter: upcoming, overdue, met, waived', enum: ['upcoming', 'overdue', 'met', 'waived'] },
+        dispute_id: { type: 'string', description: 'Filter by linked dispute ID' },
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'query_documents',
+    description: 'List stored documents. Filter by type or processing status. Shows gaps in document coverage.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        doc_type: { type: 'string', description: 'Filter: bill, statement, contract, legal, receipt, correspondence, tax, insurance' },
+        processing_status: { type: 'string', description: 'Filter: pending, processed, failed' },
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_payment_plan',
+    description: 'Get current payment plan with schedule, warnings, and balance projections.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] as string[] },
+  },
+  {
+    name: 'query_revenue_sources',
+    description: 'List revenue sources with monthly amounts, confidence, and next expected dates.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', description: 'Filter: active, paused, ended', enum: ['active', 'paused', 'ended'] },
+      },
+      required: [],
+    },
+  },
+  {
+    name: 'get_sync_status',
+    description: 'Get sync status for all data sources — shows last sync time, records synced, and errors.',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] as string[] },
+  },
+  {
+    name: 'trigger_sync',
+    description: 'Trigger a manual sync for a data source (plaid, finance, ledger, scrape).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        source: { type: 'string', description: 'Source to sync: plaid, finance, ledger, scrape, mercury' },
+      },
+      required: ['source'],
+    },
+  },
+  {
     name: 'query_tasks',
     description: 'List tasks from the backend task system. Filter by status, type, source, or priority.',
     inputSchema: {
@@ -350,8 +408,24 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     case 'get_schema_refs': {
       return {
         schemaVersion: '0.1.0',
-        endpoints: ['/api/dashboard', '/api/accounts', '/api/obligations', '/api/disputes', '/api/recommendations', '/api/cashflow'],
-        db_tables: ['cc_accounts','cc_obligations','cc_transactions','cc_recommendations','cc_cashflow_projections','cc_disputes','cc_dispute_correspondence','cc_legal_deadlines','cc_documents','cc_actions_log','cc_sync_log','cc_properties'],
+        endpoints: [
+          '/api/dashboard', '/api/accounts', '/api/obligations', '/api/disputes',
+          '/api/recommendations', '/api/cashflow', '/api/legal', '/api/documents',
+          '/api/sync', '/api/queue', '/api/payment-plan', '/api/revenue',
+          '/api/email-connections', '/api/chat', '/api/tasks',
+          '/api/bridge/plaid', '/api/bridge/finance', '/api/bridge/ledger',
+          '/api/bridge/scrape', '/api/bridge/disputes', '/api/bridge/mercury',
+          '/api/bridge/books', '/api/bridge/assets', '/api/bridge/status',
+          '/api/v1/tokens', '/api/v1/context', '/api/v1/connect',
+          '/auth', '/mcp',
+        ],
+        db_tables: [
+          'cc_accounts', 'cc_obligations', 'cc_transactions', 'cc_properties',
+          'cc_legal_deadlines', 'cc_disputes', 'cc_dispute_correspondence',
+          'cc_documents', 'cc_recommendations', 'cc_actions_log',
+          'cc_cashflow_projections', 'cc_decision_feedback', 'cc_revenue_sources',
+          'cc_payment_plans', 'cc_sync_log', 'cc_tasks',
+        ],
       };
     }
 
@@ -742,6 +816,98 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         if (!res.ok) return { error: 'Failed to fetch requirements', code: res.status };
         return { requirements: await res.json() };
       } catch (err) { return { error: String(err) }; }
+    }
+
+    case 'query_legal_deadlines': {
+      const status = args.status || null;
+      const disputeId = args.dispute_id || null;
+      const limit = Math.min(Number(args.limit) || 20, 50);
+      const rows = await sql`
+        SELECT d.id, d.case_ref, d.title, d.deadline_date, d.deadline_type, d.status, d.urgency_score,
+               (d.metadata->>'dispute_id') AS dispute_id, disp.title AS dispute_title
+        FROM cc_legal_deadlines d
+        LEFT JOIN cc_disputes disp ON (d.metadata->>'dispute_id')::uuid = disp.id
+        WHERE (${status}::text IS NULL OR d.status = ${status})
+          AND (${disputeId}::text IS NULL OR d.metadata->>'dispute_id' = ${disputeId})
+        ORDER BY d.deadline_date ASC NULLS LAST, d.urgency_score DESC NULLS LAST
+        LIMIT ${limit}
+      `;
+      return { count: rows.length, deadlines: rows };
+    }
+
+    case 'query_documents': {
+      const docType = args.doc_type || null;
+      const processingStatus = args.processing_status || null;
+      const limit = Math.min(Number(args.limit) || 20, 50);
+      const rows = await sql`
+        SELECT id, doc_type, filename, processing_status, linked_dispute_id, created_at
+        FROM cc_documents
+        WHERE (${docType}::text IS NULL OR doc_type = ${docType})
+          AND (${processingStatus}::text IS NULL OR processing_status = ${processingStatus})
+        ORDER BY created_at DESC
+        LIMIT ${limit}
+      `;
+      return { count: rows.length, documents: rows };
+    }
+
+    case 'get_payment_plan': {
+      const rows = await sql`
+        SELECT id, plan_type, horizon_days, starting_balance, ending_balance,
+               lowest_balance, lowest_balance_date, total_inflows, total_outflows,
+               total_late_fees_avoided, total_late_fees_risked, schedule, warnings,
+               status, created_at
+        FROM cc_payment_plans
+        WHERE status IN ('active', 'draft')
+        ORDER BY CASE WHEN status = 'active' THEN 0 ELSE 1 END, created_at DESC
+        LIMIT 1
+      `;
+      if (rows.length === 0) return { plan: null, message: 'No active or draft payment plan. Generate one via POST /api/payment-plan/generate.' };
+      const plan = rows[0] as Record<string, unknown>;
+      for (const field of ['schedule', 'warnings']) {
+        if (typeof plan[field] === 'string') {
+          try { plan[field] = JSON.parse(plan[field] as string); } catch {}
+        }
+      }
+      return { plan };
+    }
+
+    case 'query_revenue_sources': {
+      const status = args.status || null;
+      const rows = await sql`
+        SELECT r.id, r.source, r.description, r.amount, r.recurrence,
+               r.recurrence_day, r.next_expected_date, r.confidence, r.status,
+               a.account_name, a.institution
+        FROM cc_revenue_sources r
+        LEFT JOIN cc_accounts a ON r.account_id = a.id
+        WHERE (${status}::text IS NULL OR r.status = ${status})
+        ORDER BY r.amount::numeric DESC
+      `;
+      const total = rows.reduce((s, r) => s + parseFloat((r as Record<string, unknown>).amount as string || '0'), 0);
+      return { count: rows.length, total_monthly: Math.round(total * 100) / 100, sources: rows };
+    }
+
+    case 'get_sync_status': {
+      const rows = await sql`
+        SELECT source, status, records_synced, started_at, completed_at, error_message
+        FROM cc_sync_log
+        WHERE id IN (
+          SELECT MAX(id) FROM cc_sync_log GROUP BY source
+        )
+        ORDER BY started_at DESC
+      `;
+      return { sources: rows };
+    }
+
+    case 'trigger_sync': {
+      const source = String(args.source || '').trim();
+      if (!source) throw new Error('Missing argument: source');
+      const validSources = ['plaid', 'finance', 'ledger', 'scrape', 'mercury', 'books', 'assets'];
+      if (!validSources.includes(source)) throw new Error(`Invalid source: ${source}. Valid: ${validSources.join(', ')}`);
+      await sql`
+        INSERT INTO cc_sync_log (source, sync_type, status, records_synced, started_at)
+        VALUES (${source}, 'manual', 'triggered', 0, NOW())
+      `;
+      return { ok: true, source, message: `Sync triggered for ${source}. Check status with get_sync_status.` };
     }
 
     case 'query_tasks': {
