@@ -13,6 +13,7 @@ jobs:
     runs-on: ubuntu-latest
     permissions:
       contents: read
+      id-token: write
     outputs:
       cloudflare_token: ${{ steps.creds.outputs.cloudflare_token }}
       account_id: ${{ steps.creds.outputs.account_id }}
@@ -27,7 +28,6 @@ jobs:
         id: creds
         uses: ./.chittyops/.github/actions/getchitty-creds
         with:
-          api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
           purpose: 'pages-deploy'
           service: 'chittycommand-ui'
 
