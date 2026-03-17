@@ -4,6 +4,7 @@ import { useFocusMode } from '../lib/focus-mode';
 import { FocusView } from '../components/dashboard/FocusView';
 import { FullView } from '../components/dashboard/FullView';
 import { ConfirmDialog } from '../components/ui/ConfirmDialog';
+import { DashboardSkeleton } from '../components/ui/Skeleton';
 import { useToast } from '../lib/toast';
 import { formatCurrency } from '../lib/utils';
 
@@ -71,7 +72,7 @@ export function Dashboard() {
   }
 
   if (!data) {
-    return <div className="text-center py-20 text-chrome-muted">Loading...</div>;
+    return <DashboardSkeleton />;
   }
 
   const viewProps = { data, onPayNow: requestPayNow, onExecute: handleExecute, payingId, executingId };
