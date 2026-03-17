@@ -9,11 +9,12 @@ on:
       - 'wrangler.toml'
       - '.github/workflows/deploy-worker.yml'
 
+permissions:
+  contents: read
+  id-token: write
+
 jobs:
   deploy:
     uses: CHITTYOS/chittyops/.github/workflows/reusable-worker-deploy.yml@main
     with:
       service_name: chittycommand
-    secrets:
-      CHITTYCONNECT_API_KEY: ${{ secrets.CHITTYCONNECT_API_KEY }}
-
