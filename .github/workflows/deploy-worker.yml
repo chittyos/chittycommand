@@ -11,10 +11,12 @@ on:
 
 permissions:
   contents: read
-  id-token: write
 
 jobs:
   deploy:
     uses: CHITTYOS/chittyops/.github/workflows/reusable-worker-deploy.yml@main
     with:
       service_name: chittycommand
+    secrets:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
