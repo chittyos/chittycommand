@@ -12,6 +12,7 @@ import { CashFlow } from './pages/CashFlow';
 import { Recommendations } from './pages/Recommendations';
 import { Settings } from './pages/Settings';
 import { ActionQueue } from './pages/ActionQueue';
+import { Priorities } from './pages/Priorities';
 import { Login } from './pages/Login';
 import { isAuthenticated } from './lib/auth';
 import { FocusModeProvider } from './lib/focus-mode';
@@ -40,6 +41,7 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
               <Route path="/accounts" element={<Accounts />} />
               <Route path="/legal" element={<Legal />} />
               <Route path="/recommendations" element={<Recommendations />} />
+              <Route path="/priorities" element={<Priorities />} />
               <Route path="/cashflow" element={<CashFlow />} />
               <Route path="/upload" element={<Upload />} />
               <Route path="/settings" element={<Settings />} />

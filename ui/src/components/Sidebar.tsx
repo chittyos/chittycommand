@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
   LayoutDashboard, Zap, Receipt, ShieldAlert, Wallet, Scale,
-  Lightbulb, TrendingUp, Upload, Settings, LogOut,
+  Lightbulb, TrendingUp, Upload, Settings, LogOut, Crosshair,
 } from 'lucide-react';
 import { logout, getUser } from '../lib/auth';
 
@@ -13,6 +13,7 @@ const navItems = [
   { path: '/disputes', label: 'Disputes', icon: ShieldAlert },
   { path: '/accounts', label: 'Accounts', icon: Wallet },
   { path: '/legal', label: 'Legal', icon: Scale },
+  { path: '/priorities', label: 'Priorities', icon: Crosshair },
   { path: '/recommendations', label: 'AI Recs', icon: Lightbulb },
   { path: '/cashflow', label: 'Cash Flow', icon: TrendingUp },
   { path: '/upload', label: 'Upload', icon: Upload },
