@@ -340,6 +340,14 @@ export const api = {
   spawnRecommendation: (id: string, data: { rec_type: string; priority?: number; action_type?: string; estimated_savings?: number }) =>
     request<{ task_id: string; recommendation_id: string }>(`/tasks/${id}/spawn-recommendation`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Litigation Assistant
+  litigationSynthesize: (data: { rawNotes: string; property?: string; caseNumber?: string }) =>
+    request<{ synthesis: string }>('/litigation/synthesize', { method: 'POST', body: JSON.stringify(data) }),
+  litigationDraft: (data: { synthesizedFacts: string; focus: string; recipient: string }) =>
+    request<{ draft: string }>('/litigation/draft', { method: 'POST', body: JSON.stringify(data) }),
+  litigationQC: (data: { rawNotes: string; draftEmail: string }) =>
+    request<{ flags: { flagType: string; location: string; issue: string; suggestedFix: string }[]; warning?: string }>('/litigation/qc', { method: 'POST', body: JSON.stringify(data) }),
+
   chatStream: async function* (
     messages: ChatMessage[],
     context?: { page?: string; item_id?: string },

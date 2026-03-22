@@ -1,4 +1,4 @@
-import { pgTable, uuid, text, numeric, boolean, integer, date, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, numeric, boolean, integer, date, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // ── Accounts ──────────────────────────────────────────────────
@@ -21,6 +21,7 @@ export const ccAccounts = pgTable('cc_accounts', {
 // ── Obligations ───────────────────────────────────────────────
 export const ccObligations = pgTable('cc_obligations', {
   id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
   accountId: uuid('account_id').references(() => ccAccounts.id),
   category: text('category').notNull(),
   subcategory: text('subcategory'),
@@ -73,6 +74,7 @@ export const ccTransactions = pgTable('cc_transactions', {
 // ── Properties ────────────────────────────────────────────────
 export const ccProperties = pgTable('cc_properties', {
   id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
   propertyName: text('property_name'),
   address: text('address').notNull(),
   unit: text('unit'),
@@ -93,6 +95,7 @@ export const ccProperties = pgTable('cc_properties', {
 // ── Legal Deadlines ───────────────────────────────────────────
 export const ccLegalDeadlines = pgTable('cc_legal_deadlines', {
   id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
   caseRef: text('case_ref').notNull(),
   caseSystem: text('case_system'),
   deadlineType: text('deadline_type').notNull(),
@@ -148,6 +151,7 @@ export const ccDisputeCorrespondence = pgTable('cc_dispute_correspondence', {
 // ── Documents ─────────────────────────────────────────────────
 export const ccDocuments = pgTable('cc_documents', {
   id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
   docType: text('doc_type').notNull(),
   source: text('source').notNull(),
   filename: text('filename'),
@@ -284,6 +288,7 @@ export const ccPaymentPlans = pgTable('cc_payment_plans', {
 // ── Sync Log ──────────────────────────────────────────────────
 export const ccSyncLog = pgTable('cc_sync_log', {
   id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
   source: text('source').notNull(),
   syncType: text('sync_type').notNull(),
   status: text('status').notNull(),
@@ -322,4 +327,27 @@ export const ccTasks = pgTable('cc_tasks', {
   dueDateIdx: index('idx_cc_tasks_due_date').on(table.dueDate),
   priorityIdx: index('idx_cc_tasks_priority').on(table.priority),
   typeIdx: index('idx_cc_tasks_type').on(table.taskType),
+}));
+
+// ── Scrape Jobs ─────────────────────────────────────────────
+export const ccScrapeJobs = pgTable('cc_scrape_jobs', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  chittyId: varchar('chitty_id', { length: 64 }),
+  jobType: varchar('job_type', { length: 50 }).notNull(),
+  target: jsonb('target').notNull(),
+  status: varchar('status', { length: 20 }).notNull().default('queued'),
+  attempt: integer('attempt').notNull().default(0),
+  maxAttempts: integer('max_attempts').notNull().default(3),
+  scheduledAt: timestamp('scheduled_at', { withTimezone: true }).defaultNow(),
+  startedAt: timestamp('started_at', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  result: jsonb('result'),
+  errorMessage: text('error_message'),
+  parentJobId: uuid('parent_job_id'),
+  cronSource: varchar('cron_source', { length: 30 }),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  statusIdx: index('idx_cc_scrape_jobs_status').on(table.status, table.scheduledAt),
+  typeIdx: index('idx_cc_scrape_jobs_type').on(table.jobType),
+  chittyIdx: index('idx_cc_scrape_jobs_chitty').on(table.chittyId),
 }));
