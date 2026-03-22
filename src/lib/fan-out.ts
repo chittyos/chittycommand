@@ -172,12 +172,15 @@ async function fanOutToLedger(env: Env, ctx: ScrapeResultContext): Promise<void>
         'Content-Type': 'application/json',
         'X-Source-Service': 'chittycommand',
       },
+      // @canon: chittycanon://gov/governance#core-types
+      // Ledger entityType is a record-category enum (not ChittyID P/L/T/E/A entity classification).
+      // actorType: 'person' (P) for ChittyID-bound actors, 'service' for system actors.
       body: JSON.stringify({
         entityType: 'scrape',
         entityId: ctx.jobId,
         action: 'completed',
         actor: ctx.chittyId || 'chittycommand',
-        actorType: ctx.chittyId ? 'entity' : 'service',
+        actorType: ctx.chittyId ? 'person' : 'service',
         metadata: {
           jobType: ctx.jobType,
           target: ctx.target,
