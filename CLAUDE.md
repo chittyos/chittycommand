@@ -1,3 +1,15 @@
+---
+uri: chittycanon://docs/dev/claude/chittycommand
+namespace: chittycanon://docs/dev
+type: guide
+version: 1.1.0
+status: DRAFT
+registered_with: chittycanon://core/services/canon
+title: "ChittyCommand CLAUDE.md"
+certifier: chittycanon://core/services/chittycertify
+visibility: PUBLIC
+---
+
 # CLAUDE.md
 
 ## Project Overview
@@ -125,7 +137,7 @@ Example client-side MCP configuration (conceptual):
 }
 ```
 
-The server exposes 38 tools across 9 domains:
+The server exposes 43 tools across 10 domains:
 
 **Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
 **Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`, `query_revenue_sources`, `get_payment_plan`
@@ -136,6 +148,7 @@ The server exposes 38 tools across 9 domains:
 **Cert** — `cert_verify`
 **Register** — `register_requirements`
 **Tasks** — `query_tasks`, `get_task`, `update_task_status`, `verify_task`
+**Scrape Jobs** — `query_scrape_jobs`, `get_scrape_job`, `retry_scrape_job`, `get_dead_letters`, `enqueue_scrape_job`
 **Legal** — `query_legal_deadlines`
 **Documents** — `query_documents`
 **Sync** — `get_sync_status`, `trigger_sync`
