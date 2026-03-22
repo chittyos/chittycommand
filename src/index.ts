@@ -22,12 +22,14 @@ import { paymentPlanRoutes } from './routes/payment-plan';
 import { revenueRoutes } from './routes/revenue';
 import { emailConnectionRoutes } from './routes/email-connections';
 import { chatRoutes } from './routes/chat';
+import { litigationRoutes } from './routes/litigation';
 import { taskRoutes } from './routes/tasks';
 import { sendBeacon } from './lib/beacon';
 import { contextRoutes } from './routes/context';
 import { connectRoutes } from './routes/connect';
 import { ledgerRoutes } from './routes/ledger';
 import { tokenManagementRoutes } from './routes/token-management';
+import { jobRoutes } from './routes/jobs';
 
 export type Env = {
   AI: Ai;
@@ -121,6 +123,7 @@ app.route('/api/payment-plan', paymentPlanRoutes);
 app.route('/api/revenue', revenueRoutes);
 app.route('/api/email-connections', emailConnectionRoutes);
 app.route('/api/chat', chatRoutes);
+app.route('/api/litigation', litigationRoutes);
 app.route('/api/tasks', taskRoutes);
 // Identity (authenticated)
 app.route('/api/v1', metaRoutes);
@@ -132,6 +135,8 @@ app.route('/api/v1', connectRoutes);
 app.route('/api/v1', ledgerRoutes);
 // Token management (authenticated admin)
 app.route('/api/v1', tokenManagementRoutes);
+// Scrape job management (authenticated)
+app.route('/api/v1', jobRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
@@ -141,7 +146,7 @@ export default {
   fetch: app.fetch,
   async scheduled(event: ScheduledEvent, env: Env, ctx: ExecutionContext) {
     const sql = getDb(env);
-    ctx.waitUntil(runCronSync(event, env, sql));
+    ctx.waitUntil(runCronSync(event, env, sql, ctx));
     ctx.waitUntil(sendBeacon(env));
   },
 };

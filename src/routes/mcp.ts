@@ -3,6 +3,8 @@ import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
 import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
+import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
+import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 
 /**
  * MCP (Model Context Protocol) server for ChittyCommand.
@@ -289,6 +291,67 @@ const TOOLS = [
         ledger_record_id: { type: 'string', description: 'Required for hard verification — ledger record reference' },
       },
       required: ['id', 'verification_artifact'],
+    },
+  },
+  // ── Scrape Jobs ────────────────────────────────────────────
+  {
+    name: 'query_scrape_jobs',
+    description: 'List scrape jobs with optional filters (status, type, chitty_id). Returns paginated results.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', description: 'Filter by status', enum: ['queued', 'running', 'completed', 'failed', 'retrying', 'dead_letter'] },
+        type: { type: 'string', description: 'Filter by job type', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'] },
+        chitty_id: { type: 'string', description: 'Filter by ChittyID' },
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'get_scrape_job',
+    description: 'Get detailed status of a specific scrape job by ID.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Scrape job UUID' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'retry_scrape_job',
+    description: 'Re-queue a failed or dead-lettered scrape job for retry.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string', description: 'Scrape job UUID' },
+      },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'get_dead_letters',
+    description: 'List scrape jobs that exhausted all retry attempts (dead-lettered).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'enqueue_scrape_job',
+    description: 'Manually enqueue a new scrape job for execution.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        job_type: { type: 'string', description: 'Type of scrape', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'] },
+        target: { type: 'object', description: 'Target parameters (e.g. {case_number}, {pin}, {property}, {portal})' },
+        chitty_id: { type: 'string', description: 'Optional ChittyID to bind results to' },
+      },
+      required: ['job_type', 'target'],
     },
   },
 ];
@@ -1006,6 +1069,54 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
                 ${JSON.stringify({ verification_notes: vNotes, ledger_record_id: ledgerId })}::jsonb)
       `;
       return { ok: true, task: updated[0] };
+    }
+
+    // ── Scrape Job Tools ────────────────────────────────────
+    case 'query_scrape_jobs': {
+      const result = await listJobs(sql, {
+        status: args.status as ScrapeJobStatus | undefined,
+        jobType: args.type as ScrapeJobType | undefined,
+        chittyId: args.chitty_id ? String(args.chitty_id) : undefined,
+        limit: Math.min(Number(args.limit) || 20, 50),
+      });
+      return result;
+    }
+
+    case 'get_scrape_job': {
+      const id = String(args.id || '').trim();
+      if (!id) throw new Error('Missing argument: id');
+      const job = await getJobStatus(sql, id);
+      if (!job) throw new Error('Scrape job not found');
+      return job;
+    }
+
+    case 'retry_scrape_job': {
+      const id = String(args.id || '').trim();
+      if (!id) throw new Error('Missing argument: id');
+      const success = await retryJob(sql, id);
+      if (!success) throw new Error('Job not found or not in retryable state (must be failed or dead_letter)');
+      return { ok: true, status: 'queued', message: 'Job re-queued for retry' };
+    }
+
+    case 'get_dead_letters': {
+      const limit = Math.min(Number(args.limit) || 20, 50);
+      const jobs = await getDeadLetters(sql, limit);
+      return { jobs, total: jobs.length };
+    }
+
+    case 'enqueue_scrape_job': {
+      const jobType = String(args.job_type || '').trim() as ScrapeJobType;
+      const target = args.target as Record<string, unknown>;
+      if (!jobType || !target) throw new Error('Missing arguments: job_type, target');
+
+      const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'];
+      if (!validTypes.includes(jobType)) throw new Error(`Invalid job_type. Must be one of: ${validTypes.join(', ')}`);
+
+      const jobId = await enqueueJob(sql, jobType, target, {
+        chittyId: args.chitty_id ? String(args.chitty_id) : undefined,
+        cronSource: 'mcp',
+      });
+      return { ok: true, id: jobId, status: 'queued' };
     }
 
     default:

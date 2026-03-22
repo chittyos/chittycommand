@@ -7,6 +7,7 @@ import { generateProjections } from './projections';
 import { discoverRevenueSources } from './revenue';
 import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 import { reconcileNotionDisputes } from './dispute-sync';
+import { enqueueJob, processQueue } from './job-dispatcher';
 
 /**
  * Cron sync orchestrator.
@@ -18,6 +19,7 @@ export async function runCronSync(
   event: ScheduledEvent,
   env: Env,
   sql: NeonQueryFunction<false, false>,
+  ctx?: ExecutionContext,
 ): Promise<void> {
   const cronSources: Record<string, string> = {
     '0 12 * * *': 'daily_api',
@@ -136,14 +138,26 @@ export async function runCronSync(
     }
 
     if (source === 'utility_scrape') {
-      // Weekly utility portal scrapes via ChittyRouter
+      // Weekly utility portal scrapes via dispatcher
+      const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
       const utilityTargets = ['comed', 'peoples_gas', 'xfinity'];
       for (const target of utilityTargets) {
         try {
-          recordsSynced += await syncPortal(env, sql, target);
+          await enqueueJob(sql, 'portal_scrape', { portal: target }, {
+            chittyId,
+            cronSource: 'utility_scrape',
+          });
         } catch (err) {
-          console.error(`[cron:utility:${target}] failed:`, err);
+          console.error(`[cron:utility:${target}] enqueue failed:`, err);
         }
+      }
+      // Process all queued utility jobs
+      try {
+        const queueResult = await processQueue(sql, env, ctx);
+        recordsSynced += queueResult.succeeded;
+        console.log(`[cron:utility] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
+      } catch (err) {
+        console.error('[cron:utility] processQueue failed:', err);
       }
 
       // Also pull email-parsed bills (also called in daily_api — upsert prevents duplicates)
@@ -156,7 +170,15 @@ export async function runCronSync(
 
     if (source === 'court_docket') {
       try {
-        recordsSynced += await syncCourtDocket(env, sql);
+        // Enqueue via dispatcher for retry + fan-out
+        const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
+        await enqueueJob(sql, 'court_docket', { case_number: '2024D007847' }, {
+          chittyId,
+          cronSource: 'court_docket',
+        });
+        const queueResult = await processQueue(sql, env, ctx);
+        recordsSynced += queueResult.succeeded;
+        console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
       } catch (err) {
         console.error('[cron:court_docket] failed:', err);
       }
@@ -164,7 +186,7 @@ export async function runCronSync(
 
     if (source === 'monthly_check') {
       try {
-        recordsSynced += await syncMonthlyChecks(env, sql);
+        recordsSynced += await syncMonthlyChecksViaDispatcher(env, sql, ctx);
       } catch (err) {
         console.error('[cron:monthly_check] failed:', err);
       }
@@ -542,6 +564,48 @@ async function syncMonthlyChecks(env: Env, sql: NeonQueryFunction<false, false>)
   }
 
   return synced;
+}
+
+/**
+ * Monthly scrapers via dispatcher — enqueues Mr. Cooper + all property tax PINs as jobs.
+ */
+async function syncMonthlyChecksViaDispatcher(
+  env: Env,
+  sql: NeonQueryFunction<false, false>,
+  ctx?: ExecutionContext,
+): Promise<number> {
+  const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
+
+  // Enqueue Mr. Cooper
+  try {
+    await enqueueJob(sql, 'mr_cooper', { property: 'addison' }, {
+      chittyId,
+      cronSource: 'monthly_check',
+    });
+  } catch (err) {
+    console.error('[cron:mr_cooper] enqueue failed:', err);
+  }
+
+  // Enqueue Cook County tax for each property with a PIN
+  try {
+    const properties = await sql`SELECT id, tax_pin FROM cc_properties WHERE tax_pin IS NOT NULL`;
+    for (const prop of properties) {
+      await enqueueJob(sql, 'cook_county_tax', {
+        pin: prop.tax_pin as string,
+        property_id: prop.id as string,
+      }, {
+        chittyId,
+        cronSource: 'monthly_check',
+      });
+    }
+  } catch (err) {
+    console.error('[cron:cook_county_tax] enqueue failed:', err);
+  }
+
+  // Process all enqueued monthly jobs
+  const queueResult = await processQueue(sql, env, ctx);
+  console.log(`[cron:monthly] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
+  return queueResult.succeeded;
 }
 
 /**

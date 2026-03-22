@@ -1,11 +1,8 @@
 import { useEffect, useState } from 'react';
-import { useFocusMode } from '../lib/focus-mode';
 import { api, type DashboardData, type SyncStatus } from '../lib/api';
 import { FreshnessDot, freshnessFromDate } from './ui/FreshnessDot';
-import { Eye, EyeOff } from 'lucide-react';
 
 export function StatusBar() {
-  const { focusMode, toggleFocusMode } = useFocusMode();
   const [data, setData] = useState<DashboardData | null>(null);
   const [syncs, setSyncs] = useState<SyncStatus[]>([]);
 
@@ -62,15 +59,6 @@ export function StatusBar() {
           </div>
         )}
       </div>
-
-      <button
-        onClick={toggleFocusMode}
-        className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-xs lg:text-sm font-semibold transition-all duration-200 shrink-0 ml-2 border border-chrome-border hover:border-chitty-500/40 hover:shadow-glow-brand text-chrome-text"
-        title={focusMode ? 'Show full dashboard' : 'Focus on urgent items'}
-      >
-        {focusMode ? <Eye size={14} /> : <EyeOff size={14} />}
-        <span className="hidden sm:inline">{focusMode ? 'Focus' : 'Full'}</span>
-      </button>
     </header>
   );
 }
