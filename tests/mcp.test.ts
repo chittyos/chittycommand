@@ -147,7 +147,7 @@ describe('MCP — tools/list', () => {
     const json = await res.json() as Record<string, unknown>;
     const result = json.result as Record<string, unknown>;
     const tools = result.tools as unknown[];
-    expect(tools.length).toBe(38);
+    expect(tools.length).toBe(43);
   });
 
   it('each tool has a name and inputSchema', async () => {
