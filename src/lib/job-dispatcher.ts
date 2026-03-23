@@ -46,6 +46,7 @@ export interface ScrapeJob {
 /**
  * Enqueue a scrape job via ChittyRouter ScrapeAgent.
  * Falls back to local Neon queue if router is unavailable.
+ * Uses a pre-generated UUID to prevent double-enqueue on ambiguous failures.
  */
 export async function enqueueJob(
   sql: NeonQueryFunction<false, false>,
@@ -54,25 +55,43 @@ export async function enqueueJob(
   opts: EnqueueOptions = {},
   env?: Env,
 ): Promise<string> {
+  const jobId = crypto.randomUUID();
+
   // Proxy to ChittyRouter ScrapeAgent
   if (env) {
     const router = routerClient(env);
     if (router) {
-      const result = await router.enqueueScrapeJob(jobType, target, {
-        chittyId: opts.chittyId,
-        maxAttempts: opts.maxAttempts,
-        cronSource: opts.cronSource,
-      });
-      if (result?.id) return result.id;
-      console.warn('[dispatcher] ScrapeAgent enqueue failed, falling back to local queue');
+      try {
+        const result = await router.enqueueScrapeJob(jobType, target, {
+          jobId,
+          chittyId: opts.chittyId,
+          maxAttempts: opts.maxAttempts,
+          cronSource: opts.cronSource,
+        });
+        if (result?.id) return result.id;
+        console.warn('[dispatcher] ScrapeAgent enqueue returned no ID, falling back to local queue');
+      } catch (err: unknown) {
+        // Only fall back on definitive connection errors (no response received).
+        // If the server responded (e.g. timeout after response sent), do NOT
+        // fall back — the job may already exist on the router side.
+        const isConnectionError =
+          err instanceof TypeError || // fetch network failure
+          (err instanceof DOMException && err.name === 'AbortError');
+        if (!isConnectionError) {
+          console.error('[dispatcher] ScrapeAgent enqueue got server error, not falling back', err);
+          throw err;
+        }
+        console.warn('[dispatcher] ScrapeAgent connection error, falling back to local queue', err);
+      }
     }
   }
 
-  // Fallback: local Neon queue (legacy path)
+  // Fallback: local Neon queue (legacy path) — uses the same jobId to prevent duplicates
   const scheduledAt = opts.scheduledAt?.toISOString() || new Date().toISOString();
   const [row] = await sql`
-    INSERT INTO cc_scrape_jobs (job_type, target, chitty_id, max_attempts, scheduled_at, cron_source, parent_job_id)
+    INSERT INTO cc_scrape_jobs (id, job_type, target, chitty_id, max_attempts, scheduled_at, cron_source, parent_job_id)
     VALUES (
+      ${jobId},
       ${jobType},
       ${JSON.stringify(target)}::jsonb,
       ${opts.chittyId || null},
@@ -101,6 +120,12 @@ export async function processQueue(
     const result = await router.processScrapeQueue();
     if (result) return result;
     console.warn('[dispatcher] ScrapeAgent processQueue failed');
+  }
+
+  // Check for stuck local jobs when router is unavailable
+  const [stuckCount] = await sql`SELECT COUNT(*)::int AS total FROM cc_scrape_jobs WHERE status = 'queued'`;
+  if (stuckCount?.total > 0) {
+    console.warn(`[dispatcher] ${stuckCount.total} local jobs stuck in queue — router unavailable`);
   }
   return { processed: 0, succeeded: 0, failed: 0 };
 }
@@ -146,6 +171,8 @@ export async function listJobs(
         status: filters.status,
         jobType: filters.jobType,
         limit: filters.limit,
+        chittyId: filters.chittyId,
+        offset: filters.offset,
       });
       if (result) {
         return {
@@ -200,7 +227,7 @@ export async function getDeadLetters(
   if (env) {
     const router = routerClient(env);
     if (router) {
-      const result = await router.getScrapeDeadLetters();
+      const result = await router.getScrapeDeadLetters(limit);
       if (result) return result.jobs.map(mapRouterJob);
     }
   }

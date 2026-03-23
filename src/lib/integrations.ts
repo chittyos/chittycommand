@@ -695,7 +695,7 @@ export function routerClient(env: Env) {
 
     // ── ScrapeAgent proxy methods ──────────────────────────────
     /** Enqueue a scrape job on ChittyRouter ScrapeAgent */
-    enqueueScrapeJob: (jobType: string, target: Record<string, unknown>, opts?: { chittyId?: string; maxAttempts?: number; cronSource?: string }) =>
+    enqueueScrapeJob: (jobType: string, target: Record<string, unknown>, opts?: { jobId?: string; chittyId?: string; maxAttempts?: number; cronSource?: string }) =>
       post<{ id: string; status: string }>('/agents/scrape/enqueue', { jobType, target, ...opts }),
 
     /** Get a single scrape job status */
@@ -703,11 +703,13 @@ export function routerClient(env: Env) {
       get<ScrapeJobResponse>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}`),
 
     /** List scrape jobs with filters */
-    listScrapeJobs: (filters?: { status?: string; jobType?: string; limit?: number }) => {
+    listScrapeJobs: (filters?: { status?: string; jobType?: string; limit?: number; chittyId?: string; offset?: number }) => {
       const params = new URLSearchParams();
       if (filters?.status) params.set('status', filters.status);
       if (filters?.jobType) params.set('jobType', filters.jobType);
       if (filters?.limit) params.set('limit', String(filters.limit));
+      if (filters?.chittyId) params.set('chittyId', filters.chittyId);
+      if (filters?.offset != null) params.set('offset', String(filters.offset));
       const qs = params.toString();
       return get<{ jobs: ScrapeJobResponse[]; total: number }>(`/agents/scrape/jobs${qs ? `?${qs}` : ''}`);
     },
@@ -717,8 +719,12 @@ export function routerClient(env: Env) {
       post<{ status: string }>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}/retry`, {}),
 
     /** Get dead-lettered scrape jobs */
-    getScrapeDeadLetters: () =>
-      get<{ jobs: ScrapeJobResponse[] }>('/agents/scrape/dead-letters'),
+    getScrapeDeadLetters: (limit?: number) => {
+      const params = new URLSearchParams();
+      if (limit) params.set('limit', String(limit));
+      const qs = params.toString();
+      return get<{ jobs: ScrapeJobResponse[] }>(`/agents/scrape/dead-letters${qs ? `?${qs}` : ''}`);
+    },
 
     /** Trigger queue processing on ScrapeAgent */
     processScrapeQueue: () =>

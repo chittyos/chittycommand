@@ -88,7 +88,7 @@ litigationRoutes.post('/draft', async (c) => {
 
     if (result) {
       if (!result.aiEnabled) {
-        return c.json({ draft: synthesizedFacts, passthrough: true });
+        return c.json({ error: 'AI drafting disabled in this environment', draft: null }, 503);
       }
       return c.json({ draft: result.result });
     }
