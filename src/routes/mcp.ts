@@ -1078,14 +1078,14 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         jobType: args.type as ScrapeJobType | undefined,
         chittyId: args.chitty_id ? String(args.chitty_id) : undefined,
         limit: Math.min(Number(args.limit) || 20, 50),
-      });
+      }, env);
       return result;
     }
 
     case 'get_scrape_job': {
       const id = String(args.id || '').trim();
       if (!id) throw new Error('Missing argument: id');
-      const job = await getJobStatus(sql, id);
+      const job = await getJobStatus(sql, id, env);
       if (!job) throw new Error('Scrape job not found');
       return job;
     }
@@ -1093,14 +1093,14 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     case 'retry_scrape_job': {
       const id = String(args.id || '').trim();
       if (!id) throw new Error('Missing argument: id');
-      const success = await retryJob(sql, id);
+      const success = await retryJob(sql, id, env);
       if (!success) throw new Error('Job not found or not in retryable state (must be failed or dead_letter)');
       return { ok: true, status: 'queued', message: 'Job re-queued for retry' };
     }
 
     case 'get_dead_letters': {
       const limit = Math.min(Number(args.limit) || 20, 50);
-      const jobs = await getDeadLetters(sql, limit);
+      const jobs = await getDeadLetters(sql, limit, env);
       return { jobs, total: jobs.length };
     }
 
@@ -1115,7 +1115,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const jobId = await enqueueJob(sql, jobType, target, {
         chittyId: args.chitty_id ? String(args.chitty_id) : undefined,
         cronSource: 'mcp',
-      });
+      }, env);
       return { ok: true, id: jobId, status: 'queued' };
     }
 

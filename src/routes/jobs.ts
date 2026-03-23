@@ -23,14 +23,14 @@ jobRoutes.get('/jobs', async (c) => {
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
   const offset = parseInt(c.req.query('offset') || '0');
 
-  const result = await listJobs(sql, { status, jobType, chittyId, limit, offset });
+  const result = await listJobs(sql, { status, jobType, chittyId, limit, offset }, c.env);
   return c.json(result);
 });
 
 // Get single job status
 jobRoutes.get('/jobs/:id', async (c) => {
   const sql = getDb(c.env);
-  const job = await getJobStatus(sql, c.req.param('id'));
+  const job = await getJobStatus(sql, c.req.param('id'), c.env);
   if (!job) return c.json({ error: 'Job not found' }, 404);
   return c.json(job);
 });
@@ -39,14 +39,14 @@ jobRoutes.get('/jobs/:id', async (c) => {
 jobRoutes.get('/jobs/queue/dead-letter', async (c) => {
   const sql = getDb(c.env);
   const limit = Math.min(parseInt(c.req.query('limit') || '50'), 100);
-  const jobs = await getDeadLetters(sql, limit);
+  const jobs = await getDeadLetters(sql, limit, c.env);
   return c.json({ jobs, total: jobs.length });
 });
 
 // Retry a failed job
 jobRoutes.post('/jobs/:id/retry', async (c) => {
   const sql = getDb(c.env);
-  const success = await retryJob(sql, c.req.param('id'));
+  const success = await retryJob(sql, c.req.param('id'), c.env);
   if (!success) return c.json({ error: 'Job not found or not in retryable state' }, 404);
   return c.json({ status: 'queued', message: 'Job re-queued for retry' });
 });
@@ -74,7 +74,7 @@ jobRoutes.post('/jobs', async (c) => {
     chittyId: body.chitty_id,
     maxAttempts: body.max_attempts,
     cronSource: 'manual',
-  });
+  }, c.env);
 
   return c.json({ id: jobId, status: 'queued' }, 201);
 });
@@ -82,7 +82,6 @@ jobRoutes.post('/jobs', async (c) => {
 // Trigger queue processing manually
 jobRoutes.post('/jobs/queue/process', async (c) => {
   const sql = getDb(c.env);
-  const limit = Math.min(parseInt(c.req.query('limit') || '10'), 50);
-  const result = await processQueue(sql, c.env, undefined, limit);
+  const result = await processQueue(sql, c.env);
   return c.json(result);
 });

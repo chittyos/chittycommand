@@ -7,7 +7,7 @@ import { generateProjections } from './projections';
 import { discoverRevenueSources } from './revenue';
 import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 import { reconcileNotionDisputes } from './dispute-sync';
-import { enqueueJob, processQueue } from './job-dispatcher';
+import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 
 /**
  * Cron sync orchestrator.
@@ -146,7 +146,7 @@ export async function runCronSync(
           await enqueueJob(sql, 'portal_scrape', { portal: target }, {
             chittyId,
             cronSource: 'utility_scrape',
-          });
+          }, env);
         } catch (err) {
           console.error(`[cron:utility:${target}] enqueue failed:`, err);
         }
@@ -175,7 +175,7 @@ export async function runCronSync(
         await enqueueJob(sql, 'court_docket', { case_number: '2024D007847' }, {
           chittyId,
           cronSource: 'court_docket',
-        });
+        }, env);
         const queueResult = await processQueue(sql, env, ctx);
         recordsSynced += queueResult.succeeded;
         console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
@@ -581,7 +581,7 @@ async function syncMonthlyChecksViaDispatcher(
     await enqueueJob(sql, 'mr_cooper', { property: 'addison' }, {
       chittyId,
       cronSource: 'monthly_check',
-    });
+    }, env);
   } catch (err) {
     console.error('[cron:mr_cooper] enqueue failed:', err);
   }
@@ -596,7 +596,7 @@ async function syncMonthlyChecksViaDispatcher(
       }, {
         chittyId,
         cronSource: 'monthly_check',
-      });
+      }, env);
     }
   } catch (err) {
     console.error('[cron:cook_county_tax] enqueue failed:', err);

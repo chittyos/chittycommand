@@ -312,6 +312,32 @@ export function connectClient(env: Env) {
   const baseUrl = env.CHITTYCONNECT_URL;
   if (!baseUrl) return null;
 
+  async function connectPost<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const headers: Record<string, string> = {
+        'Content-Type': 'application/json',
+        'X-Source-Service': 'chittycommand',
+      };
+      if (env.CHITTY_CONNECT_TOKEN) {
+        headers['Authorization'] = `Bearer ${env.CHITTY_CONNECT_TOKEN}`;
+      }
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify(body),
+        signal: AbortSignal.timeout(30000),
+      });
+      if (!res.ok) {
+        console.error(`[connect] POST ${path} failed: ${res.status}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[connect] POST ${path} error:`, err);
+      return null;
+    }
+  }
+
   return {
     /** Discover a service URL by name */
     discover: async (serviceName: string): Promise<string | null> => {
@@ -338,7 +364,46 @@ export function connectClient(env: Env) {
         return data.url;
       } catch { return null; }
     },
+
+    // ── Prompt Registry (ContextConsciousness) ─────────────────
+    /** Resolve a prompt: compose base + layers, apply env gating */
+    resolvePrompt: (promptId: string, environment: string, variables?: Record<string, string>, additionalLayers?: string[]) =>
+      connectPost<PromptResolveResponse>('/api/v1/context/prompts/resolve', {
+        promptId,
+        environment,
+        variables,
+        additionalLayers,
+        consumerService: 'chittycommand',
+      }),
+
+    /** Execute a prompt: resolve + dispatch to agent, return AI result */
+    executePrompt: (promptId: string, environment: string, input: Record<string, unknown>, opts?: { additionalLayers?: string[] }) =>
+      connectPost<PromptExecuteResponse>('/api/v1/context/prompts/execute', {
+        promptId,
+        environment,
+        input,
+        additionalLayers: opts?.additionalLayers,
+        consumerService: 'chittycommand',
+      }),
   };
+}
+
+export interface PromptResolveResponse {
+  systemPrompt: string;
+  aiEnabled: boolean;
+  version: number;
+  resolvedLayers: string[];
+  fallbackMode: string | null;
+}
+
+export interface PromptExecuteResponse {
+  result: string;
+  promptVersion: number;
+  resolvedLayers: string[];
+  executedBy: string;
+  latencyMs: number;
+  executionId: number;
+  aiEnabled: boolean;
 }
 
 // ── Mercury ─────────────────────────────────────────────────
@@ -627,7 +692,55 @@ export function routerClient(env: Env) {
         labels: string[];
         reasoning?: string;
       }>('/agents/triage/classify', payload),
+
+    // ── ScrapeAgent proxy methods ──────────────────────────────
+    /** Enqueue a scrape job on ChittyRouter ScrapeAgent */
+    enqueueScrapeJob: (jobType: string, target: Record<string, unknown>, opts?: { chittyId?: string; maxAttempts?: number; cronSource?: string }) =>
+      post<{ id: string; status: string }>('/agents/scrape/enqueue', { jobType, target, ...opts }),
+
+    /** Get a single scrape job status */
+    getScrapeJobStatus: (jobId: string) =>
+      get<ScrapeJobResponse>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}`),
+
+    /** List scrape jobs with filters */
+    listScrapeJobs: (filters?: { status?: string; jobType?: string; limit?: number }) => {
+      const params = new URLSearchParams();
+      if (filters?.status) params.set('status', filters.status);
+      if (filters?.jobType) params.set('jobType', filters.jobType);
+      if (filters?.limit) params.set('limit', String(filters.limit));
+      const qs = params.toString();
+      return get<{ jobs: ScrapeJobResponse[]; total: number }>(`/agents/scrape/jobs${qs ? `?${qs}` : ''}`);
+    },
+
+    /** Retry a failed/dead-lettered scrape job */
+    retryScrapeJob: (jobId: string) =>
+      post<{ status: string }>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}/retry`, {}),
+
+    /** Get dead-lettered scrape jobs */
+    getScrapeDeadLetters: () =>
+      get<{ jobs: ScrapeJobResponse[] }>('/agents/scrape/dead-letters'),
+
+    /** Trigger queue processing on ScrapeAgent */
+    processScrapeQueue: () =>
+      post<{ processed: number; succeeded: number; failed: number }>('/agents/scrape/process', {}),
+
+    /** Get ScrapeAgent health status */
+    getScrapeStatus: () =>
+      get<Record<string, unknown>>('/agents/scrape/status'),
   };
+}
+
+export interface ScrapeJobResponse {
+  id: string;
+  jobType: string;
+  target: Record<string, unknown>;
+  status: string;
+  attempt: number;
+  maxAttempts: number;
+  result?: Record<string, unknown>;
+  error?: string;
+  createdAt: string;
+  completedAt?: string;
 }
 
 // ── Notion (write path) ───────────────────────────────────────
