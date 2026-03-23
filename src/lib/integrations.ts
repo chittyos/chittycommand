@@ -667,6 +667,44 @@ export function routerClient(env: Env) {
     }
   }
 
+  // ── chittyagent-scrape helpers (prefer dedicated agent, fall back to router) ──
+  const scrapeAgentUrl = env.CHITTYAGENT_SCRAPE_URL;
+
+  async function scrapePost<T>(path: string, body: unknown): Promise<T | null> {
+    if (scrapeAgentUrl) {
+      try {
+        const headers = await authHeaders();
+        headers['Content-Type'] = 'application/json';
+        const res = await fetch(`${scrapeAgentUrl}${path}`, {
+          method: 'POST', headers, body: JSON.stringify(body),
+          signal: AbortSignal.timeout(60000),
+        });
+        if (res.ok) return await res.json() as T;
+        console.warn(`[scrape-agent] POST ${path} failed: ${res.status}, falling back to router`);
+      } catch (err) {
+        console.warn(`[scrape-agent] POST ${path} error, falling back to router:`, err);
+      }
+    }
+    // Fallback: route through ChittyRouter (legacy path)
+    return post<T>(`/agents/scrape${path.replace('/api/v1', '')}`, body);
+  }
+
+  async function scrapeGet<T>(path: string): Promise<T | null> {
+    if (scrapeAgentUrl) {
+      try {
+        const headers = await authHeaders();
+        const res = await fetch(`${scrapeAgentUrl}${path}`, {
+          headers, signal: AbortSignal.timeout(10000),
+        });
+        if (res.ok) return await res.json() as T;
+        console.warn(`[scrape-agent] GET ${path} failed: ${res.status}, falling back to router`);
+      } catch (err) {
+        console.warn(`[scrape-agent] GET ${path} error, falling back to router:`, err);
+      }
+    }
+    return get<T>(`/agents/scrape${path.replace('/api/v1', '')}`);
+  }
+
   return {
     scrapePortal: (target: string, params?: Record<string, unknown>) =>
       post<RouterScrapeResponse>('/route/scrape', { target, params }),
@@ -693,40 +731,38 @@ export function routerClient(env: Env) {
         reasoning?: string;
       }>('/agents/triage/classify', payload),
 
-    // ── ScrapeAgent proxy methods ──────────────────────────────
-    /** Enqueue a scrape job on ChittyRouter ScrapeAgent */
-    enqueueScrapeJob: (jobType: string, target: Record<string, unknown>, opts?: { chittyId?: string; maxAttempts?: number; cronSource?: string }) =>
-      post<{ id: string; status: string }>('/agents/scrape/enqueue', { jobType, target, ...opts }),
+    // ── ScrapeAgent proxy methods (chittyagent-scrape) ─────────
+    /** Enqueue a scrape job on chittyagent-scrape */
+    enqueueScrapeJob: (jobType: string, target: Record<string, unknown>, opts?: { chittyId?: string; maxAttempts?: number; cronSource?: string; jobId?: string }) =>
+      scrapePost<{ id: string; status: string }>('/api/v1/enqueue', { job_type: jobType, target, chitty_id: opts?.chittyId, max_attempts: opts?.maxAttempts, cron_source: opts?.cronSource }),
 
-    /** Get a single scrape job status */
-    getScrapeJobStatus: (jobId: string) =>
-      get<ScrapeJobResponse>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}`),
+    /** Get scrape job queue status */
+    getScrapeJobStatus: (_jobId: string) =>
+      scrapeGet<ScrapeJobResponse>('/api/v1/jobs'),
 
-    /** List scrape jobs with filters */
-    listScrapeJobs: (filters?: { status?: string; jobType?: string; limit?: number }) => {
+    /** List scrape jobs */
+    listScrapeJobs: (filters?: { status?: string; jobType?: string; limit?: number; chittyId?: string; offset?: number }) => {
       const params = new URLSearchParams();
-      if (filters?.status) params.set('status', filters.status);
-      if (filters?.jobType) params.set('jobType', filters.jobType);
       if (filters?.limit) params.set('limit', String(filters.limit));
       const qs = params.toString();
-      return get<{ jobs: ScrapeJobResponse[]; total: number }>(`/agents/scrape/jobs${qs ? `?${qs}` : ''}`);
+      return scrapeGet<{ jobs: ScrapeJobResponse[]; total: number }>(`/api/v1/jobs${qs ? `?${qs}` : ''}`);
     },
 
-    /** Retry a failed/dead-lettered scrape job */
-    retryScrapeJob: (jobId: string) =>
-      post<{ status: string }>(`/agents/scrape/jobs/${encodeURIComponent(jobId)}/retry`, {}),
+    /** Retry not supported on task-based queue — re-enqueue instead */
+    retryScrapeJob: (_jobId: string) =>
+      Promise.resolve(null as { status: string } | null),
 
-    /** Get dead-lettered scrape jobs */
-    getScrapeDeadLetters: () =>
-      get<{ jobs: ScrapeJobResponse[] }>('/agents/scrape/dead-letters'),
+    /** Dead letters not directly exposed — query failed tasks */
+    getScrapeDeadLetters: (_limit?: number) =>
+      Promise.resolve(null as { jobs: ScrapeJobResponse[] } | null),
 
-    /** Trigger queue processing on ScrapeAgent */
+    /** Trigger queue processing on chittyagent-scrape */
     processScrapeQueue: () =>
-      post<{ processed: number; succeeded: number; failed: number }>('/agents/scrape/process', {}),
+      scrapePost<{ processed: number; succeeded: number; failed: number }>('/api/v1/process', {}),
 
-    /** Get ScrapeAgent health status */
+    /** Get chittyagent-scrape health status */
     getScrapeStatus: () =>
-      get<Record<string, unknown>>('/agents/scrape/status'),
+      scrapeGet<Record<string, unknown>>('/health'),
   };
 }
 
