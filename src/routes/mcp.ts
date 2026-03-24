@@ -1198,7 +1198,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
           : '[UNKNOWN]';
         const date = f.fact_date ? `(${f.fact_date}) ` : '';
         const entities = f.entities?.map(e => `${e.name} [${e.role}]`).join(', ');
-        const amounts = f.amounts?.map(a => `${a.currency}${a.value}`).join(', ');
+        const amounts = f.amounts?.map(a => `${a.currency}${a.amount_value}`).join(', ');
         return {
           tag,
           date: f.fact_date || null,

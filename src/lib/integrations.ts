@@ -104,21 +104,24 @@ export interface EvidenceFact {
   id: string;
   fact_text: string;
   fact_date?: string;
-  fact_type: string;
-  confidence: number;
+  fact_type?: string;
+  confidence?: number;
   source_quote?: string;
-  verification_status: string;
+  verification_status?: string;
   document_id?: string;
-  entities?: Array<{ name: string; type: string; role: string }>;
-  amounts?: Array<{ value: number; currency: string; description: string }>;
+  fact_number?: number;
+  case_id?: string;
+  // ChittyEvidence returns entity_type (not type) and amount_value (not value)
+  entities?: Array<{ id: string; name: string; entity_type: string; role: string; confidence: number }>;
+  amounts?: Array<{ id: string; fact_id: string; amount_value: number; currency: string; description: string; confidence: number }>;
 }
 
 export interface EvidenceDocument {
   id: string;
-  filename: string;
+  file_name: string;
   document_type?: string;
   processing_status: string;
-  uploaded_at: string;
+  created_at: string;
   content_hash?: string;
 }
 
@@ -160,17 +163,29 @@ export function evidenceClient(env: Env) {
     getPendingFacts: (caseId?: string, limit = 50) =>
       get<EvidenceFact[]>(`/facts/pending?${new URLSearchParams({ ...(caseId ? { caseId } : {}), limit: String(limit) })}`),
 
-    /** Get documents for search */
-    searchDocuments: (query: string) =>
-      get<EvidenceDocument[]>(`/search?q=${encodeURIComponent(query)}`),
+    /** Search documents (POST /search) */
+    searchDocuments: async (query: string): Promise<EvidenceDocument[] | null> => {
+      try {
+        const res = await fetch(`${baseUrl}/search`, {
+          method: 'POST',
+          headers: { ...headers, 'Content-Type': 'application/json' },
+          body: JSON.stringify({ query }),
+        });
+        if (!res.ok) return null;
+        return await res.json() as EvidenceDocument[];
+      } catch (err) {
+        console.error('[evidence] /search error:', err);
+        return null;
+      }
+    },
 
     /** Get entities */
     getEntities: () =>
       get<Array<{ id: string; name: string; entity_type: string }>>('/entities'),
 
-    /** Get contradictions (via legal constitution) */
+    /** Get fact conflicts for a case (via statement of facts has_conflict flag) */
     getContradictions: (caseId: string) =>
-      get<Record<string, unknown>[]>(`/legal/cases/${encodeURIComponent(caseId)}/contradictions`),
+      get<Record<string, unknown>[]>(`/legal/cases/${encodeURIComponent(caseId)}/facts?conflicts_only=true`),
   };
 }
 

@@ -43,11 +43,11 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
             description: fact.source_quote || undefined,
             source: 'chittyevidence',
             metadata: {
-              factType: fact.fact_type,
-              confidence: fact.confidence,
-              verificationStatus: fact.verification_status,
-              entities: fact.entities,
-              amounts: fact.amounts,
+              factType: fact.fact_type || null,
+              confidence: fact.confidence ?? null,
+              verificationStatus: fact.verification_status || null,
+              entities: fact.entities?.map(e => ({ name: e.name, type: e.entity_type, role: e.role })),
+              amounts: fact.amounts?.map(a => ({ value: a.amount_value, currency: a.currency, description: a.description })),
               documentId: fact.document_id,
             },
           });
