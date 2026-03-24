@@ -40,6 +40,12 @@ export const ccObligations = pgTable('cc_obligations', {
   actionType: text('action_type'),
   actionPayload: jsonb('action_payload'),
   sourceDocId: uuid('source_doc_id'),
+  // Escalation tracking (migration 0008)
+  escalationType: text('escalation_type'),
+  escalationThresholdDays: integer('escalation_threshold_days'),
+  escalationAmount: numeric('escalation_amount', { precision: 8, scale: 2 }),
+  creditImpactScore: integer('credit_impact_score'),
+  preferredAccountId: uuid('preferred_account_id').references(() => ccAccounts.id),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -182,6 +188,13 @@ export const ccRecommendations = pgTable('cc_recommendations', {
   status: text('status').default('active'),
   expiresAt: timestamp('expires_at', { withTimezone: true }),
   modelVersion: text('model_version'),
+  // Planner-aware fields (migration 0008)
+  confidence: numeric('confidence', { precision: 3, scale: 2 }),
+  suggestedAccountId: uuid('suggested_account_id').references(() => ccAccounts.id),
+  suggestedAmount: numeric('suggested_amount', { precision: 12, scale: 2 }),
+  paymentSequence: integer('payment_sequence'),
+  escalationRisk: text('escalation_risk'),
+  scenarioImpact: jsonb('scenario_impact'),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   actedOnAt: timestamp('acted_on_at', { withTimezone: true }),
 }, (table) => ({
@@ -351,3 +364,32 @@ export const ccScrapeJobs = pgTable('cc_scrape_jobs', {
   typeIdx: index('idx_cc_scrape_jobs_type').on(table.jobType),
   chittyIdx: index('idx_cc_scrape_jobs_chitty').on(table.chittyId),
 }));
+
+// ── Email Connections (migration 0009) ──────────────────────
+export const ccEmailConnections = pgTable('cc_email_connections', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull(),
+  provider: text('provider').notNull(),
+  emailAddress: text('email_address').notNull(),
+  displayName: text('display_name'),
+  connectRef: text('connect_ref'),
+  namespace: text('namespace'),
+  status: text('status').default('pending'),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  errorMessage: text('error_message'),
+  config: jsonb('config').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  emailUserIdx: index('idx_cc_email_conn_email_user').on(table.emailAddress, table.userId),
+  userIdx: index('idx_cc_email_conn_user').on(table.userId),
+  namespaceIdx: index('idx_cc_email_conn_namespace').on(table.namespace),
+}));
+
+// ── User Namespaces (migration 0009) ────────────────────────
+export const ccUserNamespaces = pgTable('cc_user_namespaces', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  userId: text('user_id').notNull().unique(),
+  namespace: text('namespace').notNull().unique(),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+});
