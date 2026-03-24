@@ -16,6 +16,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
 import { notionClient, routerClient, ledgerClient } from './integrations';
 
+
 // ── Types ─────────────────────────────────────────────────────
 
 interface DisputeCore {
@@ -302,21 +303,27 @@ async function linkDisputeToLedger(
     const ledger = ledgerClient(env);
     if (!ledger) return;
 
-    const caseResult = await ledger.createCase({
-      caseNumber: `CC-DISPUTE-${disputeId.slice(0, 8)}`,
-      title: dispute.title,
-      caseType: 'CIVIL',
-      description: dispute.description || undefined,
+    const entryResult = await ledger.addEntry({
+      entityType: 'audit',
+      entityId: `CC-DISPUTE-${disputeId.slice(0, 8)}`,
+      action: 'dispute:created',
+      actor: 'chittycommand',
+      actorType: 'service',
+      metadata: {
+        title: dispute.title,
+        description: dispute.description,
+        caseType: 'CIVIL',
+      },
     });
 
-    if (caseResult?.id) {
+    if (entryResult?.id) {
       await sql`
         UPDATE cc_disputes
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseResult.id })}::jsonb,
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: entryResult.id })}::jsonb,
             updated_at = NOW()
         WHERE id = ${disputeId}
       `;
-      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → case ${caseResult.id}`);
+      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → ledger entry ${entryResult.id}`);
     }
   } catch (err) {
     console.error(`[dispute-sync:ledger] Failed for dispute ${disputeId}:`, err);

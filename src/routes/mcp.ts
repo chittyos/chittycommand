@@ -600,16 +600,10 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     case 'ledger_get_evidence': {
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
-      if (!env.CHITTYLEDGER_URL) return { error: 'ChittyLedger not configured' };
-      try {
-        const qs = new URLSearchParams({ caseId }).toString();
-        const res = await fetch(`${env.CHITTYLEDGER_URL}/api/evidence?${qs}`, { headers: { 'X-Source-Service': 'chittycommand' } });
-        if (!res.ok) return { error: 'Failed to fetch evidence', code: res.status };
-        const items = await res.json();
-        return { case_id: caseId, evidence: items };
-      } catch (err) {
-        return { error: String(err) };
-      }
+      const ev = evidenceClient(env);
+      if (!ev) return { error: 'ChittyEvidence not configured' };
+      const facts = await ev.getEnrichedFacts(caseId);
+      return { case_id: caseId, evidence: facts || [] };
     }
 
     case 'ledger_record_custody': {
@@ -617,63 +611,51 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const action = String(args.action || '').trim();
       const notes = args.notes ? String(args.notes) : undefined;
       if (!evidenceId || !action) throw new Error('Missing arguments: evidence_id, action');
-      if (!env.CHITTYLEDGER_URL) return { error: 'ChittyLedger not configured' };
-      try {
-        const payload = { evidenceId, action, performedBy: 'mcp-client', ...(notes ? { notes } : {}) };
-        const res = await fetch(`${env.CHITTYLEDGER_URL}/api/evidence/${encodeURIComponent(evidenceId)}/custody`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' }, body: JSON.stringify(payload)
-        });
-        if (!res.ok) return { error: 'Failed to record custody', code: res.status };
-        const data = await res.json();
-        return { ok: true, result: data };
-      } catch (err) {
-        return { error: String(err) };
-      }
+      const ev = evidenceClient(env);
+      if (!ev) return { error: 'ChittyEvidence not configured' };
+      const result = await ev.addCustodyEntry(evidenceId, { action, performedBy: 'mcp-client', notes });
+      return { ok: !!result, result };
     }
 
     case 'ledger_facts': {
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
-      if (!env.CHITTYLEDGER_URL) return { facts: [] };
-      try {
-        const res = await fetch(`${env.CHITTYLEDGER_URL}/api/cases/${encodeURIComponent(caseId)}/facts`, { headers: { 'X-Source-Service': 'chittycommand' } });
-        if (!res.ok) return { facts: [] };
-        return { case_id: caseId, facts: await res.json() };
-      } catch { return { facts: [] }; }
+      const ev = evidenceClient(env);
+      if (!ev) return { facts: [] };
+      const facts = await ev.getStatementOfFacts(caseId);
+      return { case_id: caseId, facts: facts || [] };
     }
 
     case 'ledger_contradictions': {
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
-      if (!env.CHITTYLEDGER_URL) return { contradictions: [] };
-      try {
-        const res = await fetch(`${env.CHITTYLEDGER_URL}/api/cases/${encodeURIComponent(caseId)}/contradictions`, { headers: { 'X-Source-Service': 'chittycommand' } });
-        if (!res.ok) return { contradictions: [] };
-        return { case_id: caseId, contradictions: await res.json() };
-      } catch { return { contradictions: [] }; }
+      const ev = evidenceClient(env);
+      if (!ev) return { contradictions: [] };
+      const contradictions = await ev.getContradictions(caseId);
+      return { case_id: caseId, contradictions: contradictions || [] };
     }
 
     case 'ledger_create_case_for_dispute': {
       const disputeId = String(args.dispute_id || '').trim();
       if (!disputeId) throw new Error('Missing argument: dispute_id');
-      if (!env.CHITTYLEDGER_URL) return { error: 'ChittyLedger not configured' };
+      const ledger = ledgerClient(env);
+      if (!ledger) return { error: 'ChittyLedger not configured' };
       const rows = await sql`SELECT id, title, dispute_type, description, metadata FROM cc_disputes WHERE id = ${disputeId}`;
       if (rows.length === 0) throw new Error('Dispute not found');
       const d = rows[0] as any;
       const metadata = (d.metadata as any) || {};
       if (metadata.ledger_case_id) return { dispute_id: disputeId, case_id: metadata.ledger_case_id, linked: true };
-      try {
-        const payload = { caseNumber: `CC-DISPUTE-${String(d.id).slice(0,8)}`, title: String(d.title), caseType: 'CIVIL', description: d.description || undefined };
-        const res = await fetch(`${env.CHITTYLEDGER_URL}/api/cases`, {
-          method: 'POST', headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' }, body: JSON.stringify(payload)
-        });
-        if (!res.ok) return { error: 'Failed to create case', code: res.status };
-        const data = await res.json() as { id: string };
-        await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: data.id })}::jsonb WHERE id = ${disputeId}`;
-        return { dispute_id: disputeId, case_id: data.id, linked: true };
-      } catch (err) {
-        return { error: String(err) };
-      }
+      const entryResult = await ledger.addEntry({
+        entityType: 'audit',
+        entityId: `CC-DISPUTE-${String(d.id).slice(0, 8)}`,
+        action: 'dispute:created',
+        actor: 'chittycommand',
+        actorType: 'service',
+        metadata: { title: String(d.title), caseType: 'CIVIL', description: d.description || undefined },
+      });
+      if (!entryResult) return { error: 'Failed to create ledger entry' };
+      await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      return { dispute_id: disputeId, case_id: entryResult.id, linked: true };
     }
 
     case 'ledger_link_case_for_dispute': {

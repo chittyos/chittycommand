@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
 import { getDb } from '../lib/db';
-import { evidenceClient, ledgerClient } from '../lib/integrations';
+import { evidenceClient } from '../lib/integrations';
 
 export const timelineRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -116,31 +116,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     console.error('[timeline] disputes error:', err);
   }
 
-  // 4. Fetch evidence documents from ChittyLedger
-  const ledger = ledgerClient(c.env);
-  if (ledger) {
-    try {
-      const docs = await ledger.getEvidenceByCase(caseId);
-      for (const doc of docs) {
-        const uploadDate = (doc.created_at || doc.uploaded_at || '') as string;
-        if (!uploadDate) continue;
-        events.push({
-          id: `doc:${doc.id}`,
-          date: uploadDate,
-          type: 'document',
-          title: `Document: ${doc.filename || doc.title || 'Untitled'}`,
-          description: (doc.description as string) || undefined,
-          source: 'chittyledger',
-          metadata: {
-            fileType: doc.file_type,
-            evidenceTier: doc.evidence_tier,
-          },
-        });
-      }
-    } catch (err) {
-      console.error('[timeline] ledger docs error:', err);
-    }
-  }
+  // 4. Evidence documents already fetched in section 1 via evidenceClient
 
   // Sort by date ascending
   events.sort((a, b) => a.date.localeCompare(b.date));
