@@ -4,8 +4,8 @@ main = "src/index.ts"
 compatibility_date = "2026-01-15"
 compatibility_flags = ["nodejs_compat"]
 routes = [
-  { pattern = "command.chitty.cc", custom_domain = true },
-  { pattern = "command.mychitty.com", custom_domain = true }
+  { pattern = "command.chitty.cc", custom_domain = true }
+  # { pattern = "command.mychitty.com", custom_domain = true }  # DNS conflict — external records exist
 ]
 
 [vars]
@@ -20,6 +20,7 @@ CHITTYBOOKS_URL = "https://chittybooks.chitty.cc"
 CHITTYASSETS_URL = "https://chittyassets.chitty.cc"
 CHITTYSCRAPE_URL = "https://scrape.chitty.cc"
 CHITTYROUTER_URL = "https://router.chitty.cc"
+CHITTYAGENT_SCRAPE_URL = "https://chittyagent-scrape.ccorp.workers.dev"
 # Optional: chittyregister for beacon heartbeats
 CHITTYREGISTER_URL = "https://register.chitty.cc"
 # Optional: chittychat data API for MCP tools
