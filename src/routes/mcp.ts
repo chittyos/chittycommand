@@ -1238,20 +1238,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, domain: d.domain });
       }
 
-      // Documents from ChittyLedger
-      const ledger = ledgerClient(env);
-      if (ledger) {
-        try {
-          const docs = await ledger.getEvidenceByCase(caseId);
-          for (const doc of docs) {
-            const uploadDate = (doc.created_at || doc.uploaded_at || '') as string;
-            if (!uploadDate) continue;
-            events.push({ id: `doc:${doc.id}`, date: uploadDate, type: 'document', title: `Document: ${doc.filename || doc.title || 'Untitled'}`, source: 'chittyledger' });
-          }
-        } catch (err) {
-          console.error('[mcp/timeline] ledger docs error:', err);
-        }
-      }
+      // Documents already covered by ChittyEvidence facts above
 
       events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
       return { caseId, eventCount: events.length, events };
