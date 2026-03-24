@@ -53,7 +53,10 @@ Provide a unified life management and action dashboard that ingests data from 15
 - Cron-scheduled data sync across all sources
 - Bridge API for inter-service data exchange (ChittyScrape, ChittyLedger)
 - Proxy passthrough for ChittySchema validation, ChittyCert verification, ChittyRegister requirements
-- MCP server for Claude-driven queries (28 tools: financial, ledger, schema, cert, connect, chat)
+- MCP server for Claude-driven queries (48 tools across 12 domains)
+- Case timeline aggregation from ChittyEvidence, ChittyLedger, and local DB
+- Litigation support (fact synthesis, drafting, QC) via ChittyConnect prompts or AI Gateway fallback
+- Scrape job dispatch with retry, dead-letter, and fan-out to downstream agents
 
 ### IS NOT Responsible For
 - Identity generation (ChittyID)
@@ -76,6 +79,7 @@ Provide a unified life management and action dashboard that ingests data from 15
 | Upstream | ChittyCharge | Billing data |
 | Upstream | ChittyScrape | Browser-based scraping for portals without APIs |
 | Upstream | ChittyLedger | Evidence and document ledger sync |
+| Upstream | ChittyEvidence | Evidence facts, documents, entities for case timelines |
 | Upstream | ChittyConnect | Inter-service connectivity and discovery |
 | Upstream | ChittyRouter | Unified ingestion gateway (scrape, email routing) |
 | Upstream | ChittySchema | Canonical schema validation and drift detection |
@@ -116,8 +120,17 @@ Provide a unified life management and action dashboard that ingests data from 15
 | `/api/recommendations` | GET | Bearer | AI action recommendations |
 | `/api/sync` | POST | Bearer | Manual data sync trigger |
 | `/api/cashflow` | GET | Bearer | Cash flow analysis |
+| `/api/v1/timeline/:caseId` | GET | Bearer | Unified case timeline (facts, deadlines, disputes, docs) |
+| `/api/v1/litigation/synthesize` | POST | Bearer | AI fact synthesis from raw notes |
+| `/api/v1/litigation/synthesize-from-case` | POST | Bearer | AI fact synthesis auto-pulled from ChittyEvidence |
+| `/api/v1/litigation/draft` | POST | Bearer | AI email drafting from synthesized facts |
+| `/api/v1/litigation/qc` | POST | Bearer | AI risk scan of draft vs source notes |
+| `/api/v1/jobs` | GET/POST | Bearer | Scrape job queue management |
+| `/api/v1/jobs/:id` | GET | Bearer | Scrape job details |
+| `/api/v1/jobs/:id/retry` | POST | Bearer | Retry failed scrape job |
+| `/api/v1/jobs/dead-letters` | GET | Bearer | Dead letter queue |
 | `/api/bridge/*` | Various | Service/Bearer | Inter-service bridge routes |
-| `/mcp/*` | Various | Service | MCP server for Claude integration |
+| `/mcp/*` | Various | Service | MCP server (48 tools across 12 domains) |
 
 ### Cron Schedule
 | Schedule | Purpose |
@@ -170,4 +183,4 @@ This charter is part of a synchronized documentation triad. Changes to shared fi
 - [x] CHITTY.md present
 
 ---
-*Charter Version: 1.1.0 | Last Updated: 2026-03-03*
+*Charter Version: 1.2.0 | Last Updated: 2026-03-24*

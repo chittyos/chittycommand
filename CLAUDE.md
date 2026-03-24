@@ -92,7 +92,7 @@ Three modes:
 - `src/lib/dispute-sync.ts` — Dispute ↔ Notion ↔ TriageAgent sync coordinator
 - `src/routes/bridge/index.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
 - `src/routes/bridge/disputes.ts` — Dispute-Notion manual sync bridge
-- `src/routes/mcp.ts` — MCP server for Claude integration (32 tools)
+- `src/routes/mcp.ts` — MCP server for Claude integration (48 tools)
 - `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
 - `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
 - `src/routes/ledger.ts` — ChittyLedger evidence/custody passthrough
@@ -137,7 +137,7 @@ Example client-side MCP configuration (conceptual):
 }
 ```
 
-The server exposes 43 tools across 10 domains:
+The server exposes 48 tools across 12 domains:
 
 **Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
 **Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`, `query_revenue_sources`, `get_payment_plan`
@@ -152,5 +152,6 @@ The server exposes 43 tools across 10 domains:
 **Legal** — `query_legal_deadlines`
 **Documents** — `query_documents`
 **Sync** — `get_sync_status`, `trigger_sync`
+**Evidence** — `get_case_timeline`, `get_case_facts`, `get_case_contradictions`, `get_pending_facts`, `synthesize_case_facts`
 
 Tools return structured JSON using MCP `content: [{ type: "json", json: ... }]` where applicable, enabling Claude Code to consume results without text parsing.

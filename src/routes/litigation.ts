@@ -105,7 +105,7 @@ litigationRoutes.post('/synthesize-from-case', async (c) => {
       : '[UNKNOWN]';
     const datePrefix = fact.fact_date ? `(${fact.fact_date}) ` : '';
     const entities = fact.entities?.map(e => `${e.name} [${e.role}]`).join(', ') || '';
-    const amounts = fact.amounts?.map(a => `${a.currency}${a.value} — ${a.description}`).join('; ') || '';
+    const amounts = fact.amounts?.map(a => `${a.currency}${a.amount_value} — ${a.description}`).join('; ') || '';
 
     let line = `${tag} ${datePrefix}${fact.fact_text}`;
     if (entities) line += ` | Parties: ${entities}`;
