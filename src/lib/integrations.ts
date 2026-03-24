@@ -112,6 +112,7 @@ export interface EvidenceFact {
   fact_number?: number;
   case_id?: string;
   // ChittyEvidence returns entity_type (not type) and amount_value (not value)
+  // @canon: chittycanon://gov/governance#core-types — entity_type is canonical P/L/T/E/A
   entities?: Array<{ id: string; name: string; entity_type: string; role: string; confidence: number }>;
   amounts?: Array<{ id: string; fact_id: string; amount_value: number; currency: string; description: string; confidence: number }>;
 }
@@ -179,7 +180,7 @@ export function evidenceClient(env: Env) {
       }
     },
 
-    /** Get entities */
+    /** Get entities — entity_type is canonical P/L/T/E/A @canon: chittycanon://gov/governance#core-types */
     getEntities: () =>
       get<Array<{ id: string; name: string; entity_type: string }>>('/entities'),
 
