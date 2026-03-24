@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import { z } from 'zod';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
-import { connectClient } from '../lib/integrations';
+import { connectClient, evidenceClient } from '../lib/integrations';
 
 export const litigationRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
@@ -62,6 +62,100 @@ litigationRoutes.post('/synthesize', async (c) => {
     return c.json({ synthesis: result });
   } catch (err) {
     console.error('[litigation/synthesize]', err instanceof Error ? err.message : err);
+    return c.json({ error: 'AI synthesis failed. Please try again.' }, 502);
+  }
+});
+
+// ── Step 1b: Case-Based Synthesizer (auto-pulls from ChittyEvidence) ──
+
+const caseSynthesizeSchema = z.object({
+  caseId: z.string().min(1).max(200),
+  property: z.string().max(500).optional(),
+  additionalNotes: z.string().max(50000).optional(),
+});
+
+litigationRoutes.post('/synthesize-from-case', async (c) => {
+  const raw = await c.req.json().catch(() => null);
+  const parsed = caseSynthesizeSchema.safeParse(raw);
+  if (!parsed.success) {
+    return c.json({ error: 'Invalid request', details: parsed.error.flatten().fieldErrors }, 400);
+  }
+
+  const { caseId, property, additionalNotes } = parsed.data;
+
+  // Pull enriched facts from ChittyEvidence
+  const evidence = evidenceClient(c.env);
+  if (!evidence) {
+    return c.json({ error: 'ChittyEvidence not configured' }, 503);
+  }
+
+  const facts = await evidence.getEnrichedFacts(caseId);
+  if (!facts || facts.length === 0) {
+    return c.json({ error: 'No facts found for this case. Ingest documents into ChittyEvidence first.', caseId }, 404);
+  }
+
+  // Format facts into structured notes for the synthesizer
+  const factsByType: Record<string, string[]> = {};
+  for (const fact of facts) {
+    const type = fact.fact_type || 'general';
+    if (!factsByType[type]) factsByType[type] = [];
+
+    const tag = fact.verification_status === 'verified' ? '[GIVEN]'
+      : fact.verification_status === 'extracted' ? '[DERIVED]'
+      : '[UNKNOWN]';
+    const datePrefix = fact.fact_date ? `(${fact.fact_date}) ` : '';
+    const entities = fact.entities?.map(e => `${e.name} [${e.role}]`).join(', ') || '';
+    const amounts = fact.amounts?.map(a => `${a.currency}${a.value} — ${a.description}`).join('; ') || '';
+
+    let line = `${tag} ${datePrefix}${fact.fact_text}`;
+    if (entities) line += ` | Parties: ${entities}`;
+    if (amounts) line += ` | Amounts: ${amounts}`;
+    factsByType[type].push(line);
+  }
+
+  // Build structured raw notes
+  const sections = Object.entries(factsByType).map(([type, lines]) => {
+    const heading = type.replace(/_/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
+    return `## ${heading}\n${lines.map(l => `- ${l}`).join('\n')}`;
+  });
+
+  const rawNotes = [
+    `# Case: ${caseId}`,
+    `Source: ChittyEvidence (${facts.length} verified facts)`,
+    property ? `Property: ${property}` : '',
+    '',
+    ...sections,
+    additionalNotes ? `\n## Additional Notes\n${additionalNotes}` : '',
+  ].filter(Boolean).join('\n');
+
+  // Run through the same synthesis pipeline
+  const environment = c.env.ENVIRONMENT || 'production';
+
+  const connect = connectClient(c.env);
+  if (connect) {
+    const result = await connect.executePrompt(
+      'litigation.synthesize',
+      environment,
+      { rawNotes, property: property || '', caseNumber: caseId },
+      { additionalLayers: [`case:${caseId}`] },
+    );
+
+    if (result) {
+      if (!result.aiEnabled) {
+        return c.json({ synthesis: rawNotes, passthrough: true, factsUsed: facts.length });
+      }
+      return c.json({ synthesis: result.result, factsUsed: facts.length, source: 'chittyevidence' });
+    }
+  }
+
+  try {
+    const result = await callAIGatewayFallback(c.env,
+      FALLBACK_SYNTHESIZE_PROMPT,
+      `Raw notes:\n${rawNotes}`,
+    );
+    return c.json({ synthesis: result, factsUsed: facts.length, source: 'chittyevidence' });
+  } catch (err) {
+    console.error('[litigation/synthesize-from-case]', err instanceof Error ? err.message : err);
     return c.json({ error: 'AI synthesis failed. Please try again.' }, 502);
   }
 });

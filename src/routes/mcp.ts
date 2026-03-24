@@ -356,6 +356,19 @@ const TOOLS = [
     },
   },
   {
+    name: 'synthesize_case_facts',
+    description: 'Auto-pull verified facts from ChittyEvidence for a case and synthesize them into a structured litigation summary. Returns categorized facts with [GIVEN]/[DERIVED]/[UNKNOWN] tags.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        case_id: { type: 'string', description: 'Case ID to pull facts for' },
+        property: { type: 'string', description: 'Property address (optional context)' },
+        additional_notes: { type: 'string', description: 'Extra notes to include in synthesis' },
+      },
+      required: ['case_id'],
+    },
+  },
+  {
     name: 'get_case_timeline',
     description: 'Get a unified case timeline combining facts from ChittyEvidence, legal deadlines, disputes, and documents. Events are sorted chronologically.',
     inputSchema: {
@@ -1165,6 +1178,49 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         cronSource: 'mcp',
       }, env);
       return { ok: true, id: jobId, status: 'queued' };
+    }
+
+    case 'synthesize_case_facts': {
+      const caseId = String(args.case_id || '').trim();
+      if (!caseId) throw new Error('Missing argument: case_id');
+      const evidence = evidenceClient(env);
+      if (!evidence) return { error: 'ChittyEvidence not configured' };
+
+      const facts = await evidence.getEnrichedFacts(caseId);
+      if (!facts || facts.length === 0) {
+        return { error: 'No facts found for this case', caseId };
+      }
+
+      // Format facts with tags
+      const formatted = facts.map(f => {
+        const tag = f.verification_status === 'verified' ? '[GIVEN]'
+          : f.verification_status === 'extracted' ? '[DERIVED]'
+          : '[UNKNOWN]';
+        const date = f.fact_date ? `(${f.fact_date}) ` : '';
+        const entities = f.entities?.map(e => `${e.name} [${e.role}]`).join(', ');
+        const amounts = f.amounts?.map(a => `${a.currency}${a.value}`).join(', ');
+        return {
+          tag,
+          date: f.fact_date || null,
+          type: f.fact_type,
+          text: f.fact_text,
+          confidence: f.confidence,
+          entities: entities || null,
+          amounts: amounts || null,
+        };
+      });
+
+      return {
+        caseId,
+        factsUsed: facts.length,
+        factsByVerification: {
+          verified: formatted.filter(f => f.tag === '[GIVEN]').length,
+          extracted: formatted.filter(f => f.tag === '[DERIVED]').length,
+          unknown: formatted.filter(f => f.tag === '[UNKNOWN]').length,
+        },
+        facts: formatted,
+        hint: 'Use the /draft endpoint or draft MCP tool with these facts to generate case correspondence.',
+      };
     }
 
     case 'get_case_timeline': {
