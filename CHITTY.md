@@ -51,7 +51,7 @@ Cloudflare Worker at command.chitty.cc with Neon PostgreSQL via Hyperdrive, R2 f
 | Category | Sources |
 |----------|---------|
 | Financial (auto-sync) | Mercury, Stripe, Plaid, ChittyFinance |
-| Direct API | ChittyBooks, ChittyAssets, ChittyCharge, ChittyLedger |
+| Direct API | ChittyBooks, ChittyAssets, ChittyCharge, ChittyLedger, ChittyEvidence |
 | Scrape (via ChittyScrape) | Mr. Cooper mortgage, Cook County property tax, Court docket |
 | Email Parse | ComEd, Peoples Gas, Xfinity, Citi, Home Depot, Lowe's |
 
@@ -121,7 +121,16 @@ See [CHARTER.md](CHARTER.md) (Dependencies section) — canonical source for the
 | `/auth/*` | Various | No | Login/verify flows |
 | `/api/bridge/*` | Various | Service | Inter-service bridge routes |
 | `/api/bridge/credentials/get` | POST | Service | Allowlisted credential proxy via ChittyConnect |
-| `/mcp/*` | Various | Service | MCP server (32 tools) |
+| `/api/v1/timeline/:caseId` | GET | Bearer | Unified case timeline (facts, deadlines, disputes, docs) |
+| `/api/v1/litigation/synthesize` | POST | Bearer | AI fact synthesis from raw notes |
+| `/api/v1/litigation/synthesize-from-case` | POST | Bearer | AI fact synthesis from ChittyEvidence |
+| `/api/v1/litigation/draft` | POST | Bearer | AI email drafting from synthesized facts |
+| `/api/v1/litigation/qc` | POST | Bearer | AI risk scan of draft vs source notes |
+| `/api/v1/jobs` | GET/POST | Bearer | Scrape job queue management |
+| `/api/v1/jobs/:id` | GET | Bearer | Scrape job details |
+| `/api/v1/jobs/:id/retry` | POST | Bearer | Retry failed scrape job |
+| `/api/v1/jobs/dead-letters` | GET | Bearer | Dead letter queue |
+| `/mcp/*` | Various | Service | MCP server (48 tools across 12 domains) |
 
 ## Document Triad
 
