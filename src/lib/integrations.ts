@@ -30,11 +30,19 @@ export function ledgerClient(env: Env) {
   const baseUrl = env.CHITTYLEDGER_URL;
   if (!baseUrl) return null;
 
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Source-Service': 'chittycommand',
+  };
+  if (env.CHITTYLEDGER_TOKEN) {
+    headers['Authorization'] = `Bearer ${env.CHITTYLEDGER_TOKEN}`;
+  }
+
   async function post<T>(path: string, body: unknown): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' },
+        headers,
         body: JSON.stringify(body),
       });
       if (!res.ok) {
@@ -65,9 +73,7 @@ export function ledgerClient(env: Env) {
     getEvidenceByCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
       try {
         const qs = new URLSearchParams({ caseId }).toString();
-        const res = await fetch(`${baseUrl}/api/evidence?${qs}`, {
-          headers: { 'X-Source-Service': 'chittycommand' },
-        });
+        const res = await fetch(`${baseUrl}/api/evidence?${qs}`, { headers });
         if (!res.ok) return [];
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }
@@ -76,9 +82,7 @@ export function ledgerClient(env: Env) {
     /** Get facts for a case (if supported) */
     getFactsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
       try {
-        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/facts`, {
-          headers: { 'X-Source-Service': 'chittycommand' },
-        });
+        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/facts`, { headers });
         if (!res.ok) return [];
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }
@@ -87,9 +91,7 @@ export function ledgerClient(env: Env) {
     /** Get contradictions for a case (if supported) */
     getContradictionsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
       try {
-        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/contradictions`, {
-          headers: { 'X-Source-Service': 'chittycommand' },
-        });
+        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/contradictions`, { headers });
         if (!res.ok) return [];
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }

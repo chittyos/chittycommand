@@ -55,6 +55,7 @@ export type Env = {
   CHITTYCERT_URL?: string;
   CHITTYEVIDENCE_URL?: string;
   CHITTY_CONNECT_TOKEN?: string;
+  CHITTYLEDGER_TOKEN?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
   PLAID_ENV?: string;
