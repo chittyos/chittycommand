@@ -21,6 +21,7 @@ CHITTYASSETS_URL = "https://chittyassets.chitty.cc"
 CHITTYSCRAPE_URL = "https://scrape.chitty.cc"
 CHITTYROUTER_URL = "https://router.chitty.cc"
 CHITTYAGENT_SCRAPE_URL = "https://chittyagent-scrape.ccorp.workers.dev"
+CHITTYEVIDENCE_URL = "https://evidence.chitty.cc"
 # Optional: chittyregister for beacon heartbeats
 CHITTYREGISTER_URL = "https://register.chitty.cc"
 # Optional: chittychat data API for MCP tools

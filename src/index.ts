@@ -30,6 +30,7 @@ import { connectRoutes } from './routes/connect';
 import { ledgerRoutes } from './routes/ledger';
 import { tokenManagementRoutes } from './routes/token-management';
 import { jobRoutes } from './routes/jobs';
+import { timelineRoutes } from './routes/timeline';
 
 export type Env = {
   AI: Ai;
@@ -52,6 +53,7 @@ export type Env = {
   CHITTYCHAT_DATA_API?: string;
   CHITTYSCHEMA_URL?: string;
   CHITTYCERT_URL?: string;
+  CHITTYEVIDENCE_URL?: string;
   CHITTY_CONNECT_TOKEN?: string;
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
@@ -138,6 +140,8 @@ app.route('/api/v1', ledgerRoutes);
 app.route('/api/v1', tokenManagementRoutes);
 // Scrape job management (authenticated)
 app.route('/api/v1', jobRoutes);
+// Case timeline & evidence (authenticated)
+app.route('/api/v1', timelineRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
