@@ -97,6 +97,83 @@ export function ledgerClient(env: Env) {
   };
 }
 
+// ── ChittyEvidence ──────────────────────────────────────────
+// Evidence platform: documents, facts, entities, legal architecture
+
+export interface EvidenceFact {
+  id: string;
+  fact_text: string;
+  fact_date?: string;
+  fact_type: string;
+  confidence: number;
+  source_quote?: string;
+  verification_status: string;
+  document_id?: string;
+  entities?: Array<{ name: string; type: string; role: string }>;
+  amounts?: Array<{ value: number; currency: string; description: string }>;
+}
+
+export interface EvidenceDocument {
+  id: string;
+  filename: string;
+  document_type?: string;
+  processing_status: string;
+  uploaded_at: string;
+  content_hash?: string;
+}
+
+export function evidenceClient(env: Env) {
+  const baseUrl = env.CHITTYEVIDENCE_URL;
+  if (!baseUrl) return null;
+
+  const headers = { 'X-Source-Service': 'chittycommand' };
+
+  async function get<T>(path: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { headers });
+      if (!res.ok) return null;
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[evidence] ${path} error:`, err);
+      return null;
+    }
+  }
+
+  return {
+    /** Get enriched facts for a case (facts + entities + amounts) */
+    getEnrichedFacts: (caseId: string) =>
+      get<EvidenceFact[]>(`/facts/cases/${encodeURIComponent(caseId)}/enriched`),
+
+    /** Get statement of facts for a case */
+    getStatementOfFacts: (caseId: string) =>
+      get<Record<string, unknown>[]>(`/legal/cases/${encodeURIComponent(caseId)}/facts`),
+
+    /** Get facts by date range */
+    getFactsByDateRange: (caseId: string, startDate: string, endDate: string) =>
+      get<EvidenceFact[]>(`/facts/cases/${encodeURIComponent(caseId)}/date-range?startDate=${startDate}&endDate=${endDate}`),
+
+    /** Get facts by type */
+    getFactsByType: (caseId: string, factType: string) =>
+      get<EvidenceFact[]>(`/facts/cases/${encodeURIComponent(caseId)}/type/${encodeURIComponent(factType)}`),
+
+    /** Get pending facts awaiting review */
+    getPendingFacts: (caseId?: string, limit = 50) =>
+      get<EvidenceFact[]>(`/facts/pending?${new URLSearchParams({ ...(caseId ? { caseId } : {}), limit: String(limit) })}`),
+
+    /** Get documents for search */
+    searchDocuments: (query: string) =>
+      get<EvidenceDocument[]>(`/search?q=${encodeURIComponent(query)}`),
+
+    /** Get entities */
+    getEntities: () =>
+      get<Array<{ id: string; name: string; entity_type: string }>>('/entities'),
+
+    /** Get contradictions (via legal constitution) */
+    getContradictions: (caseId: string) =>
+      get<Record<string, unknown>[]>(`/legal/cases/${encodeURIComponent(caseId)}/contradictions`),
+  };
+}
+
 // ── ChittyFinance ────────────────────────────────────────────
 // Mercury, Wave, Stripe transaction ingestion
 

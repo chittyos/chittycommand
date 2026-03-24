@@ -5,6 +5,7 @@ import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
+import { evidenceClient, ledgerClient } from '../lib/integrations';
 
 /**
  * MCP (Model Context Protocol) server for ChittyCommand.
@@ -352,6 +353,53 @@ const TOOLS = [
         chitty_id: { type: 'string', description: 'Optional ChittyID to bind results to' },
       },
       required: ['job_type', 'target'],
+    },
+  },
+  {
+    name: 'get_case_timeline',
+    description: 'Get a unified case timeline combining facts from ChittyEvidence, legal deadlines, disputes, and documents. Events are sorted chronologically.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        case_id: { type: 'string', description: 'Case ID to get timeline for' },
+        start_date: { type: 'string', description: 'Optional start date filter (YYYY-MM-DD)' },
+        end_date: { type: 'string', description: 'Optional end date filter (YYYY-MM-DD)' },
+      },
+      required: ['case_id'],
+    },
+  },
+  {
+    name: 'get_case_facts',
+    description: 'Get enriched facts for a case from ChittyEvidence (includes entities and amounts).',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        case_id: { type: 'string', description: 'Case ID' },
+      },
+      required: ['case_id'],
+    },
+  },
+  {
+    name: 'get_case_contradictions',
+    description: 'Get contradictions detected in case evidence from ChittyEvidence.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        case_id: { type: 'string', description: 'Case ID' },
+      },
+      required: ['case_id'],
+    },
+  },
+  {
+    name: 'get_pending_facts',
+    description: 'Get facts awaiting human review for a case.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        case_id: { type: 'string', description: 'Case ID (optional, omit for all cases)' },
+        limit: { type: 'number', description: 'Max results (default 50)' },
+      },
+      required: [] as string[],
     },
   },
 ];
@@ -1117,6 +1165,70 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         cronSource: 'mcp',
       }, env);
       return { ok: true, id: jobId, status: 'queued' };
+    }
+
+    case 'get_case_timeline': {
+      const caseId = String(args.case_id || '').trim();
+      if (!caseId) throw new Error('Missing argument: case_id');
+      const startDate = args.start_date ? String(args.start_date) : undefined;
+      const endDate = args.end_date ? String(args.end_date) : undefined;
+      const events: Array<Record<string, unknown>> = [];
+
+      // Facts from ChittyEvidence
+      const evidence = evidenceClient(env);
+      if (evidence) {
+        const facts = startDate && endDate
+          ? await evidence.getFactsByDateRange(caseId, startDate, endDate)
+          : await evidence.getEnrichedFacts(caseId);
+        if (facts) {
+          for (const f of facts) {
+            if (!f.fact_date) continue;
+            events.push({ id: `fact:${f.id}`, date: f.fact_date, type: 'fact', title: f.fact_text.slice(0, 120), factType: f.fact_type, confidence: f.confidence, status: f.verification_status });
+          }
+        }
+      }
+
+      // Deadlines from DB
+      const deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} ORDER BY deadline_date ASC`;
+      for (const d of deadlines) {
+        events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
+      }
+
+      // Disputes from DB
+      const disputes = await sql`SELECT id, title, status, domain, created_at FROM cc_disputes WHERE metadata->>'case_ref' = ${caseId} OR metadata->>'ledger_case_id' = ${caseId}`;
+      for (const d of disputes) {
+        events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, domain: d.domain });
+      }
+
+      events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
+      return { caseId, eventCount: events.length, events };
+    }
+
+    case 'get_case_facts': {
+      const caseId = String(args.case_id || '').trim();
+      if (!caseId) throw new Error('Missing argument: case_id');
+      const evidence = evidenceClient(env);
+      if (!evidence) return { error: 'ChittyEvidence not configured' };
+      const facts = await evidence.getEnrichedFacts(caseId);
+      return { caseId, facts: facts || [] };
+    }
+
+    case 'get_case_contradictions': {
+      const caseId = String(args.case_id || '').trim();
+      if (!caseId) throw new Error('Missing argument: case_id');
+      const evidence = evidenceClient(env);
+      if (!evidence) return { error: 'ChittyEvidence not configured' };
+      const contradictions = await evidence.getContradictions(caseId);
+      return { caseId, contradictions: contradictions || [] };
+    }
+
+    case 'get_pending_facts': {
+      const caseId = args.case_id ? String(args.case_id).trim() : undefined;
+      const limit = Math.min(Number(args.limit) || 50, 100);
+      const evidence = evidenceClient(env);
+      if (!evidence) return { error: 'ChittyEvidence not configured' };
+      const pending = await evidence.getPendingFacts(caseId, limit);
+      return { caseId: caseId || 'all', pending: pending || [] };
     }
 
     default:
