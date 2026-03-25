@@ -621,7 +621,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
-      if (!ev) return { facts: [] };
+      if (!ev) return { error: 'ChittyEvidence not configured', facts: [] };
       const facts = await ev.getStatementOfFacts(caseId);
       return { case_id: caseId, facts: facts || [] };
     }
@@ -630,7 +630,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
-      if (!ev) return { contradictions: [] };
+      if (!ev) return { error: 'ChittyEvidence not configured', contradictions: [] };
       const contradictions = await ev.getContradictions(caseId);
       return { case_id: caseId, contradictions: contradictions || [] };
     }
@@ -798,9 +798,9 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       try {
         const cached = await env.COMMAND_KV.get(key);
         if (cached) {
-          try { const obj = JSON.parse(cached) as { url?: string }; if (obj?.url) return { service, url: obj.url, cached: true }; } catch {}
+          try { const obj = JSON.parse(cached) as { url?: string }; if (obj?.url) return { service, url: obj.url, cached: true }; } catch (err) { console.warn('[mcp/connect_discover] KV cache parse failed:', err); }
         }
-      } catch {}
+      } catch (err) { console.warn('[mcp/connect_discover] KV read failed:', err); }
       try {
         const res = await fetch(`${baseUrl}/api/discover/${encodeURIComponent(service)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
@@ -808,7 +808,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         });
         if (!res.ok) return { error: `Service not found`, code: res.status };
         const data = await res.json() as { url: string };
-        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch {}
+        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch (err) { console.warn('[mcp/connect_discover] KV write failed:', err); }
         return { service, url: data.url };
       } catch (err) {
         return { error: String(err) };
@@ -1228,25 +1228,29 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       }
 
       // Deadlines from DB (with date filtering)
-      let deadlines;
-      if (startDate && endDate) {
-        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
-      } else if (startDate) {
-        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} ORDER BY deadline_date ASC`;
-      } else if (endDate) {
-        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
-      } else {
-        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} ORDER BY deadline_date ASC`;
-      }
-      for (const d of deadlines) {
-        events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
-      }
+      try {
+        let deadlines;
+        if (startDate && endDate) {
+          deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+        } else if (startDate) {
+          deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} ORDER BY deadline_date ASC`;
+        } else if (endDate) {
+          deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+        } else {
+          deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} ORDER BY deadline_date ASC`;
+        }
+        for (const d of deadlines) {
+          events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
+        }
+      } catch (err) { console.error('[mcp/get_case_timeline] deadlines query error:', err); }
 
       // Disputes from DB
-      const disputes = await sql`SELECT id, title, status, dispute_type, created_at FROM cc_disputes WHERE metadata->>'case_ref' = ${caseId} OR metadata->>'ledger_case_id' = ${caseId}`;
-      for (const d of disputes) {
-        events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, disputeType: d.dispute_type });
-      }
+      try {
+        const disputes = await sql`SELECT id, title, status, dispute_type, created_at FROM cc_disputes WHERE metadata->>'case_ref' = ${caseId} OR metadata->>'ledger_case_id' = ${caseId}`;
+        for (const d of disputes) {
+          events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, disputeType: d.dispute_type });
+        }
+      } catch (err) { console.error('[mcp/get_case_timeline] disputes query error:', err); }
 
       // Documents already covered by ChittyEvidence facts above
 
