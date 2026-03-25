@@ -645,17 +645,18 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const d = rows[0] as any;
       const metadata = (d.metadata as any) || {};
       if (metadata.ledger_case_id) return { dispute_id: disputeId, case_id: metadata.ledger_case_id, linked: true };
+      const caseRef = `CC-DISPUTE-${String(d.id).slice(0, 8)}`;
       const entryResult = await ledger.addEntry({
         entityType: 'audit',
-        entityId: `CC-DISPUTE-${String(d.id).slice(0, 8)}`,
+        entityId: caseRef,
         action: 'dispute:created',
         actor: 'chittycommand',
         actorType: 'service',
         metadata: { title: String(d.title), caseType: 'CIVIL', description: d.description || undefined },
       });
       if (!entryResult) return { error: 'Failed to create ledger entry' };
-      await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
-      return { dispute_id: disputeId, case_id: entryResult.id, linked: true };
+      await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      return { dispute_id: disputeId, case_id: caseRef, ledger_entry_id: entryResult.id, linked: true };
     }
 
     case 'ledger_link_case_for_dispute': {

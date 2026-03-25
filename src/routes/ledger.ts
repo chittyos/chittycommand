@@ -10,8 +10,9 @@ ledgerRoutes.get('/ledger/evidence', async (c) => {
   if (!caseId) return c.json({ error: 'Missing query param: case_id' }, 400);
   const evidence = evidenceClient(c.env);
   if (!evidence) return c.json({ error: 'ChittyEvidence not configured' }, 503);
-  const facts = await evidence.getEnrichedFacts(caseId);
-  return c.json({ case_id: caseId, evidence: facts || [] });
+  // Search for documents associated with this case
+  const docs = await evidence.searchDocuments(caseId);
+  return c.json({ case_id: caseId, evidence: docs || [] });
 });
 
 // POST /api/v1/ledger/record-custody { evidence_id, action, notes? }

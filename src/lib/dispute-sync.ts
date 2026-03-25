@@ -303,9 +303,10 @@ async function linkDisputeToLedger(
     const ledger = ledgerClient(env);
     if (!ledger) return;
 
+    const caseRef = `CC-DISPUTE-${disputeId.slice(0, 8)}`;
     const entryResult = await ledger.addEntry({
       entityType: 'audit',
-      entityId: `CC-DISPUTE-${disputeId.slice(0, 8)}`,
+      entityId: caseRef,
       action: 'dispute:created',
       actor: 'chittycommand',
       actorType: 'service',
@@ -319,11 +320,11 @@ async function linkDisputeToLedger(
     if (entryResult?.id) {
       await sql`
         UPDATE cc_disputes
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: entryResult.id })}::jsonb,
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb,
             updated_at = NOW()
         WHERE id = ${disputeId}
       `;
-      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → ledger entry ${entryResult.id}`);
+      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → case ${caseRef} (entry ${entryResult.id})`);
     }
   } catch (err) {
     console.error(`[dispute-sync:ledger] Failed for dispute ${disputeId}:`, err);
