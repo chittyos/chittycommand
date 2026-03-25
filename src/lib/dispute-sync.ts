@@ -260,7 +260,7 @@ async function scoreDisputeWithTriage(
 
     const result = await router.classifyDispute({
       entity_id: disputeId,
-      entity_type: 'dispute',
+      entity_type: 'event', // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
       title: dispute.title,
       dispute_type: dispute.dispute_type,
       amount: dispute.amount_at_stake != null ? Number(dispute.amount_at_stake) : undefined,

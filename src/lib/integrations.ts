@@ -811,7 +811,7 @@ export function routerClient(env: Env) {
     /** Classify a dispute via ChittyRouter TriageAgent */
     classifyDispute: (payload: {
       entity_id: string;
-      entity_type: 'dispute';
+      entity_type: 'event'; // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
       title: string;
       dispute_type: string;
       amount?: number;

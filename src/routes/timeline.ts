@@ -9,7 +9,7 @@ export const timelineRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables
 interface TimelineEvent {
   id: string;
   date: string;
-  type: 'fact' | 'deadline' | 'dispute' | 'docket' | 'document';
+  type: 'fact' | 'deadline' | 'dispute' | 'document';
   title: string;
   description?: string;
   source: string;
@@ -59,16 +59,36 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
   }
 
   // 2. Fetch legal deadlines from ChittyCommand DB
+  // 2. Fetch legal deadlines from ChittyCommand DB
+  // Neon sql tagged template doesn't support inline conditional fragments — use separate branches
   const sql = getDb(c.env);
   try {
-    const deadlines = await sql`
-      SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
-      FROM cc_legal_deadlines
-      WHERE case_ref = ${caseId}
-      ${startDate ? sql`AND deadline_date >= ${startDate}` : sql``}
-      ${endDate ? sql`AND deadline_date <= ${endDate}` : sql``}
-      ORDER BY deadline_date ASC
-    `;
+    let deadlines;
+    if (startDate && endDate) {
+      deadlines = await sql`
+        SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
+        FROM cc_legal_deadlines
+        WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} AND deadline_date <= ${endDate}
+        ORDER BY deadline_date ASC`;
+    } else if (startDate) {
+      deadlines = await sql`
+        SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
+        FROM cc_legal_deadlines
+        WHERE case_ref = ${caseId} AND deadline_date >= ${startDate}
+        ORDER BY deadline_date ASC`;
+    } else if (endDate) {
+      deadlines = await sql`
+        SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
+        FROM cc_legal_deadlines
+        WHERE case_ref = ${caseId} AND deadline_date <= ${endDate}
+        ORDER BY deadline_date ASC`;
+    } else {
+      deadlines = await sql`
+        SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
+        FROM cc_legal_deadlines
+        WHERE case_ref = ${caseId}
+        ORDER BY deadline_date ASC`;
+    }
     for (const d of deadlines) {
       events.push({
         id: `deadline:${d.id}`,
@@ -88,10 +108,10 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     console.error('[timeline] deadlines error:', err);
   }
 
-  // 3. Fetch dispute milestones
+  // 3. Fetch dispute milestones (cc_disputes has dispute_type, not domain)
   try {
     const disputes = await sql`
-      SELECT id, title, status, priority, domain, created_at, updated_at, metadata
+      SELECT id, title, status, priority, dispute_type, created_at, updated_at, metadata
       FROM cc_disputes
       WHERE metadata->>'case_ref' = ${caseId}
          OR metadata->>'ledger_case_id' = ${caseId}
@@ -102,13 +122,13 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
         id: `dispute:${d.id}`,
         date: d.created_at,
         type: 'dispute',
-        title: `[${d.domain || 'general'}] ${d.title}`,
+        title: `[${d.dispute_type || 'general'}] ${d.title}`,
         description: `Status: ${d.status}, Priority: ${d.priority}`,
         source: 'chittycommand',
         metadata: {
           status: d.status,
           priority: d.priority,
-          domain: d.domain,
+          disputeType: d.dispute_type,
         },
       });
     }
@@ -116,7 +136,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     console.error('[timeline] disputes error:', err);
   }
 
-  // 4. Fetch evidence documents from ChittyLedger
+  // 4. Fetch evidence documents from ChittyLedger (with date filtering)
   const ledger = ledgerClient(c.env);
   if (ledger) {
     try {
@@ -124,6 +144,8 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
       for (const doc of docs) {
         const uploadDate = (doc.created_at || doc.uploaded_at || '') as string;
         if (!uploadDate) continue;
+        if (startDate && uploadDate < startDate) continue;
+        if (endDate && uploadDate > endDate) continue;
         events.push({
           id: `doc:${doc.id}`,
           date: uploadDate,

@@ -1264,6 +1264,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
           for (const doc of docs) {
             const uploadDate = (doc.created_at || doc.uploaded_at || '') as string;
             if (!uploadDate) continue;
+            if (startDate && uploadDate < startDate) continue;
+            if (endDate && uploadDate > endDate) continue;
             events.push({ id: `doc:${doc.id}`, date: uploadDate, type: 'document', title: `Document: ${doc.filename || doc.title || 'Untitled'}`, source: 'chittyledger' });
           }
         } catch (err) {
