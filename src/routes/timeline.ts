@@ -91,7 +91,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
   // 3. Fetch dispute milestones
   try {
     const disputes = await sql`
-      SELECT id, title, status, priority, domain, created_at, updated_at, metadata
+      SELECT id, title, status, priority, dispute_type, created_at, updated_at, metadata
       FROM cc_disputes
       WHERE metadata->>'case_ref' = ${caseId}
          OR metadata->>'ledger_case_id' = ${caseId}
@@ -102,13 +102,13 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
         id: `dispute:${d.id}`,
         date: d.created_at,
         type: 'dispute',
-        title: `[${d.domain || 'general'}] ${d.title}`,
+        title: `[${d.dispute_type || 'general'}] ${d.title}`,
         description: `Status: ${d.status}, Priority: ${d.priority}`,
         source: 'chittycommand',
         metadata: {
           status: d.status,
           priority: d.priority,
-          domain: d.domain,
+          disputeType: d.dispute_type,
         },
       });
     }

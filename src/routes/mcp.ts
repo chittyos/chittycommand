@@ -1228,15 +1228,24 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       }
 
       // Deadlines from DB (with date filtering)
-      const deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} ${startDate ? sql`AND deadline_date >= ${startDate}` : sql``} ${endDate ? sql`AND deadline_date <= ${endDate}` : sql``} ORDER BY deadline_date ASC`;
+      let deadlines;
+      if (startDate && endDate) {
+        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+      } else if (startDate) {
+        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} ORDER BY deadline_date ASC`;
+      } else if (endDate) {
+        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+      } else {
+        deadlines = await sql`SELECT id, title, deadline_date, deadline_type, status FROM cc_legal_deadlines WHERE case_ref = ${caseId} ORDER BY deadline_date ASC`;
+      }
       for (const d of deadlines) {
         events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
       }
 
       // Disputes from DB
-      const disputes = await sql`SELECT id, title, status, domain, created_at FROM cc_disputes WHERE metadata->>'case_ref' = ${caseId} OR metadata->>'ledger_case_id' = ${caseId}`;
+      const disputes = await sql`SELECT id, title, status, dispute_type, created_at FROM cc_disputes WHERE metadata->>'case_ref' = ${caseId} OR metadata->>'ledger_case_id' = ${caseId}`;
       for (const d of disputes) {
-        events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, domain: d.domain });
+        events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, disputeType: d.dispute_type });
       }
 
       // Documents already covered by ChittyEvidence facts above
