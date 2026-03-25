@@ -23,6 +23,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
   const endDate = c.req.query('end');
 
   const events: TimelineEvent[] = [];
+  const warnings: string[] = [];
 
   // 1. Fetch enriched facts from ChittyEvidence
   const evidence = evidenceClient(c.env);
@@ -55,6 +56,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
       }
     } catch (err) {
       console.error('[timeline] evidence facts error:', err);
+      warnings.push('Evidence facts unavailable: service error');
     }
   }
 
@@ -86,6 +88,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     }
   } catch (err) {
     console.error('[timeline] deadlines error:', err);
+    warnings.push('Legal deadlines unavailable: database error');
   }
 
   // 3. Fetch dispute milestones
@@ -114,6 +117,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     }
   } catch (err) {
     console.error('[timeline] disputes error:', err);
+    warnings.push('Dispute milestones unavailable: database error');
   }
 
   // 4. Evidence documents already fetched in section 1 via evidenceClient
@@ -135,6 +139,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
       documents: events.filter(e => e.type === 'document').length,
     },
     events,
+    ...(warnings.length > 0 ? { warnings, partial: true } : {}),
   });
 });
 
