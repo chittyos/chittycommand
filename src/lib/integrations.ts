@@ -51,36 +51,36 @@ export function ledgerClient(env: Env) {
           Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
         ).toString();
         const res = await fetch(`${baseUrl}/entries${qs ? `?${qs}` : ''}`, { headers });
-        if (!res.ok) return [];
+        if (!res.ok) { console.error(`[ledger] GET /entries failed: ${res.status}`); return []; }
         return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+      } catch (err) { console.error('[ledger] GET /entries error:', err); return []; }
     },
 
     /** Get chain of custody for an entity */
     getChainOfCustody: async (entityId: string): Promise<Record<string, unknown>[]> => {
       try {
         const res = await fetch(`${baseUrl}/custody/${encodeURIComponent(entityId)}`, { headers });
-        if (!res.ok) return [];
+        if (!res.ok) { console.error(`[ledger] GET /custody failed: ${res.status}`); return []; }
         return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+      } catch (err) { console.error('[ledger] GET /custody error:', err); return []; }
     },
 
     /** Verify ledger chain integrity */
     verifyChain: async (): Promise<{ valid: boolean; errors: string[] } | null> => {
       try {
         const res = await fetch(`${baseUrl}/verify`, { headers });
-        if (!res.ok) return null;
+        if (!res.ok) { console.error(`[ledger] GET /verify failed: ${res.status}`); return null; }
         return await res.json() as { valid: boolean; errors: string[] };
-      } catch { return null; }
+      } catch (err) { console.error('[ledger] GET /verify error:', err); return null; }
     },
 
     /** Get ledger statistics */
     getStatistics: async (): Promise<Record<string, unknown> | null> => {
       try {
         const res = await fetch(`${baseUrl}/statistics`, { headers });
-        if (!res.ok) return null;
+        if (!res.ok) { console.error(`[ledger] GET /statistics failed: ${res.status}`); return null; }
         return await res.json() as Record<string, unknown>;
-      } catch { return null; }
+      } catch (err) { console.error('[ledger] GET /statistics error:', err); return null; }
     },
   };
 }
@@ -119,11 +119,14 @@ export function evidenceClient(env: Env) {
   if (!baseUrl) return null;
 
   const headers: Record<string, string> = { 'X-Source-Service': 'chittycommand' };
+  if (env.CHITTYEVIDENCE_TOKEN) {
+    headers['Authorization'] = `Bearer ${env.CHITTYEVIDENCE_TOKEN}`;
+  }
 
   async function get<T>(path: string): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, { headers });
-      if (!res.ok) return null;
+      if (!res.ok) { console.error(`[evidence] GET ${path} failed: ${res.status}`); return null; }
       return await res.json() as T;
     } catch (err) {
       console.error(`[evidence] ${path} error:`, err);
@@ -458,20 +461,20 @@ export function connectClient(env: Env) {
           try {
             const obj = JSON.parse(cached) as { url?: string };
             if (obj?.url) return obj.url;
-          } catch { /* ignore */ }
+          } catch (err) { console.warn('[connect/discover] KV cache parse failed:', err); }
         }
-      } catch { /* ignore */ }
+      } catch (err) { console.warn('[connect/discover] KV read failed:', err); }
 
       try {
         const res = await fetch(`${baseUrl}/api/discover/${encodeURIComponent(serviceName)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return null;
+        if (!res.ok) { console.error(`[connect/discover] ${serviceName} failed: ${res.status}`); return null; }
         const data = await res.json() as { url: string };
         // Store in KV with TTL
-        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch { /* ignore */ }
+        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch (err) { console.warn('[connect/discover] KV write failed:', err); }
         return data.url;
-      } catch { return null; }
+      } catch (err) { console.error('[connect/discover] fetch error:', err); return null; }
     },
 
     // ── Prompt Registry (ContextConsciousness) ─────────────────
