@@ -68,9 +68,15 @@ export function ledgerClient(env: Env) {
         const res = await fetch(`${baseUrl}/api/evidence?${qs}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          console.error(`[ledger] /api/evidence failed: ${res.status}`);
+          return [];
+        }
         return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+      } catch (err) {
+        console.error('[ledger] getEvidenceByCase error:', err);
+        return [];
+      }
     },
 
     /** Get facts for a case (if supported) */
@@ -79,9 +85,15 @@ export function ledgerClient(env: Env) {
         const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/facts`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          console.error(`[ledger] /facts failed: ${res.status}`);
+          return [];
+        }
         return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+      } catch (err) {
+        console.error('[ledger] getFactsForCase error:', err);
+        return [];
+      }
     },
 
     /** Get contradictions for a case (if supported) */
@@ -90,9 +102,15 @@ export function ledgerClient(env: Env) {
         const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/contradictions`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return [];
+        if (!res.ok) {
+          console.error(`[ledger] /contradictions failed: ${res.status}`);
+          return [];
+        }
         return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+      } catch (err) {
+        console.error('[ledger] getContradictionsForCase error:', err);
+        return [];
+      }
     },
   };
 }
@@ -135,7 +153,10 @@ export function evidenceClient(env: Env) {
   async function get<T>(path: string): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, { headers });
-      if (!res.ok) return null;
+      if (!res.ok) {
+        console.error(`[evidence] ${path} failed: ${res.status}`);
+        return null;
+      }
       return await res.json() as T;
     } catch (err) {
       console.error(`[evidence] ${path} error:`, err);
@@ -172,7 +193,10 @@ export function evidenceClient(env: Env) {
           headers: { ...headers, 'Content-Type': 'application/json' },
           body: JSON.stringify({ query }),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          console.error(`[evidence] /search failed: ${res.status}`);
+          return null;
+        }
         return await res.json() as EvidenceDocument[];
       } catch (err) {
         console.error('[evidence] /search error:', err);
