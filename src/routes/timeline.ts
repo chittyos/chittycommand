@@ -2,14 +2,14 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
 import { getDb } from '../lib/db';
-import { evidenceClient, ledgerClient } from '../lib/integrations';
+import { evidenceClient } from '../lib/integrations';
 
 export const timelineRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 interface TimelineEvent {
   id: string;
   date: string;
-  type: 'fact' | 'deadline' | 'dispute' | 'docket' | 'document';
+  type: 'fact' | 'deadline' | 'dispute' | 'document';
   title: string;
   description?: string;
   source: string;
@@ -91,7 +91,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
   // 3. Fetch dispute milestones
   try {
     const disputes = await sql`
-      SELECT id, title, status, priority, domain, created_at, updated_at, metadata
+      SELECT id, title, status, priority, dispute_type, created_at, updated_at, metadata
       FROM cc_disputes
       WHERE metadata->>'case_ref' = ${caseId}
          OR metadata->>'ledger_case_id' = ${caseId}
@@ -102,13 +102,13 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
         id: `dispute:${d.id}`,
         date: d.created_at,
         type: 'dispute',
-        title: `[${d.domain || 'general'}] ${d.title}`,
+        title: `[${d.dispute_type || 'general'}] ${d.title}`,
         description: `Status: ${d.status}, Priority: ${d.priority}`,
         source: 'chittycommand',
         metadata: {
           status: d.status,
           priority: d.priority,
-          domain: d.domain,
+          disputeType: d.dispute_type,
         },
       });
     }
@@ -116,31 +116,7 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
     console.error('[timeline] disputes error:', err);
   }
 
-  // 4. Fetch evidence documents from ChittyLedger
-  const ledger = ledgerClient(c.env);
-  if (ledger) {
-    try {
-      const docs = await ledger.getEvidenceByCase(caseId);
-      for (const doc of docs) {
-        const uploadDate = (doc.created_at || doc.uploaded_at || '') as string;
-        if (!uploadDate) continue;
-        events.push({
-          id: `doc:${doc.id}`,
-          date: uploadDate,
-          type: 'document',
-          title: `Document: ${doc.filename || doc.title || 'Untitled'}`,
-          description: (doc.description as string) || undefined,
-          source: 'chittyledger',
-          metadata: {
-            fileType: doc.file_type,
-            evidenceTier: doc.evidence_tier,
-          },
-        });
-      }
-    } catch (err) {
-      console.error('[timeline] ledger docs error:', err);
-    }
-  }
+  // 4. Evidence documents already fetched in section 1 via evidenceClient
 
   // Sort by date ascending
   events.sort((a, b) => a.date.localeCompare(b.date));

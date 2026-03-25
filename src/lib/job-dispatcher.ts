@@ -147,10 +147,10 @@ export async function listJobs(
         jobType: filters.jobType,
         limit: filters.limit,
       });
-      if (result) {
+      if (result && Array.isArray(result.jobs)) {
         return {
           jobs: result.jobs.map(mapRouterJob),
-          total: result.total,
+          total: result.total ?? result.jobs.length,
         };
       }
     }

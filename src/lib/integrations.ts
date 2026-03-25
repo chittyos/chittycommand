@@ -7,23 +7,17 @@ import type { Env } from '../index';
  */
 
 // ── ChittyLedger ─────────────────────────────────────────────
-// Evidence pipeline: documents → evidence, disputes → cases, actions → custody log
+// Audit trail: entries, chain verification, custody queries
+// NOTE: Evidence/case operations live on ChittyEvidence, not ChittyLedger.
 
-export interface LedgerEvidencePayload {
-  filename: string;
-  fileType: string;
-  fileSize?: string;
-  description?: string;
-  evidenceTier: string;
-  caseId?: string;
-}
-
-export interface LedgerCustodyEntry {
-  evidenceId: string;
+export interface LedgerEntryPayload {
+  entityType: 'transaction' | 'evidence' | 'custody' | 'audit';
+  entityId?: string;
   action: string;
-  performedBy: string;
-  location?: string;
-  notes?: string;
+  actor?: string;
+  actorType?: 'user' | 'service' | 'system';
+  metadata?: Record<string, unknown>;
+  status?: 'pending' | 'confirmed' | 'rejected';
 }
 
 export function ledgerClient(env: Env) {
@@ -38,63 +32,55 @@ export function ledgerClient(env: Env) {
     headers['Authorization'] = `Bearer ${env.CHITTYLEDGER_TOKEN}`;
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T | null> {
-    try {
-      const res = await fetch(`${baseUrl}${path}`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify(body),
-      });
-      if (!res.ok) {
-        console.error(`[ledger] ${path} failed: ${res.status}`);
-        return null;
-      }
-      return await res.json() as T;
-    } catch (err) {
-      console.error(`[ledger] ${path} error:`, err);
-      return null;
-    }
-  }
-
   return {
-    /** Push a document into ChittyLedger as evidence */
-    createEvidence: (payload: LedgerEvidencePayload) =>
-      post<{ id: string }>('/api/evidence', payload),
-
-    /** Record a chain-of-custody event */
-    addCustodyEntry: (entry: LedgerCustodyEntry) =>
-      post('/api/evidence/' + entry.evidenceId + '/custody', entry),
-
-    /** Create or link a case in ChittyLedger */
-    createCase: (payload: { caseNumber: string; title: string; caseType: string; description?: string }) =>
-      post<{ id: string }>('/api/cases', payload),
-
-    /** Get evidence by case */
-    getEvidenceByCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
+    /** Add an audit/custody/evidence entry to the ledger */
+    addEntry: async (entry: LedgerEntryPayload): Promise<{ id: string; sequenceNumber: number; hash: string } | null> => {
       try {
-        const qs = new URLSearchParams({ caseId }).toString();
-        const res = await fetch(`${baseUrl}/api/evidence?${qs}`, { headers });
+        const res = await fetch(`${baseUrl}/entries`, {
+          method: 'POST', headers, body: JSON.stringify(entry),
+        });
+        if (!res.ok) { console.error(`[ledger] POST /entries failed: ${res.status}`); return null; }
+        return await res.json() as { id: string; sequenceNumber: number; hash: string };
+      } catch (err) { console.error('[ledger] POST /entries error:', err); return null; }
+    },
+
+    /** Search ledger entries */
+    searchEntries: async (params: { entityType?: string; entityId?: string; actor?: string; status?: string; limit?: number }): Promise<Record<string, unknown>[]> => {
+      try {
+        const qs = new URLSearchParams(
+          Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
+        ).toString();
+        const res = await fetch(`${baseUrl}/entries${qs ? `?${qs}` : ''}`, { headers });
         if (!res.ok) return [];
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }
     },
 
-    /** Get facts for a case (if supported) */
-    getFactsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
+    /** Get chain of custody for an entity */
+    getChainOfCustody: async (entityId: string): Promise<Record<string, unknown>[]> => {
       try {
-        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/facts`, { headers });
+        const res = await fetch(`${baseUrl}/custody/${encodeURIComponent(entityId)}`, { headers });
         if (!res.ok) return [];
         return await res.json() as Record<string, unknown>[];
       } catch { return []; }
     },
 
-    /** Get contradictions for a case (if supported) */
-    getContradictionsForCase: async (caseId: string): Promise<Record<string, unknown>[]> => {
+    /** Verify ledger chain integrity */
+    verifyChain: async (): Promise<{ valid: boolean; errors: string[] } | null> => {
       try {
-        const res = await fetch(`${baseUrl}/api/cases/${encodeURIComponent(caseId)}/contradictions`, { headers });
-        if (!res.ok) return [];
-        return await res.json() as Record<string, unknown>[];
-      } catch { return []; }
+        const res = await fetch(`${baseUrl}/verify`, { headers });
+        if (!res.ok) return null;
+        return await res.json() as { valid: boolean; errors: string[] };
+      } catch { return null; }
+    },
+
+    /** Get ledger statistics */
+    getStatistics: async (): Promise<Record<string, unknown> | null> => {
+      try {
+        const res = await fetch(`${baseUrl}/statistics`, { headers });
+        if (!res.ok) return null;
+        return await res.json() as Record<string, unknown>;
+      } catch { return null; }
     },
   };
 }
@@ -132,7 +118,7 @@ export function evidenceClient(env: Env) {
   const baseUrl = env.CHITTYEVIDENCE_URL;
   if (!baseUrl) return null;
 
-  const headers = { 'X-Source-Service': 'chittycommand' };
+  const headers: Record<string, string> = { 'X-Source-Service': 'chittycommand' };
 
   async function get<T>(path: string): Promise<T | null> {
     try {
@@ -145,7 +131,35 @@ export function evidenceClient(env: Env) {
     }
   }
 
+  async function post<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { ...headers, 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) { console.error(`[evidence] POST ${path} failed: ${res.status}`); return null; }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[evidence] POST ${path} error:`, err);
+      return null;
+    }
+  }
+
   return {
+    /** Submit a document to the evidence pipeline */
+    submitDocument: (payload: { filename: string; fileType: string; fileSize?: string; description?: string; evidenceTier?: string; caseId?: string }) =>
+      post<{ id: string; submission_id?: string }>('/collect', {
+        file_name: payload.filename,
+        document_type: payload.fileType,
+        description: payload.description,
+        case_id: payload.caseId,
+      }),
+
+    /** Record a chain-of-custody event on a document */
+    addCustodyEntry: (documentId: string, entry: { action: string; performedBy: string; location?: string; notes?: string }) =>
+      post<Record<string, unknown>>(`/legal/documents/${encodeURIComponent(documentId)}/custody`, entry),
+
     /** Get enriched facts for a case (facts + entities + amounts) */
     getEnrichedFacts: (caseId: string) =>
       get<EvidenceFact[]>(`/facts/cases/${encodeURIComponent(caseId)}/enriched`),
@@ -813,7 +827,7 @@ export function routerClient(env: Env) {
     /** Classify a dispute via ChittyRouter TriageAgent */
     classifyDispute: (payload: {
       entity_id: string;
-      entity_type: 'dispute';
+      entity_type: 'event'; // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
       title: string;
       dispute_type: string;
       amount?: number;

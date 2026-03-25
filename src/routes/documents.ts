@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { ledgerClient } from '../lib/integrations';
+import { evidenceClient } from '../lib/integrations';
 
 export const documentRoutes = new Hono<{ Bindings: Env }>();
 const UUID_V4ISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
@@ -56,10 +56,10 @@ documentRoutes.post('/upload', async (c) => {
     RETURNING *
   `;
 
-  // Fire-and-forget: push to ChittyLedger evidence pipeline
-  const ledger = ledgerClient(c.env);
-  if (ledger) {
-    ledger.createEvidence({
+  // Fire-and-forget: push to ChittyEvidence pipeline
+  const evidence = evidenceClient(c.env);
+  if (evidence) {
+    evidence.submitDocument({
       filename: safeName,
       fileType: file.type,
       fileSize: String(file.size),

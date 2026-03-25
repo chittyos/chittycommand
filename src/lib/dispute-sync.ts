@@ -16,6 +16,7 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
 import { notionClient, routerClient, ledgerClient } from './integrations';
 
+
 // ── Types ─────────────────────────────────────────────────────
 
 interface DisputeCore {
@@ -260,7 +261,7 @@ async function scoreDisputeWithTriage(
 
     const result = await router.classifyDispute({
       entity_id: disputeId,
-      entity_type: 'dispute',
+      entity_type: 'event', // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
       title: dispute.title,
       dispute_type: dispute.dispute_type,
       amount: dispute.amount_at_stake != null ? Number(dispute.amount_at_stake) : undefined,
@@ -302,21 +303,28 @@ async function linkDisputeToLedger(
     const ledger = ledgerClient(env);
     if (!ledger) return;
 
-    const caseResult = await ledger.createCase({
-      caseNumber: `CC-DISPUTE-${disputeId.slice(0, 8)}`,
-      title: dispute.title,
-      caseType: 'CIVIL',
-      description: dispute.description || undefined,
+    const caseRef = `CC-DISPUTE-${disputeId.slice(0, 8)}`;
+    const entryResult = await ledger.addEntry({
+      entityType: 'audit',
+      entityId: caseRef,
+      action: 'dispute:created',
+      actor: 'chittycommand',
+      actorType: 'service',
+      metadata: {
+        title: dispute.title,
+        description: dispute.description,
+        caseType: 'CIVIL',
+      },
     });
 
-    if (caseResult?.id) {
+    if (entryResult?.id) {
       await sql`
         UPDATE cc_disputes
-        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseResult.id })}::jsonb,
+        SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb,
             updated_at = NOW()
         WHERE id = ${disputeId}
       `;
-      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → case ${caseResult.id}`);
+      console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → case ${caseRef} (entry ${entryResult.id})`);
     }
   } catch (err) {
     console.error(`[dispute-sync:ledger] Failed for dispute ${disputeId}:`, err);
