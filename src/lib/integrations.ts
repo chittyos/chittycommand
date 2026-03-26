@@ -109,6 +109,9 @@ export function evidenceClient(env: Env) {
   if (!baseUrl) return null;
 
   const headers: Record<string, string> = { 'X-Source-Service': 'chittycommand' };
+  if (env.CHITTYEVIDENCE_TOKEN) {
+    headers['Authorization'] = `Bearer ${env.CHITTYEVIDENCE_TOKEN}`;
+  }
 
   async function get<T>(path: string): Promise<T | null> {
     try {
@@ -442,20 +445,20 @@ export function connectClient(env: Env) {
           try {
             const obj = JSON.parse(cached) as { url?: string };
             if (obj?.url) return obj.url;
-          } catch { /* ignore */ }
+          } catch (err) { console.warn('[connect/discover] KV cache parse failed:', err); }
         }
-      } catch { /* ignore */ }
+      } catch (err) { console.warn('[connect/discover] KV read failed:', err); }
 
       try {
         const res = await fetch(`${baseUrl}/api/discover/${encodeURIComponent(serviceName)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return null;
+        if (!res.ok) { console.error(`[connect/discover] ${serviceName} failed: ${res.status}`); return null; }
         const data = await res.json() as { url: string };
         // Store in KV with TTL
-        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch { /* ignore */ }
+        try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch (err) { console.warn('[connect/discover] KV write failed:', err); }
         return data.url;
-      } catch { return null; }
+      } catch (err) { console.error('[connect/discover] fetch error:', err); return null; }
     },
 
     // ── Prompt Registry (ContextConsciousness) ─────────────────
@@ -808,10 +811,11 @@ export function routerClient(env: Env) {
     getEmailStatus: () =>
       get<Record<string, unknown>>('/email/status'),
 
-    /** Classify a dispute via ChittyRouter TriageAgent */
+    /** Classify a dispute via ChittyRouter TriageAgent
+     * @canon chittycanon://gov/governance#core-types — disputes are Event (E) */
     classifyDispute: (payload: {
       entity_id: string;
-      entity_type: 'dispute';
+      entity_type: 'event';
       title: string;
       dispute_type: string;
       amount?: number;

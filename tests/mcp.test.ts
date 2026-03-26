@@ -141,7 +141,7 @@ describe('MCP — tools/list', () => {
     expect(tools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('exposes exactly 38 tools', async () => {
+  it('exposes exactly 48 tools', async () => {
     const { post } = buildApp();
     const res = await post({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const json = await res.json() as Record<string, unknown>;
