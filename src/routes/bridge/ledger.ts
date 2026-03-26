@@ -24,6 +24,7 @@ ledgerBridgeRoutes.post('/sync-documents', async (c) => {
   `;
 
   let synced = 0;
+  let failed = 0;
   for (const doc of unsynced) {
     const result = await evidence.submitDocument({
       filename: doc.filename || 'unknown',
@@ -40,6 +41,9 @@ ledgerBridgeRoutes.post('/sync-documents', async (c) => {
         WHERE id = ${doc.id}
       `;
       synced++;
+    } else {
+      console.warn(`[bridge/ledger] sync-documents: submission failed for doc ${doc.id} (${doc.filename})`);
+      failed++;
     }
   }
 
@@ -51,11 +55,11 @@ ledgerBridgeRoutes.post('/sync-documents', async (c) => {
       action: 'evidence:sync-documents',
       actor: 'chittycommand',
       actorType: 'service',
-      metadata: { total: unsynced.length, synced },
+      metadata: { total: unsynced.length, synced, failed },
     }).catch((err) => console.error('[bridge/ledger] Audit log for sync-documents failed:', err));
   }
 
-  return c.json({ total: unsynced.length, synced, message: `Synced ${synced} documents to ChittyEvidence` });
+  return c.json({ total: unsynced.length, synced, failed, message: `Synced ${synced} documents to ChittyEvidence` });
 });
 
 /** Push disputes to ChittyLedger as audit entries */

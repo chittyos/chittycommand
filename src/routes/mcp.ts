@@ -565,7 +565,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       let payload: { label?: string | null; persona?: string | null; tags?: string[]; updated_at?: string };
       try {
         payload = JSON.parse(raw);
-      } catch {
+      } catch (err) {
+        console.warn('[mcp/get_context_summary] KV context parse failed:', err);
         return { label: null, persona: null, tags: [], updated_at: null, parse_error: true };
       }
       return { label: payload.label ?? null, persona: payload.persona ?? null, tags: payload.tags ?? [], updated_at: payload.updated_at ?? null };
@@ -974,7 +975,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const plan = rows[0] as Record<string, unknown>;
       for (const field of ['schedule', 'warnings']) {
         if (typeof plan[field] === 'string') {
-          try { plan[field] = JSON.parse(plan[field] as string); } catch {}
+          try { plan[field] = JSON.parse(plan[field] as string); } catch (err) { console.warn(`[mcp/get_payment_plan] Failed to parse plan.${field}:`, err); }
         }
       }
       return { plan };
@@ -1214,6 +1215,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const startDate = args.start_date ? String(args.start_date) : undefined;
       const endDate = args.end_date ? String(args.end_date) : undefined;
       const events: Array<Record<string, unknown>> = [];
+      const warnings: string[] = [];
 
       // Facts from ChittyEvidence
       const evidence = evidenceClient(env);
@@ -1226,7 +1228,11 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
             if (!f.fact_date) continue;
             events.push({ id: `fact:${f.id}`, date: f.fact_date, type: 'fact', title: f.fact_text.slice(0, 120), factType: f.fact_type, confidence: f.confidence, status: f.verification_status });
           }
+        } else {
+          warnings.push('Failed to fetch facts from ChittyEvidence');
         }
+      } else {
+        warnings.push('ChittyEvidence not configured');
       }
 
       // Deadlines from DB (with date filtering)
@@ -1244,7 +1250,10 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         for (const d of deadlines) {
           events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
         }
-      } catch (err) { console.error('[mcp/get_case_timeline] deadlines query error:', err); }
+      } catch (err) {
+        console.error('[mcp/get_case_timeline] deadlines query error:', err);
+        warnings.push('Deadlines unavailable: database error');
+      }
 
       // Disputes from DB
       try {
@@ -1252,12 +1261,13 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         for (const d of disputes) {
           events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, disputeType: d.dispute_type });
         }
-      } catch (err) { console.error('[mcp/get_case_timeline] disputes query error:', err); }
-
-      // Documents already covered by ChittyEvidence facts above
+      } catch (err) {
+        console.error('[mcp/get_case_timeline] disputes query error:', err);
+        warnings.push('Disputes unavailable: database error');
+      }
 
       events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-      return { caseId, eventCount: events.length, events };
+      return { caseId, eventCount: events.length, events, ...(warnings.length > 0 ? { warnings, partial: true } : {}) };
     }
 
     case 'get_case_facts': {
