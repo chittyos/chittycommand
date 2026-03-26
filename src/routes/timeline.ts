@@ -53,6 +53,8 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
             },
           });
         }
+      } else {
+        warnings.push('Evidence facts unavailable: service returned no data');
       }
     } catch (err) {
       console.error('[timeline] evidence facts error:', err);

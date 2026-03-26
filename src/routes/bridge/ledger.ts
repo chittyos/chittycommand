@@ -50,13 +50,15 @@ ledgerBridgeRoutes.post('/sync-documents', async (c) => {
   // Also log the sync event to ChittyLedger audit trail
   const ledger = ledgerClient(c.env);
   if (ledger && synced > 0) {
-    ledger.addEntry({
-      entityType: 'audit',
-      action: 'evidence:sync-documents',
-      actor: 'chittycommand',
-      actorType: 'service',
-      metadata: { total: unsynced.length, synced, failed },
-    }).catch((err) => console.error('[bridge/ledger] Audit log for sync-documents failed:', err));
+    c.executionCtx.waitUntil(
+      ledger.addEntry({
+        entityType: 'audit',
+        action: 'evidence:sync-documents',
+        actor: 'chittycommand',
+        actorType: 'service',
+        metadata: { total: unsynced.length, synced, failed },
+      }).catch((err) => console.error('[bridge/ledger] Audit log for sync-documents failed:', err))
+    );
   }
 
   return c.json({ total: unsynced.length, synced, failed, message: `Synced ${synced} documents to ChittyEvidence` });
@@ -75,6 +77,7 @@ ledgerBridgeRoutes.post('/sync-disputes', async (c) => {
   `;
 
   let synced = 0;
+  let failed = 0;
   for (const dispute of unsynced) {
     const caseRef = `CC-DISPUTE-${(dispute.id as string).slice(0, 8)}`;
     const entryResult = await ledger.addEntry({
@@ -97,10 +100,13 @@ ledgerBridgeRoutes.post('/sync-disputes', async (c) => {
         WHERE id = ${dispute.id}
       `;
       synced++;
+    } else {
+      console.warn(`[bridge/ledger] sync-disputes: entry creation failed for dispute ${dispute.id}`);
+      failed++;
     }
   }
 
-  return c.json({ total: unsynced.length, synced, message: `Synced ${synced} disputes to ChittyLedger` });
+  return c.json({ total: unsynced.length, synced, failed, message: `Synced ${synced} disputes to ChittyLedger` });
 });
 
 /** Record an action in ChittyEvidence chain of custody */

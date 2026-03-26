@@ -300,7 +300,10 @@ async function linkDisputeToLedger(
 ): Promise<void> {
   try {
     const ledger = ledgerClient(env);
-    if (!ledger) return;
+    if (!ledger) {
+      console.warn(`[dispute-sync:ledger] Skipping dispute ${disputeId}: ChittyLedger not configured`);
+      return;
+    }
 
     const caseRef = `CC-DISPUTE-${disputeId.slice(0, 8)}`;
     const entryResult = await ledger.addEntry({
@@ -324,6 +327,8 @@ async function linkDisputeToLedger(
         WHERE id = ${disputeId}
       `;
       console.log(`[dispute-sync:ledger] Linked dispute ${disputeId} → case ${caseRef} (entry ${entryResult.id})`);
+    } else {
+      console.error(`[dispute-sync:ledger] addEntry returned no ID for dispute ${disputeId} (caseRef: ${caseRef})`);
     }
   } catch (err) {
     console.error(`[dispute-sync:ledger] Failed for dispute ${disputeId}:`, err);

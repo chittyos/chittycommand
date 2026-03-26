@@ -658,7 +658,12 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         metadata: { title: String(d.title), caseType: 'CIVIL', description: d.description || undefined },
       });
       if (!entryResult) return { error: 'Failed to create ledger entry' };
-      await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      try {
+        await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      } catch (err) {
+        console.error('[mcp/ledger_create_case_for_dispute] DB update failed:', err);
+        return { error: 'Ledger entry created but failed to update dispute metadata', ledger_entry_id: entryResult.id, case_id: caseRef };
+      }
       return { dispute_id: disputeId, case_id: caseRef, ledger_entry_id: entryResult.id, linked: true };
     }
 
