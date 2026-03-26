@@ -6,6 +6,13 @@ import type { Env } from '../index';
  * All calls are fire-and-forget safe — failures are logged but don't break the caller.
  */
 
+/** Distinguishes "no data" from "service error" for array-returning methods */
+export interface ServiceArrayResult<T> {
+  data: T[];
+  error?: string;
+  status?: number;
+}
+
 // ── ChittyLedger ─────────────────────────────────────────────
 // Audit trail: entries, chain verification, custody queries
 // NOTE: Evidence/case operations live on ChittyEvidence, not ChittyLedger.
@@ -54,17 +61,22 @@ export function ledgerClient(env: Env) {
     addEntry: (entry: LedgerEntryPayload) =>
       post<{ id: string; sequenceNumber: number; hash: string }>('/entries', entry),
 
-    /** Search ledger entries */
-    searchEntries: async (params: { entityType?: string; entityId?: string; actor?: string; status?: string; limit?: number }): Promise<Record<string, unknown>[]> => {
+    /** Search ledger entries — returns { data, error? } to distinguish empty from failure */
+    searchEntries: async (params: { entityType?: string; entityId?: string; actor?: string; status?: string; limit?: number }): Promise<ServiceArrayResult<Record<string, unknown>>> => {
       const qs = new URLSearchParams(
         Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
       ).toString();
-      return await get<Record<string, unknown>[]>(`/entries${qs ? `?${qs}` : ''}`) ?? [];
+      const result = await get<Record<string, unknown>[]>(`/entries${qs ? `?${qs}` : ''}`);
+      if (result === null) return { data: [], error: 'ChittyLedger unreachable or returned error' };
+      return { data: result };
     },
 
-    /** Get chain of custody for an entity */
-    getChainOfCustody: async (entityId: string) =>
-      await get<Record<string, unknown>[]>(`/custody/${encodeURIComponent(entityId)}`) ?? [],
+    /** Get chain of custody for an entity — returns { data, error? } to distinguish empty from failure */
+    getChainOfCustody: async (entityId: string): Promise<ServiceArrayResult<Record<string, unknown>>> => {
+      const result = await get<Record<string, unknown>[]>(`/custody/${encodeURIComponent(entityId)}`);
+      if (result === null) return { data: [], error: 'ChittyLedger unreachable or returned error' };
+      return { data: result };
+    },
 
     /** Verify ledger chain integrity */
     verifyChain: () => get<{ valid: boolean; errors: string[] }>('/verify'),

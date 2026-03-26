@@ -65,14 +65,16 @@ timelineRoutes.get('/cases/:caseId/timeline', async (c) => {
   // 2. Fetch legal deadlines from ChittyCommand DB
   const sql = getDb(c.env);
   try {
-    const deadlines = await sql`
-      SELECT id, title, description, deadline_date, deadline_type, status, urgency_score
-      FROM cc_legal_deadlines
-      WHERE case_ref = ${caseId}
-      ${startDate ? sql`AND deadline_date >= ${startDate}` : sql``}
-      ${endDate ? sql`AND deadline_date <= ${endDate}` : sql``}
-      ORDER BY deadline_date ASC
-    `;
+    let deadlines;
+    if (startDate && endDate) {
+      deadlines = await sql`SELECT id, title, description, deadline_date, deadline_type, status, urgency_score FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+    } else if (startDate) {
+      deadlines = await sql`SELECT id, title, description, deadline_date, deadline_type, status, urgency_score FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date >= ${startDate} ORDER BY deadline_date ASC`;
+    } else if (endDate) {
+      deadlines = await sql`SELECT id, title, description, deadline_date, deadline_type, status, urgency_score FROM cc_legal_deadlines WHERE case_ref = ${caseId} AND deadline_date <= ${endDate} ORDER BY deadline_date ASC`;
+    } else {
+      deadlines = await sql`SELECT id, title, description, deadline_date, deadline_type, status, urgency_score FROM cc_legal_deadlines WHERE case_ref = ${caseId} ORDER BY deadline_date ASC`;
+    }
     for (const d of deadlines) {
       events.push({
         id: `deadline:${d.id}`,
