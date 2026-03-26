@@ -25,7 +25,6 @@ export function ledgerClient(env: Env) {
   if (!baseUrl) return null;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'X-Source-Service': 'chittycommand',
   };
   if (env.CHITTYLEDGER_TOKEN) {
@@ -43,7 +42,7 @@ export function ledgerClient(env: Env) {
   async function post<T>(path: string, body: unknown): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, {
-        method: 'POST', headers, body: JSON.stringify(body),
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
       if (!res.ok) { console.error(`[ledger] POST ${path} failed: ${res.status}`); return null; }
       return await res.json() as T;

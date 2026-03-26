@@ -54,22 +54,22 @@ const TOOLS = [
   },
   {
     name: 'ledger_get_evidence',
-    description: 'List evidence for a given case_id from ChittyLedger.',
-    inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string', description: 'Ledger case ID' } }, required: ['case_id'] },
+    description: 'List evidence documents for a case via ChittyEvidence.',
+    inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string', description: 'Case ID' } }, required: ['case_id'] },
   },
   {
     name: 'ledger_record_custody',
-    description: 'Record a custody entry for an evidence_id.',
+    description: 'Record a chain-of-custody event on an evidence document via ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { evidence_id: { type: 'string' }, action: { type: 'string' }, notes: { type: 'string' } }, required: ['evidence_id','action'] },
   },
   {
     name: 'ledger_facts',
-    description: 'List case facts from ChittyLedger if supported.',
+    description: 'List case facts from ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string' } }, required: ['case_id'] },
   },
   {
     name: 'ledger_contradictions',
-    description: 'List case contradictions from ChittyLedger if supported.',
+    description: 'List case contradictions from ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string' } }, required: ['case_id'] },
   },
   {
@@ -578,15 +578,16 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         const [disputesRow] = await sql`SELECT COUNT(*) AS c FROM cc_disputes WHERE metadata ? 'ledger_case_id'`;
         documentsLinked = parseInt(docsRow?.c ?? '0');
         disputesLinked = parseInt(disputesRow?.c ?? '0');
-      } catch {
-        // Schema may not support metadata jsonb queries yet
+      } catch (err) {
+        console.warn('[mcp/ledger_stats] metadata query failed:', err);
       }
       let health: { status: string; code?: number } = { status: 'not_configured' };
       if (env.CHITTYLEDGER_URL) {
         try {
           const res = await fetch(`${env.CHITTYLEDGER_URL}/health`, { signal: AbortSignal.timeout(3000) });
           health = { status: res.ok ? 'ok' : 'error', code: res.status };
-        } catch {
+        } catch (err) {
+          console.warn('[mcp/ledger_stats] health check failed:', err);
           health = { status: 'unreachable' };
         }
       }
