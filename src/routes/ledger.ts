@@ -10,8 +10,7 @@ ledgerRoutes.get('/ledger/evidence', async (c) => {
   if (!caseId) return c.json({ error: 'Missing query param: case_id' }, 400);
   const evidence = evidenceClient(c.env);
   if (!evidence) return c.json({ error: 'ChittyEvidence not configured' }, 503);
-  // Search for documents associated with this case
-  const docs = await evidence.searchDocuments(caseId);
+  const docs = await evidence.getDocumentsByCase(caseId);
   return c.json({ case_id: caseId, evidence: docs || [] });
 });
 
@@ -27,5 +26,6 @@ ledgerRoutes.post('/ledger/record-custody', async (c) => {
   const evidence = evidenceClient(c.env);
   if (!evidence) return c.json({ error: 'ChittyEvidence not configured' }, 503);
   const result = await evidence.addCustodyEntry(evidenceId, { action, performedBy: userId, notes });
-  return c.json({ ok: !!result, result });
+  if (!result) return c.json({ ok: false, error: 'Failed to record custody event' }, 502);
+  return c.json({ ok: true, result });
 });

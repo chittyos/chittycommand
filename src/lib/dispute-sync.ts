@@ -16,7 +16,6 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
 import { notionClient, routerClient, ledgerClient } from './integrations';
 
-
 // ── Types ─────────────────────────────────────────────────────
 
 interface DisputeCore {

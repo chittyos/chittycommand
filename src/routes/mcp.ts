@@ -602,8 +602,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
       if (!ev) return { error: 'ChittyEvidence not configured' };
-      const facts = await ev.getEnrichedFacts(caseId);
-      return { case_id: caseId, evidence: facts || [] };
+      const docs = await ev.getDocumentsByCase(caseId);
+      return { case_id: caseId, evidence: docs || [] };
     }
 
     case 'ledger_record_custody': {
@@ -614,14 +614,15 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const ev = evidenceClient(env);
       if (!ev) return { error: 'ChittyEvidence not configured' };
       const result = await ev.addCustodyEntry(evidenceId, { action, performedBy: 'mcp-client', notes });
-      return { ok: !!result, result };
+      if (!result) return { ok: false, error: 'Failed to record custody event — ChittyEvidence may be unreachable' };
+      return { ok: true, result };
     }
 
     case 'ledger_facts': {
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
-      if (!ev) return { facts: [] };
+      if (!ev) return { error: 'ChittyEvidence not configured', facts: [] };
       const facts = await ev.getStatementOfFacts(caseId);
       return { case_id: caseId, facts: facts || [] };
     }
@@ -630,7 +631,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const caseId = String(args.case_id || '').trim();
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
-      if (!ev) return { contradictions: [] };
+      if (!ev) return { error: 'ChittyEvidence not configured', contradictions: [] };
       const contradictions = await ev.getContradictions(caseId);
       return { case_id: caseId, contradictions: contradictions || [] };
     }
