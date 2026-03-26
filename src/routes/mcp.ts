@@ -1225,16 +1225,21 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       // Facts from ChittyEvidence
       const evidence = evidenceClient(env);
       if (evidence) {
-        const facts = startDate && endDate
-          ? await evidence.getFactsByDateRange(caseId, startDate, endDate)
-          : await evidence.getEnrichedFacts(caseId);
-        if (facts) {
-          for (const f of facts) {
-            if (!f.fact_date) continue;
-            events.push({ id: `fact:${f.id}`, date: f.fact_date, type: 'fact', title: f.fact_text.slice(0, 120), factType: f.fact_type, confidence: f.confidence, status: f.verification_status });
+        try {
+          const facts = startDate && endDate
+            ? await evidence.getFactsByDateRange(caseId, startDate, endDate)
+            : await evidence.getEnrichedFacts(caseId);
+          if (facts) {
+            for (const f of facts) {
+              if (!f.fact_date) continue;
+              events.push({ id: `fact:${f.id}`, date: f.fact_date, type: 'fact', title: f.fact_text.slice(0, 120), factType: f.fact_type, confidence: f.confidence, status: f.verification_status });
+            }
+          } else {
+            warnings.push('Failed to fetch facts from ChittyEvidence');
           }
-        } else {
-          warnings.push('Failed to fetch facts from ChittyEvidence');
+        } catch (err) {
+          console.error('[mcp/get_case_timeline] evidence facts error:', err);
+          warnings.push('Evidence facts unavailable: service error');
         }
       } else {
         warnings.push('ChittyEvidence not configured');
