@@ -54,22 +54,22 @@ const TOOLS = [
   },
   {
     name: 'ledger_get_evidence',
-    description: 'List evidence for a given case_id from ChittyLedger.',
-    inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string', description: 'Ledger case ID' } }, required: ['case_id'] },
+    description: 'List evidence documents for a case via ChittyEvidence.',
+    inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string', description: 'Case ID' } }, required: ['case_id'] },
   },
   {
     name: 'ledger_record_custody',
-    description: 'Record a custody entry for an evidence_id.',
+    description: 'Record a chain-of-custody event on an evidence document via ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { evidence_id: { type: 'string' }, action: { type: 'string' }, notes: { type: 'string' } }, required: ['evidence_id','action'] },
   },
   {
     name: 'ledger_facts',
-    description: 'List case facts from ChittyLedger if supported.',
+    description: 'List case facts from ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string' } }, required: ['case_id'] },
   },
   {
     name: 'ledger_contradictions',
-    description: 'List case contradictions from ChittyLedger if supported.',
+    description: 'List case contradictions from ChittyEvidence.',
     inputSchema: { type: 'object' as const, properties: { case_id: { type: 'string' } }, required: ['case_id'] },
   },
   {
@@ -565,7 +565,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       let payload: { label?: string | null; persona?: string | null; tags?: string[]; updated_at?: string };
       try {
         payload = JSON.parse(raw);
-      } catch {
+      } catch (err) {
+        console.warn('[mcp/get_context_summary] KV context parse failed:', err);
         return { label: null, persona: null, tags: [], updated_at: null, parse_error: true };
       }
       return { label: payload.label ?? null, persona: payload.persona ?? null, tags: payload.tags ?? [], updated_at: payload.updated_at ?? null };
@@ -578,15 +579,16 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         const [disputesRow] = await sql`SELECT COUNT(*) AS c FROM cc_disputes WHERE metadata ? 'ledger_case_id'`;
         documentsLinked = parseInt(docsRow?.c ?? '0');
         disputesLinked = parseInt(disputesRow?.c ?? '0');
-      } catch {
-        // Schema may not support metadata jsonb queries yet
+      } catch (err) {
+        console.warn('[mcp/ledger_stats] metadata query failed:', err);
       }
       let health: { status: string; code?: number } = { status: 'not_configured' };
       if (env.CHITTYLEDGER_URL) {
         try {
           const res = await fetch(`${env.CHITTYLEDGER_URL}/health`, { signal: AbortSignal.timeout(3000) });
           health = { status: res.ok ? 'ok' : 'error', code: res.status };
-        } catch {
+        } catch (err) {
+          console.warn('[mcp/ledger_stats] health check failed:', err);
           health = { status: 'unreachable' };
         }
       }
@@ -602,8 +604,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       if (!caseId) throw new Error('Missing argument: case_id');
       const ev = evidenceClient(env);
       if (!ev) return { error: 'ChittyEvidence not configured' };
-      const facts = await ev.getEnrichedFacts(caseId);
-      return { case_id: caseId, evidence: facts || [] };
+      const docs = await ev.getDocumentsByCase(caseId);
+      return { case_id: caseId, evidence: docs || [] };
     }
 
     case 'ledger_record_custody': {
@@ -614,7 +616,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const ev = evidenceClient(env);
       if (!ev) return { error: 'ChittyEvidence not configured' };
       const result = await ev.addCustodyEntry(evidenceId, { action, performedBy: 'mcp-client', notes });
-      return { ok: !!result, result };
+      if (!result) return { ok: false, error: 'Failed to record custody event — ChittyEvidence may be unreachable' };
+      return { ok: true, result };
     }
 
     case 'ledger_facts': {
@@ -655,7 +658,12 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         metadata: { title: String(d.title), caseType: 'CIVIL', description: d.description || undefined },
       });
       if (!entryResult) return { error: 'Failed to create ledger entry' };
-      await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      try {
+        await sql`UPDATE cc_disputes SET metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({ ledger_case_id: caseRef, ledger_entry_id: entryResult.id })}::jsonb WHERE id = ${disputeId}`;
+      } catch (err) {
+        console.error('[mcp/ledger_create_case_for_dispute] DB update failed:', err);
+        return { error: 'Ledger entry created but failed to update dispute metadata', ledger_entry_id: entryResult.id, case_id: caseRef };
+      }
       return { dispute_id: disputeId, case_id: caseRef, ledger_entry_id: entryResult.id, linked: true };
     }
 
@@ -972,7 +980,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const plan = rows[0] as Record<string, unknown>;
       for (const field of ['schedule', 'warnings']) {
         if (typeof plan[field] === 'string') {
-          try { plan[field] = JSON.parse(plan[field] as string); } catch {}
+          try { plan[field] = JSON.parse(plan[field] as string); } catch (err) { console.warn(`[mcp/get_payment_plan] Failed to parse plan.${field}:`, err); }
         }
       }
       return { plan };
@@ -1212,6 +1220,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const startDate = args.start_date ? String(args.start_date) : undefined;
       const endDate = args.end_date ? String(args.end_date) : undefined;
       const events: Array<Record<string, unknown>> = [];
+      const warnings: string[] = [];
 
       // Facts from ChittyEvidence
       const evidence = evidenceClient(env);
@@ -1224,7 +1233,11 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
             if (!f.fact_date) continue;
             events.push({ id: `fact:${f.id}`, date: f.fact_date, type: 'fact', title: f.fact_text.slice(0, 120), factType: f.fact_type, confidence: f.confidence, status: f.verification_status });
           }
+        } else {
+          warnings.push('Failed to fetch facts from ChittyEvidence');
         }
+      } else {
+        warnings.push('ChittyEvidence not configured');
       }
 
       // Deadlines from DB (with date filtering)
@@ -1242,7 +1255,10 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         for (const d of deadlines) {
           events.push({ id: `deadline:${d.id}`, date: d.deadline_date, type: 'deadline', title: d.title, deadlineType: d.deadline_type, status: d.status });
         }
-      } catch (err) { console.error('[mcp/get_case_timeline] deadlines query error:', err); }
+      } catch (err) {
+        console.error('[mcp/get_case_timeline] deadlines query error:', err);
+        warnings.push('Deadlines unavailable: database error');
+      }
 
       // Disputes from DB
       try {
@@ -1250,12 +1266,13 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         for (const d of disputes) {
           events.push({ id: `dispute:${d.id}`, date: d.created_at, type: 'dispute', title: d.title, status: d.status, disputeType: d.dispute_type });
         }
-      } catch (err) { console.error('[mcp/get_case_timeline] disputes query error:', err); }
-
-      // Documents already covered by ChittyEvidence facts above
+      } catch (err) {
+        console.error('[mcp/get_case_timeline] disputes query error:', err);
+        warnings.push('Disputes unavailable: database error');
+      }
 
       events.sort((a, b) => String(a.date).localeCompare(String(b.date)));
-      return { caseId, eventCount: events.length, events };
+      return { caseId, eventCount: events.length, events, ...(warnings.length > 0 ? { warnings, partial: true } : {}) };
     }
 
     case 'get_case_facts': {

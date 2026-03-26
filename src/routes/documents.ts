@@ -67,9 +67,12 @@ documentRoutes.post('/upload', async (c) => {
       evidenceTier: 'BUSINESS_RECORDS',
     }).then((ev) => {
       if (ev?.id) {
-        sql`UPDATE cc_documents SET metadata = jsonb_build_object('ledger_evidence_id', ${ev.id}), processing_status = 'synced' WHERE id = ${doc.id}`.catch(() => {});
+        sql`UPDATE cc_documents SET metadata = jsonb_build_object('ledger_evidence_id', ${ev.id}), processing_status = 'synced' WHERE id = ${doc.id}`
+          .catch((err) => console.error(`[documents] Failed to update metadata for doc ${doc.id}:`, err));
+      } else {
+        console.warn(`[documents] Evidence submission returned no ID for ${safeName}`);
       }
-    }).catch(() => {});
+    }).catch((err) => console.error(`[documents] Evidence submission failed for ${safeName}:`, err));
   }
 
   return c.json(doc, 201);

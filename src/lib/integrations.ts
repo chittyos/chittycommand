@@ -25,63 +25,52 @@ export function ledgerClient(env: Env) {
   if (!baseUrl) return null;
 
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
     'X-Source-Service': 'chittycommand',
   };
   if (env.CHITTYLEDGER_TOKEN) {
     headers['Authorization'] = `Bearer ${env.CHITTYLEDGER_TOKEN}`;
   }
 
+  async function get<T>(path: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, { headers });
+      if (!res.ok) { console.error(`[ledger] GET ${path} failed: ${res.status}`); return null; }
+      return await res.json() as T;
+    } catch (err) { console.error(`[ledger] GET ${path} error:`, err); return null; }
+  }
+
+  async function post<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
+      });
+      if (!res.ok) { console.error(`[ledger] POST ${path} failed: ${res.status}`); return null; }
+      return await res.json() as T;
+    } catch (err) { console.error(`[ledger] POST ${path} error:`, err); return null; }
+  }
+
   return {
     /** Add an audit/custody/evidence entry to the ledger */
-    addEntry: async (entry: LedgerEntryPayload): Promise<{ id: string; sequenceNumber: number; hash: string } | null> => {
-      try {
-        const res = await fetch(`${baseUrl}/entries`, {
-          method: 'POST', headers, body: JSON.stringify(entry),
-        });
-        if (!res.ok) { console.error(`[ledger] POST /entries failed: ${res.status}`); return null; }
-        return await res.json() as { id: string; sequenceNumber: number; hash: string };
-      } catch (err) { console.error('[ledger] POST /entries error:', err); return null; }
-    },
+    addEntry: (entry: LedgerEntryPayload) =>
+      post<{ id: string; sequenceNumber: number; hash: string }>('/entries', entry),
 
     /** Search ledger entries */
     searchEntries: async (params: { entityType?: string; entityId?: string; actor?: string; status?: string; limit?: number }): Promise<Record<string, unknown>[]> => {
-      try {
-        const qs = new URLSearchParams(
-          Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
-        ).toString();
-        const res = await fetch(`${baseUrl}/entries${qs ? `?${qs}` : ''}`, { headers });
-        if (!res.ok) { console.error(`[ledger] GET /entries failed: ${res.status}`); return []; }
-        return await res.json() as Record<string, unknown>[];
-      } catch (err) { console.error('[ledger] GET /entries error:', err); return []; }
+      const qs = new URLSearchParams(
+        Object.entries(params).filter(([, v]) => v !== undefined).map(([k, v]) => [k, String(v)] as [string, string])
+      ).toString();
+      return await get<Record<string, unknown>[]>(`/entries${qs ? `?${qs}` : ''}`) ?? [];
     },
 
     /** Get chain of custody for an entity */
-    getChainOfCustody: async (entityId: string): Promise<Record<string, unknown>[]> => {
-      try {
-        const res = await fetch(`${baseUrl}/custody/${encodeURIComponent(entityId)}`, { headers });
-        if (!res.ok) { console.error(`[ledger] GET /custody failed: ${res.status}`); return []; }
-        return await res.json() as Record<string, unknown>[];
-      } catch (err) { console.error('[ledger] GET /custody error:', err); return []; }
-    },
+    getChainOfCustody: async (entityId: string) =>
+      await get<Record<string, unknown>[]>(`/custody/${encodeURIComponent(entityId)}`) ?? [],
 
     /** Verify ledger chain integrity */
-    verifyChain: async (): Promise<{ valid: boolean; errors: string[] } | null> => {
-      try {
-        const res = await fetch(`${baseUrl}/verify`, { headers });
-        if (!res.ok) { console.error(`[ledger] GET /verify failed: ${res.status}`); return null; }
-        return await res.json() as { valid: boolean; errors: string[] };
-      } catch (err) { console.error('[ledger] GET /verify error:', err); return null; }
-    },
+    verifyChain: () => get<{ valid: boolean; errors: string[] }>('/verify'),
 
     /** Get ledger statistics */
-    getStatistics: async (): Promise<Record<string, unknown> | null> => {
-      try {
-        const res = await fetch(`${baseUrl}/statistics`, { headers });
-        if (!res.ok) { console.error(`[ledger] GET /statistics failed: ${res.status}`); return null; }
-        return await res.json() as Record<string, unknown>;
-      } catch (err) { console.error('[ledger] GET /statistics error:', err); return null; }
-    },
+    getStatistics: () => get<Record<string, unknown>>('/statistics'),
   };
 }
 
@@ -129,7 +118,7 @@ export function evidenceClient(env: Env) {
       if (!res.ok) { console.error(`[evidence] GET ${path} failed: ${res.status}`); return null; }
       return await res.json() as T;
     } catch (err) {
-      console.error(`[evidence] ${path} error:`, err);
+      console.error(`[evidence] GET ${path} error:`, err);
       return null;
     }
   }
@@ -155,7 +144,9 @@ export function evidenceClient(env: Env) {
       post<{ id: string; submission_id?: string }>('/collect', {
         file_name: payload.filename,
         document_type: payload.fileType,
+        file_size: payload.fileSize,
         description: payload.description,
+        evidence_tier: payload.evidenceTier,
         case_id: payload.caseId,
       }),
 
@@ -184,20 +175,12 @@ export function evidenceClient(env: Env) {
       get<EvidenceFact[]>(`/facts/pending?${new URLSearchParams({ ...(caseId ? { caseId } : {}), limit: String(limit) })}`),
 
     /** Search documents (POST /search) */
-    searchDocuments: async (query: string): Promise<EvidenceDocument[] | null> => {
-      try {
-        const res = await fetch(`${baseUrl}/search`, {
-          method: 'POST',
-          headers: { ...headers, 'Content-Type': 'application/json' },
-          body: JSON.stringify({ query }),
-        });
-        if (!res.ok) return null;
-        return await res.json() as EvidenceDocument[];
-      } catch (err) {
-        console.error('[evidence] /search error:', err);
-        return null;
-      }
-    },
+    searchDocuments: (query: string) =>
+      post<EvidenceDocument[]>('/search', { query }),
+
+    /** Get documents by case ID */
+    getDocumentsByCase: (caseId: string) =>
+      get<EvidenceDocument[]>(`/legal/cases/${encodeURIComponent(caseId)}/documents`),
 
     /** Get entities — entity_type is canonical P/L/T/E/A @canon: chittycanon://gov/governance#core-types */
     getEntities: () =>
@@ -827,7 +810,8 @@ export function routerClient(env: Env) {
     getEmailStatus: () =>
       get<Record<string, unknown>>('/email/status'),
 
-    /** Classify a dispute via ChittyRouter TriageAgent */
+    /** Classify a dispute via ChittyRouter TriageAgent
+     * @canon chittycanon://gov/governance#core-types — disputes are Event (E) */
     classifyDispute: (payload: {
       entity_id: string;
       entity_type: 'event'; // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
