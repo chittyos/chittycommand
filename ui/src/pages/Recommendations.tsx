@@ -3,7 +3,14 @@ import { api, type Recommendation } from '../lib/api';
 import { Card } from '../components/ui/Card';
 import { MetricCard } from '../components/ui/MetricCard';
 import { ActionButton } from '../components/ui/ActionButton';
-import { formatCurrency } from '../lib/utils';
+import { formatCurrency, cn } from '../lib/utils';
+import { useToast } from '../lib/toast';
+import { Calendar, Mail, Globe, Clock, X } from 'lucide-react';
+
+type FollowThrough = {
+  recId: string;
+  type: string;
+};
 
 export function Recommendations() {
   const [recs, setRecs] = useState<Recommendation[]>([]);
@@ -15,6 +22,9 @@ export function Recommendations() {
     cash_position: { total_cash: number; total_due_30d: number; surplus: number };
   } | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [followThrough, setFollowThrough] = useState<FollowThrough | null>(null);
+  const [deferDate, setDeferDate] = useState('');
+  const toast = useToast();
 
   const loadRecs = async () => {
     try {
@@ -44,13 +54,37 @@ export function Recommendations() {
   };
 
   const act = async (id: string, action: string) => {
+    // Actions that need follow-through UI
+    const needsFollowThrough = ['defer', 'send_email', 'execute_browser', 'negotiate'];
+    if (needsFollowThrough.includes(action)) {
+      setFollowThrough({ recId: id, type: action });
+      return;
+    }
+
     try {
       await api.actOnRecommendation(id, { action_taken: action });
       setRecs(recs.filter(r => r.id !== id));
+      toast.success('Action taken', `Recommendation marked as ${action}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Action failed';
-      console.error(`[Recommendations] act failed for ${id}:`, msg, e);
       setError(msg);
+    }
+  };
+
+  const confirmFollowThrough = async () => {
+    if (!followThrough) return;
+    const action = followThrough.type === 'defer' && deferDate
+      ? `deferred_until:${deferDate}`
+      : followThrough.type;
+
+    try {
+      await api.actOnRecommendation(followThrough.recId, { action_taken: action });
+      setRecs(recs.filter(r => r.id !== followThrough.recId));
+      toast.success('Action completed', `${followThrough.type} action recorded`);
+      setFollowThrough(null);
+      setDeferDate('');
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Action failed');
     }
   };
 
@@ -60,7 +94,6 @@ export function Recommendations() {
       setRecs(recs.filter(r => r.id !== id));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Dismiss failed';
-      console.error(`[Recommendations] dismiss failed for ${id}:`, msg, e);
       setError(msg);
     }
   };
@@ -89,10 +122,20 @@ export function Recommendations() {
     const labels: Record<string, string> = {
       pay_now: 'Pay Now', pay_minimum: 'Pay Minimum', negotiate: 'Start Negotiation',
       defer: 'Defer', execute_action: 'Execute', plan_action: 'Plan',
-      prepare_legal: 'Prepare', review_cashflow: 'Review', execute_browser: 'Automate', send_email: 'Send',
+      prepare_legal: 'Prepare', review_cashflow: 'Review', execute_browser: 'Automate', send_email: 'Send Email',
     };
     return labels[type || ''] || 'Act';
   };
+
+  const actionIcon = (type: string | null) => {
+    if (type === 'defer') return Calendar;
+    if (type === 'send_email') return Mail;
+    if (type === 'execute_browser') return Globe;
+    if (type === 'negotiate') return Clock;
+    return null;
+  };
+
+  const activeRec = followThrough ? recs.find(r => r.id === followThrough.recId) : null;
 
   return (
     <div className="space-y-6">
@@ -118,6 +161,69 @@ export function Recommendations() {
         </div>
       )}
 
+      {/* Follow-through panel */}
+      {followThrough && activeRec && (
+        <Card urgency="amber">
+          <div className="space-y-3">
+            <div className="flex items-center justify-between">
+              <h3 className="font-semibold text-card-text text-sm">
+                {followThrough.type === 'defer' && 'Set Deferral Date'}
+                {followThrough.type === 'send_email' && 'Email Action'}
+                {followThrough.type === 'execute_browser' && 'Browser Automation'}
+                {followThrough.type === 'negotiate' && 'Negotiation Plan'}
+              </h3>
+              <button onClick={() => { setFollowThrough(null); setDeferDate(''); }} className="text-card-muted hover:text-card-text">
+                <X size={16} />
+              </button>
+            </div>
+
+            <p className="text-card-muted text-sm">{activeRec.title}</p>
+
+            {followThrough.type === 'defer' && (
+              <div className="flex items-center gap-3">
+                <input
+                  type="date"
+                  value={deferDate}
+                  onChange={(e) => setDeferDate(e.target.value)}
+                  min={new Date().toISOString().split('T')[0]}
+                  className="px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-card-text text-sm focus:outline-none focus:ring-2 focus:ring-chitty-500/50"
+                />
+                <ActionButton label="Confirm Deferral" onClick={confirmFollowThrough} disabled={!deferDate} />
+              </div>
+            )}
+
+            {followThrough.type === 'send_email' && (
+              <div className="space-y-2">
+                <p className="text-xs text-card-muted">This will record the email action. Use Litigation AI to draft the email first.</p>
+                <div className="flex gap-2">
+                  <ActionButton label="Mark Email Sent" onClick={confirmFollowThrough} />
+                  <ActionButton label="Draft in Litigation AI" variant="secondary" onClick={() => { window.location.href = '/litigation'; }} />
+                </div>
+              </div>
+            )}
+
+            {followThrough.type === 'execute_browser' && (
+              <div className="space-y-2">
+                <p className="text-xs text-card-muted">Browser automation tasks are queued for Claude in Chrome execution.</p>
+                <ActionButton label="Queue for Automation" onClick={confirmFollowThrough} />
+              </div>
+            )}
+
+            {followThrough.type === 'negotiate' && (
+              <div className="space-y-2">
+                <p className="text-xs text-card-muted">Record that you've initiated negotiation. Track progress in the dispute.</p>
+                <div className="flex gap-2">
+                  <ActionButton label="Mark Negotiation Started" onClick={confirmFollowThrough} />
+                  {activeRec.dispute_title && (
+                    <ActionButton label="View Dispute" variant="secondary" onClick={() => { window.location.href = '/disputes'; }} />
+                  )}
+                </div>
+              </div>
+            )}
+          </div>
+        </Card>
+      )}
+
       {recs.length === 0 ? (
         <Card className="text-center py-8">
           <p className="text-card-muted">No active recommendations.</p>
@@ -125,37 +231,40 @@ export function Recommendations() {
         </Card>
       ) : (
         <div className="space-y-2">
-          {recs.map((rec) => (
-            <Card key={rec.id} urgency={rec.priority <= 2 ? 'amber' : rec.priority <= 3 ? 'green' : null}>
-              <div className="space-y-3">
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-2 mb-1 flex-wrap">
-                    <span className={`text-xs px-2 py-0.5 rounded-full font-medium ${priorityColors[rec.priority] || priorityColors[5]}`}>
-                      P{rec.priority}
-                    </span>
-                    <span className={`text-xs px-2 py-0.5 rounded-full border ${typeColors[rec.rec_type] || 'bg-gray-50 text-gray-600 border-gray-200'}`}>
-                      {rec.rec_type}
-                    </span>
-                    {rec.obligation_payee && <span className="text-xs text-card-muted">{rec.obligation_payee}</span>}
-                    {rec.dispute_title && <span className="text-xs text-card-muted">{rec.dispute_title}</span>}
+          {recs.map((rec) => {
+            const Icon = actionIcon(rec.action_type);
+            return (
+              <Card key={rec.id} urgency={rec.priority <= 2 ? 'amber' : rec.priority <= 3 ? 'green' : null}>
+                <div className="space-y-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1 flex-wrap">
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full font-medium', priorityColors[rec.priority] || priorityColors[5])}>
+                        P{rec.priority}
+                      </span>
+                      <span className={cn('text-xs px-2 py-0.5 rounded-full border', typeColors[rec.rec_type] || 'bg-gray-50 text-gray-600 border-gray-200')}>
+                        {rec.rec_type}
+                      </span>
+                      {rec.obligation_payee && <span className="text-xs text-card-muted">{rec.obligation_payee}</span>}
+                      {rec.dispute_title && <span className="text-xs text-card-muted">{rec.dispute_title}</span>}
+                    </div>
+                    <h3 className="font-medium text-card-text">{rec.title}</h3>
+                    <p className="text-card-muted text-sm mt-1">{rec.reasoning}</p>
                   </div>
-                  <h3 className="font-medium text-card-text">{rec.title}</h3>
-                  <p className="text-card-muted text-sm mt-1">{rec.reasoning}</p>
+                  <div className="flex gap-2">
+                    <ActionButton
+                      label={actionLabel(rec.action_type)}
+                      onClick={() => act(rec.id, rec.action_type || 'acted')}
+                    />
+                    <ActionButton
+                      label="Dismiss"
+                      variant="secondary"
+                      onClick={() => dismiss(rec.id)}
+                    />
+                  </div>
                 </div>
-                <div className="flex gap-2">
-                  <ActionButton
-                    label={actionLabel(rec.action_type)}
-                    onClick={() => act(rec.id, rec.action_type || 'acted')}
-                  />
-                  <ActionButton
-                    label="Dismiss"
-                    variant="secondary"
-                    onClick={() => dismiss(rec.id)}
-                  />
-                </div>
-              </div>
-            </Card>
-          ))}
+              </Card>
+            );
+          })}
         </div>
       )}
     </div>
