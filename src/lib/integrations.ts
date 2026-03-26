@@ -814,7 +814,7 @@ export function routerClient(env: Env) {
      * @canon chittycanon://gov/governance#core-types — disputes are Event (E) */
     classifyDispute: (payload: {
       entity_id: string;
-      entity_type: 'event';
+      entity_type: 'event'; // @canon: chittycanon://gov/governance#core-types — disputes are Event (E)
       title: string;
       dispute_type: string;
       amount?: number;

@@ -9,7 +9,7 @@ export const timelineRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables
 interface TimelineEvent {
   id: string;
   date: string;
-  type: 'fact' | 'deadline' | 'dispute' | 'docket' | 'document';
+  type: 'fact' | 'deadline' | 'dispute' | 'document';
   title: string;
   description?: string;
   source: string;
