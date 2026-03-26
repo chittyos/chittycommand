@@ -1,9 +1,10 @@
-import { useState, useRef } from 'react';
-import { api } from '../lib/api';
+import { useState, useRef, useEffect } from 'react';
+import { api, type Dispute } from '../lib/api';
 import { Card } from '../components/ui/Card';
+import { useToast } from '../lib/toast';
 import {
   Scale, FileText, Shield, AlertTriangle, CheckCircle,
-  Loader2, ChevronRight, Copy, Check,
+  Loader2, ChevronRight, Copy, Check, Save, Link2,
 } from 'lucide-react';
 
 type Step = 'idle' | 'synthesizing' | 'synthesized' | 'drafting' | 'drafted' | 'scanning' | 'scanned';
@@ -38,8 +39,54 @@ export function LitigationAssistant() {
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Dispute bridge state
+  const [disputes, setDisputes] = useState<Dispute[]>([]);
+  const [selectedDisputeId, setSelectedDisputeId] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [saved, setSaved] = useState(false);
+  const toast = useToast();
+
   const synthesisRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLDivElement>(null);
+
+  // Load disputes for the picker
+  useEffect(() => {
+    api.getDisputes().then(setDisputes).catch(() => {});
+  }, []);
+
+  // Pre-populate from dispute context if URL has ?dispute=ID
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const disputeId = params.get('dispute');
+    if (disputeId && disputes.length > 0) {
+      setSelectedDisputeId(disputeId);
+      const d = disputes.find(dd => dd.id === disputeId);
+      if (d) {
+        if (d.counterparty) setRecipient(d.counterparty);
+        if (d.description) setRawNotes(prev => prev || d.description || '');
+      }
+    }
+  }, [disputes]);
+
+  const saveToDispute = async () => {
+    if (!selectedDisputeId || !draft) return;
+    setSaving(true);
+    try {
+      await api.addCorrespondence(selectedDisputeId, {
+        direction: 'outbound',
+        channel: 'email',
+        subject: `Draft: ${focus}`,
+        content: draft,
+      });
+      setSaved(true);
+      toast.success('Saved to dispute', 'Draft added as correspondence');
+      setTimeout(() => setSaved(false), 3000);
+    } catch (e: unknown) {
+      toast.error('Save failed', e instanceof Error ? e.message : 'Unknown error');
+    } finally {
+      setSaving(false);
+    }
+  };
 
   const handleSynthesize = async () => {
     if (!rawNotes.trim()) return;
@@ -276,17 +323,45 @@ export function LitigationAssistant() {
                 </h3>
                 <div className="flex items-center gap-2">
                   {draft && (
-                    <button
-                      onClick={copyDraft}
-                      className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-card-muted transition-colors"
-                    >
-                      {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
-                      {copied ? 'Copied' : 'Copy'}
-                    </button>
+                    <>
+                      <button
+                        onClick={copyDraft}
+                        className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg bg-slate-100 hover:bg-slate-200 text-card-muted transition-colors"
+                      >
+                        {copied ? <Check size={12} className="text-emerald-600" /> : <Copy size={12} />}
+                        {copied ? 'Copied' : 'Copy'}
+                      </button>
+                      <button
+                        onClick={saveToDispute}
+                        disabled={!selectedDisputeId || saving}
+                        className="text-xs flex items-center gap-1 px-2 py-1 rounded-lg bg-chitty-100 hover:bg-chitty-200 text-chitty-700 transition-colors disabled:opacity-40"
+                      >
+                        {saved ? <Check size={12} className="text-emerald-600" /> : saving ? <Loader2 size={12} className="animate-spin" /> : <Save size={12} />}
+                        {saved ? 'Saved' : 'Save to Dispute'}
+                      </button>
+                    </>
                   )}
                   <span className="text-[9px] uppercase tracking-wider text-card-muted font-mono">Step 3</span>
                 </div>
               </div>
+              {/* Dispute picker */}
+              {draft && (
+                <div className="flex items-center gap-2 mb-3">
+                  <Link2 size={14} className="text-card-muted shrink-0" />
+                  <select
+                    value={selectedDisputeId}
+                    onChange={(e) => setSelectedDisputeId(e.target.value)}
+                    className="flex-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-card-text text-xs focus:outline-none"
+                  >
+                    <option value="">Link to dispute...</option>
+                    {disputes.map((d) => (
+                      <option key={d.id} value={d.id}>
+                        {d.title} ({d.counterparty})
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
               {draft ? (
                 <div className="bg-slate-50 rounded-lg p-4 text-sm text-card-text whitespace-pre-wrap font-serif leading-relaxed border border-slate-100">
                   {draft}

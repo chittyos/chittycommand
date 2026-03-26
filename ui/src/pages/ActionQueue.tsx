@@ -1,5 +1,5 @@
 import { useEffect, useState, useCallback, useRef } from 'react';
-import { api, type QueueItem, type QueueStats } from '../lib/api';
+import { api, type QueueItem, type QueueStats, type DecisionHistory } from '../lib/api';
 import { SwipeStack } from '../components/swipe/SwipeStack';
 import { SwipeStatsBar } from '../components/swipe/SwipeStatsBar';
 import { DesktopControls } from '../components/swipe/DesktopControls';
@@ -7,6 +7,10 @@ import { useKeyboardShortcuts } from '../hooks/useKeyboardShortcuts';
 import { ActionButton } from '../components/ui/ActionButton';
 import { Card } from '../components/ui/Card';
 import { useToast } from '../lib/toast';
+import { formatDate, formatCurrency, cn } from '../lib/utils';
+import { History, CheckCircle, XCircle, Clock } from 'lucide-react';
+
+type QueueTab = 'active' | 'history';
 
 export function ActionQueue() {
   const [items, setItems] = useState<QueueItem[]>([]);
@@ -14,6 +18,9 @@ export function ActionQueue() {
   const [loading, setLoading] = useState(true);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<QueueTab>('active');
+  const [history, setHistory] = useState<DecisionHistory[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
   const sessionId = useRef(crypto.randomUUID());
   const autoTriageAttempted = useRef(false);
   const toast = useToast();
@@ -82,10 +89,26 @@ export function ActionQueue() {
     }
   }, []);
 
+  const loadHistory = useCallback(async () => {
+    setHistoryLoading(true);
+    try {
+      const data = await api.getQueueHistory(50);
+      setHistory(data);
+    } catch {
+      // History is non-critical
+    } finally {
+      setHistoryLoading(false);
+    }
+  }, []);
+
   useEffect(() => {
     loadQueue();
     loadStats();
   }, [loadQueue, loadStats]);
+
+  useEffect(() => {
+    if (activeTab === 'history' && history.length === 0) loadHistory();
+  }, [activeTab, history.length, loadHistory]);
 
   const isPaymentAction = useCallback((item: QueueItem) => {
     const type = item.action_type;
@@ -150,15 +173,47 @@ export function ActionQueue() {
     return <div className="text-chrome-muted py-8 text-center">Loading action queue...</div>;
   }
 
+  const decisionIcon = (decision: string) => {
+    if (decision === 'approved') return <CheckCircle size={14} className="text-urgency-green" />;
+    if (decision === 'rejected') return <XCircle size={14} className="text-urgency-red" />;
+    return <Clock size={14} className="text-urgency-amber" />;
+  };
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
         <h1 className="text-lg lg:text-xl font-bold text-chrome-text">Action Queue</h1>
-        <ActionButton
-          label={generating ? 'Analyzing...' : 'Run Triage'}
-          onClick={handleGenerate}
-          loading={generating}
-        />
+        <div className="flex items-center gap-2">
+          {activeTab === 'active' && (
+            <ActionButton
+              label={generating ? 'Analyzing...' : 'Run Triage'}
+              onClick={handleGenerate}
+              loading={generating}
+            />
+          )}
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-card-hover rounded-lg p-1 border border-card-border">
+        <button
+          onClick={() => setActiveTab('active')}
+          className={cn(
+            'flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2',
+            activeTab === 'active' ? 'bg-chitty-600 text-white' : 'text-card-muted hover:text-card-text',
+          )}
+        >
+          Active ({items.length})
+        </button>
+        <button
+          onClick={() => setActiveTab('history')}
+          className={cn(
+            'flex-1 px-3 py-1.5 rounded-md text-sm font-medium transition-colors flex items-center justify-center gap-2',
+            activeTab === 'history' ? 'bg-chitty-600 text-white' : 'text-card-muted hover:text-card-text',
+          )}
+        >
+          <History size={14} /> History
+        </button>
       </div>
 
       {error && (
@@ -167,39 +222,87 @@ export function ActionQueue() {
         </Card>
       )}
 
-      {/* Stats bar */}
-      {stats.total > 0 && (
-        <SwipeStatsBar
-          approved={stats.approved}
-          rejected={stats.rejected}
-          deferred={stats.deferred}
-          total={stats.total}
-          savings={stats.savings}
-        />
+      {/* Active tab */}
+      {activeTab === 'active' && (
+        <>
+          {/* Stats bar */}
+          {stats.total > 0 && (
+            <SwipeStatsBar
+              approved={stats.approved}
+              rejected={stats.rejected}
+              deferred={stats.deferred}
+              total={stats.total}
+              savings={stats.savings}
+            />
+          )}
+
+          {/* Swipe stack */}
+          <SwipeStack
+            items={items}
+            onDecide={handleDecide}
+            onLoadMore={() => loadQueue(false)}
+          />
+
+          {/* Desktop controls */}
+          {items.length > 0 && (
+            <DesktopControls
+              onApprove={() => currentItem && handleDecide(currentItem.id, 'approved')}
+              onReject={() => currentItem && handleDecide(currentItem.id, 'rejected')}
+              onDefer={() => currentItem && handleDecide(currentItem.id, 'deferred')}
+              disabled={!currentItem}
+            />
+          )}
+
+          {/* Mobile swipe hint */}
+          {items.length > 0 && (
+            <p className="text-center text-card-muted text-xs sm:hidden">
+              Swipe right to approve, left to reject, up to defer
+            </p>
+          )}
+        </>
       )}
 
-      {/* Swipe stack */}
-      <SwipeStack
-        items={items}
-        onDecide={handleDecide}
-        onLoadMore={() => loadQueue(false)}
-      />
-
-      {/* Desktop controls */}
-      {items.length > 0 && (
-        <DesktopControls
-          onApprove={() => currentItem && handleDecide(currentItem.id, 'approved')}
-          onReject={() => currentItem && handleDecide(currentItem.id, 'rejected')}
-          onDefer={() => currentItem && handleDecide(currentItem.id, 'deferred')}
-          disabled={!currentItem}
-        />
-      )}
-
-      {/* Mobile swipe hint */}
-      {items.length > 0 && (
-        <p className="text-center text-card-muted text-xs sm:hidden">
-          Swipe right to approve, left to reject, up to defer
-        </p>
+      {/* History tab */}
+      {activeTab === 'history' && (
+        <div className="space-y-2">
+          {historyLoading ? (
+            <p className="text-card-muted text-center py-8">Loading history...</p>
+          ) : history.length === 0 ? (
+            <Card className="text-center py-8">
+              <p className="text-card-muted">No decision history yet.</p>
+              <p className="text-card-muted text-sm mt-1">Decisions you make in the Action Queue will appear here.</p>
+            </Card>
+          ) : (
+            history.map((h) => (
+              <Card key={h.id}>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3 min-w-0 flex-1">
+                    {decisionIcon(h.decision)}
+                    <div className="min-w-0 flex-1">
+                      <p className="text-card-text text-sm font-medium truncate">{h.title || 'Untitled'}</p>
+                      <div className="flex items-center gap-2 mt-0.5 flex-wrap">
+                        <span className={cn(
+                          'text-xs px-1.5 py-0.5 rounded-full font-medium',
+                          h.decision === 'approved' ? 'bg-green-100 text-green-700' :
+                          h.decision === 'rejected' ? 'bg-red-100 text-red-700' :
+                          'bg-amber-100 text-amber-700',
+                        )}>{h.decision}</span>
+                        {h.rec_type && <span className="text-xs text-card-muted">{h.rec_type}</span>}
+                        {h.obligation_payee && <span className="text-xs text-card-muted">{h.obligation_payee}</span>}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    {h.estimated_savings && parseFloat(h.estimated_savings) > 0 && (
+                      <p className="text-xs text-urgency-green font-mono">{formatCurrency(h.estimated_savings)}</p>
+                    )}
+                    <p className="text-xs text-card-muted">{formatDate(h.created_at)}</p>
+                  </div>
+                </div>
+              </Card>
+            ))
+          )}
+        </div>
       )}
     </div>
   );

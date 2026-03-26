@@ -1,12 +1,14 @@
 import { NavLink } from 'react-router-dom';
 import { cn } from '../lib/utils';
-import { LayoutDashboard, Zap, Receipt, ShieldAlert, Wallet, Settings } from 'lucide-react';
+import { LayoutDashboard, Zap, Receipt, ShieldAlert, Wallet, Scale, ListChecks, Settings } from 'lucide-react';
 
 const navItems = [
   { path: '/', label: 'Home', icon: LayoutDashboard },
   { path: '/queue', label: 'Queue', icon: Zap },
   { path: '/bills', label: 'Bills', icon: Receipt },
   { path: '/disputes', label: 'Disputes', icon: ShieldAlert },
+  { path: '/legal', label: 'Legal', icon: Scale },
+  { path: '/tasks', label: 'Tasks', icon: ListChecks },
   { path: '/accounts', label: 'Accounts', icon: Wallet },
   { path: '/settings', label: 'Settings', icon: Settings },
 ];

@@ -340,6 +340,39 @@ export const api = {
   spawnRecommendation: (id: string, data: { rec_type: string; priority?: number; action_type?: string; estimated_savings?: number }) =>
     request<{ task_id: string; recommendation_id: string }>(`/tasks/${id}/spawn-recommendation`, { method: 'POST', body: JSON.stringify(data) }),
 
+  // Legal CRUD
+  createLegalDeadline: (data: {
+    case_ref: string;
+    deadline_type: string;
+    title: string;
+    deadline_date: string;
+    description?: string;
+    case_system?: string;
+    status?: string;
+    urgency_score?: number;
+  }) =>
+    request<LegalDeadline>('/legal', { method: 'POST', body: JSON.stringify(data) }),
+  updateLegalDeadline: (id: string, data: Partial<{
+    status: string;
+    deadline_date: string;
+    urgency_score: number;
+  }>) =>
+    request<LegalDeadline>(`/legal/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
+
+  // Evidence Timeline
+  getCaseTimeline: (caseId: string, params?: { start?: string; end?: string }) => {
+    const qs = new URLSearchParams(
+      Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null)),
+    ).toString();
+    return request<TimelineResponse>(`/cases/${caseId}/timeline${qs ? '?' + qs : ''}`);
+  },
+  getCaseFacts: (caseId: string) =>
+    request<{ caseId: string; facts: TimelineFact[] }>(`/cases/${caseId}/facts`),
+  getCaseContradictions: (caseId: string) =>
+    request<{ caseId: string; contradictions: Contradiction[] }>(`/cases/${caseId}/contradictions`),
+  getPendingFacts: (caseId: string, limit?: number) =>
+    request<{ caseId: string; pending: TimelineFact[] }>(`/cases/${caseId}/pending-facts${limit ? '?limit=' + limit : ''}`),
+
   // Litigation Assistant
   litigationSynthesize: (data: { rawNotes: string; property?: string; caseNumber?: string }) =>
     request<{ synthesis: string }>('/litigation/synthesize', { method: 'POST', body: JSON.stringify(data) }),
@@ -754,4 +787,52 @@ export interface TaskAction {
   description: string;
   status: string;
   executed_at: string;
+}
+
+// ── Evidence Timeline Types ─────────────────────────────────
+
+export interface TimelineEvent {
+  id: string;
+  date: string;
+  type: 'fact' | 'deadline' | 'dispute' | 'document';
+  title: string;
+  description?: string;
+  source: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface TimelineResponse {
+  caseId: string;
+  eventCount: number;
+  dateRange: { earliest: string | null; latest: string | null };
+  sources: { facts: number; deadlines: number; disputes: number; documents: number };
+  events: TimelineEvent[];
+  warnings?: string[];
+  partial?: boolean;
+}
+
+export interface TimelineFact {
+  id: string;
+  case_id: string;
+  fact_text: string;
+  fact_type?: string;
+  fact_date?: string;
+  confidence?: number;
+  verification_status?: string;
+  source_quote?: string;
+  document_id?: string;
+  entities?: { name: string; entity_type: string; role?: string }[];
+  amounts?: { amount_value: number; currency: string; description?: string }[];
+}
+
+export interface Contradiction {
+  id: string;
+  fact_a_id: string;
+  fact_b_id: string;
+  fact_a_text: string;
+  fact_b_text: string;
+  contradiction_type: string;
+  severity: string;
+  resolution_status?: string;
+  explanation?: string;
 }

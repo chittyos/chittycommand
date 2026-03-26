@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
   LayoutDashboard, Zap, Receipt, ShieldAlert, Wallet, Scale, Gavel,
-  Lightbulb, TrendingUp, Upload, Settings, LogOut,
+  Lightbulb, TrendingUp, Upload, Settings, LogOut, BookOpen, ListChecks,
 } from 'lucide-react';
 import { logout, getUser } from '../lib/auth';
 
@@ -31,6 +31,7 @@ const navGroups: NavGroup[] = [
       { path: '/disputes', label: 'Active Disputes', icon: ShieldAlert },
       { path: '/legal', label: 'Legal Deadlines', icon: Scale },
       { path: '/litigation', label: 'Litigation AI', icon: Gavel },
+      { path: '/evidence', label: 'Evidence Timeline', icon: BookOpen },
     ],
   },
   {
@@ -38,6 +39,7 @@ const navGroups: NavGroup[] = [
     items: [
       { path: '/queue', label: 'Action Queue', icon: Zap },
       { path: '/recommendations', label: 'AI Recs', icon: Lightbulb },
+      { path: '/tasks', label: 'Task Board', icon: ListChecks },
     ],
   },
   {

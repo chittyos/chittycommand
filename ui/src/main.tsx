@@ -13,6 +13,8 @@ import { CashFlow } from './pages/CashFlow';
 import { Recommendations } from './pages/Recommendations';
 import { Settings } from './pages/Settings';
 import { ActionQueue } from './pages/ActionQueue';
+import { Evidence } from './pages/Evidence';
+import { Tasks } from './pages/Tasks';
 import { Login } from './pages/Login';
 import { isAuthenticated } from './lib/auth';
 import { ToastProvider } from './lib/toast';
@@ -41,6 +43,8 @@ ReactDOM.createRoot(document.getElementById('root')!).render(
             <Route path="/litigation" element={<LitigationAssistant />} />
             <Route path="/recommendations" element={<Recommendations />} />
             <Route path="/cashflow" element={<CashFlow />} />
+            <Route path="/evidence" element={<Evidence />} />
+            <Route path="/tasks" element={<Tasks />} />
             <Route path="/upload" element={<Upload />} />
             <Route path="/settings" element={<Settings />} />
           </Route>
