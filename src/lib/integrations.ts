@@ -41,7 +41,7 @@ export function ledgerClient(env: Env) {
   async function get<T>(path: string): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, { headers });
-      if (!res.ok) { console.error(`[ledger] GET ${path} failed: ${res.status}`); return null; }
+      if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[ledger] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) { console.error(`[ledger] GET ${path} error:`, err); return null; }
   }
@@ -51,7 +51,7 @@ export function ledgerClient(env: Env) {
       const res = await fetch(`${baseUrl}${path}`, {
         method: 'POST', headers: { ...headers, 'Content-Type': 'application/json' }, body: JSON.stringify(body),
       });
-      if (!res.ok) { console.error(`[ledger] POST ${path} failed: ${res.status}`); return null; }
+      if (!res.ok) { const errBody = await res.text().catch(() => ''); console.error(`[ledger] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) { console.error(`[ledger] POST ${path} error:`, err); return null; }
   }
@@ -127,7 +127,7 @@ export function evidenceClient(env: Env) {
   async function get<T>(path: string): Promise<T | null> {
     try {
       const res = await fetch(`${baseUrl}${path}`, { headers });
-      if (!res.ok) { console.error(`[evidence] GET ${path} failed: ${res.status}`); return null; }
+      if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[evidence] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) {
       console.error(`[evidence] GET ${path} error:`, err);
@@ -142,7 +142,7 @@ export function evidenceClient(env: Env) {
         headers: { ...headers, 'Content-Type': 'application/json' },
         body: JSON.stringify(body),
       });
-      if (!res.ok) { console.error(`[evidence] POST ${path} failed: ${res.status}`); return null; }
+      if (!res.ok) { const errBody = await res.text().catch(() => ''); console.error(`[evidence] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) {
       console.error(`[evidence] POST ${path} error:`, err);
@@ -236,7 +236,7 @@ export function financeClient(env: Env) {
       const res = await fetch(`${baseUrl}${path}`, {
         headers: { 'X-Source-Service': 'chittycommand' },
       });
-      if (!res.ok) return null;
+      if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[finance] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) {
       console.error(`[finance] ${path} error:`, err);
@@ -288,7 +288,8 @@ export function chargeClient(env: Env) {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        console.error(`[charge] ${path} failed: ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.error(`[charge] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -435,7 +436,8 @@ export function connectClient(env: Env) {
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
-        console.error(`[connect] POST ${path} failed: ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.error(`[connect] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -464,7 +466,7 @@ export function connectClient(env: Env) {
         const res = await fetch(`${baseUrl}/api/discover/${encodeURIComponent(serviceName)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) { console.error(`[connect/discover] ${serviceName} failed: ${res.status}`); return null; }
+        if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[connect/discover] ${serviceName} failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
         const data = await res.json() as { url: string };
         // Store in KV with TTL
         try { await env.COMMAND_KV.put(key, JSON.stringify({ url: data.url }), { expirationTtl: 300 }); } catch (err) { console.warn('[connect/discover] KV write failed:', err); }
@@ -555,7 +557,8 @@ export function mercuryClient(token: string) {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       });
       if (!res.ok) {
-        console.error(`[mercury] ${path} failed: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[mercury] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -590,7 +593,7 @@ export function booksClient(env: Env) {
         const res = await fetch(`${baseUrl}/api/summary`, {
           headers: { 'X-Source-Service': 'chittycommand' },
         });
-        if (!res.ok) return null;
+        if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[books] GET /api/summary failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
         return await res.json() as Record<string, unknown>;
       } catch (err) {
         console.error('[books] summary error:', err);
@@ -606,7 +609,8 @@ export function booksClient(env: Env) {
           body: JSON.stringify(payload),
         });
         if (!res.ok) {
-          console.error(`[books] record-transaction failed: ${res.status}`);
+          const errBody = await res.text().catch(() => '');
+          console.error(`[books] POST /api/transaction failed: ${res.status} — ${errBody.slice(0, 500)}`);
           return null;
         }
         return await res.json() as Record<string, unknown>;
@@ -630,7 +634,7 @@ export function assetsClient(env: Env) {
       const res = await fetch(`${baseUrl}${path}`, {
         headers: { 'X-Source-Service': 'chittycommand' },
       });
-      if (!res.ok) return null;
+      if (!res.ok) { const body = await res.text().catch(() => ''); console.error(`[assets] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`); return null; }
       return await res.json() as T;
     } catch (err) {
       console.error(`[assets] ${path} error:`, err);
@@ -646,7 +650,8 @@ export function assetsClient(env: Env) {
         body: JSON.stringify(body),
       });
       if (!res.ok) {
-        console.error(`[assets] ${path} failed: ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.error(`[assets] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -684,7 +689,8 @@ export function scrapeClient(env: Env) {
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) {
-        console.error(`[scrape] ${path} failed: ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.error(`[scrape] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -746,7 +752,8 @@ export function routerClient(env: Env) {
         signal: AbortSignal.timeout(60000),
       });
       if (!res.ok) {
-        console.error(`[router] ${path} failed: ${res.status}`);
+        const errBody = await res.text().catch(() => '');
+        console.error(`[router] POST ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
@@ -764,7 +771,8 @@ export function routerClient(env: Env) {
         signal: AbortSignal.timeout(10000),
       });
       if (!res.ok) {
-        console.error(`[router] GET ${path} failed: ${res.status}`);
+        const body = await res.text().catch(() => '');
+        console.error(`[router] GET ${path} failed: ${res.status} — ${body.slice(0, 500)}`);
         return null;
       }
       return await res.json() as T;
