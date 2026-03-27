@@ -36,6 +36,7 @@ export function LitigationAssistant() {
   const [synthesis, setSynthesis] = useState('');
   const [draft, setDraft] = useState('');
   const [flags, setFlags] = useState<QCFlag[]>([]);
+  const [qcWarning, setQcWarning] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
@@ -95,6 +96,7 @@ export function LitigationAssistant() {
     setSynthesis('');
     setDraft('');
     setFlags([]);
+    setQcWarning(null);
 
     try {
       const res = await api.litigationSynthesize({ rawNotes, property, caseNumber });
@@ -131,6 +133,7 @@ export function LitigationAssistant() {
     try {
       const res = await api.litigationQC({ rawNotes, draftEmail: draft });
       setFlags(res.flags || []);
+      setQcWarning(res.warning || null);
       setStep('scanned');
     } catch (err) {
       setError(err instanceof Error ? err.message : 'QC scan failed');
@@ -384,7 +387,20 @@ export function LitigationAssistant() {
               <span className="text-[9px] uppercase tracking-wider text-card-muted font-mono">Step 4</span>
             </div>
             {step === 'scanned' ? (
-              flags.length === 0 ? (
+              flags.length === 0 && qcWarning ? (
+                <div className="text-center py-6">
+                  <AlertTriangle size={32} className="mx-auto text-amber-500 mb-2" />
+                  <p className="font-semibold text-amber-700">Scan Incomplete</p>
+                  <p className="text-sm text-card-muted mt-1">{qcWarning}</p>
+                  <button
+                    onClick={handleQC}
+                    disabled={isLoading}
+                    className="mt-3 text-xs px-3 py-1.5 rounded-lg bg-amber-100 hover:bg-amber-200 text-amber-700 transition-colors"
+                  >
+                    Retry Scan
+                  </button>
+                </div>
+              ) : flags.length === 0 ? (
                 <div className="text-center py-6">
                   <CheckCircle size={32} className="mx-auto text-emerald-500 mb-2" />
                   <p className="font-semibold text-emerald-700">Clear</p>

@@ -46,9 +46,9 @@ litigationRoutes.post('/synthesize', async (c) => {
 
     if (result) {
       if (!result.aiEnabled) {
-        return c.json({ synthesis: rawNotes, passthrough: true });
+        return c.json({ synthesis: rawNotes, passthrough: true, source: 'passthrough' });
       }
-      return c.json({ synthesis: result.result });
+      return c.json({ synthesis: result.result, source: 'chittyconnect' });
     }
     console.warn('[litigation/synthesize] ChittyConnect execute failed, falling back to direct AI');
   }
@@ -59,7 +59,7 @@ litigationRoutes.post('/synthesize', async (c) => {
       FALLBACK_SYNTHESIZE_PROMPT,
       `Raw notes:\n${rawNotes}${property ? `\nProperty: ${property}` : ''}${caseNumber ? `\nCase: ${caseNumber}` : ''}`,
     );
-    return c.json({ synthesis: result });
+    return c.json({ synthesis: result, source: 'ai-gateway-fallback' });
   } catch (err) {
     console.error('[litigation/synthesize]', err instanceof Error ? err.message : err);
     return c.json({ error: 'AI synthesis failed. Please try again.' }, 502);
@@ -182,9 +182,9 @@ litigationRoutes.post('/draft', async (c) => {
 
     if (result) {
       if (!result.aiEnabled) {
-        return c.json({ draft: synthesizedFacts, passthrough: true });
+        return c.json({ draft: synthesizedFacts, passthrough: true, source: 'passthrough' });
       }
-      return c.json({ draft: result.result });
+      return c.json({ draft: result.result, source: 'chittyconnect' });
     }
     console.warn('[litigation/draft] ChittyConnect execute failed, falling back to direct AI');
   }
@@ -194,7 +194,7 @@ litigationRoutes.post('/draft', async (c) => {
       FALLBACK_DRAFT_PROMPT.replace('{{recipient}}', recipient).replace('{{focus}}', focus),
       `Synthesized facts:\n${synthesizedFacts}`,
     );
-    return c.json({ draft: result });
+    return c.json({ draft: result, source: 'ai-gateway-fallback' });
   } catch (err) {
     console.error('[litigation/draft]', err instanceof Error ? err.message : err);
     return c.json({ error: 'AI drafting failed. Please try again.' }, 502);
@@ -223,13 +223,19 @@ litigationRoutes.post('/qc', async (c) => {
 
     if (result) {
       if (!result.aiEnabled) {
-        return c.json({ flags: [], passthrough: true });
+        return c.json({ flags: [], passthrough: true, warning: 'AI not enabled — QC scan skipped' });
       }
       try {
         const cleaned = result.result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
-        return c.json({ flags: JSON.parse(cleaned) });
-      } catch {
-        return c.json({ flags: [], warning: 'QC analysis returned non-parseable results' });
+        const flags = JSON.parse(cleaned);
+        if (!Array.isArray(flags)) {
+          console.warn('[litigation/qc] Parsed result is not an array:', typeof flags);
+          return c.json({ flags: [], warning: 'QC analysis returned unexpected format — scan incomplete' });
+        }
+        return c.json({ flags });
+      } catch (parseErr) {
+        console.error('[litigation/qc] Parse failed:', parseErr instanceof Error ? parseErr.message : parseErr);
+        return c.json({ flags: [], warning: 'QC analysis returned non-parseable results — scan incomplete' });
       }
     }
     console.warn('[litigation/qc] ChittyConnect execute failed, falling back to direct AI');
@@ -242,11 +248,15 @@ litigationRoutes.post('/qc', async (c) => {
     );
     const cleaned = result.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
     const flags = JSON.parse(cleaned);
+    if (!Array.isArray(flags)) {
+      console.warn('[litigation/qc] Fallback parsed result is not an array:', typeof flags);
+      return c.json({ flags: [], warning: 'QC analysis returned unexpected format — scan incomplete' });
+    }
     return c.json({ flags });
   } catch (err) {
     console.error('[litigation/qc]', err instanceof Error ? err.message : err);
     if (err instanceof SyntaxError) {
-      return c.json({ flags: [], warning: 'QC analysis returned non-parseable results' });
+      return c.json({ flags: [], warning: 'QC analysis returned non-parseable results — scan incomplete' });
     }
     return c.json({ error: 'AI QC scan failed. Please try again.' }, 502);
   }
@@ -294,7 +304,11 @@ async function callAIGatewayFallback(
     choices?: { message?: { content?: string } }[];
   };
 
-  return result.choices?.[0]?.message?.content || '';
+  const content = result.choices?.[0]?.message?.content || '';
+  if (!content.trim()) {
+    throw new Error('AI gateway returned empty response');
+  }
+  return content;
 }
 
 // ── Fallback prompts (used until ChittyConnect prompt registry is seeded) ──
