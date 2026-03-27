@@ -364,14 +364,14 @@ export const api = {
     const qs = new URLSearchParams(
       Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null)),
     ).toString();
-    return request<TimelineResponse>(`/cases/${caseId}/timeline${qs ? '?' + qs : ''}`);
+    return request<TimelineResponse>(`/cases/${encodeURIComponent(caseId)}/timeline${qs ? '?' + qs : ''}`);
   },
   getCaseFacts: (caseId: string) =>
-    request<{ caseId: string; facts: TimelineFact[] }>(`/cases/${caseId}/facts`),
+    request<{ caseId: string; facts: TimelineFact[] }>(`/cases/${encodeURIComponent(caseId)}/facts`),
   getCaseContradictions: (caseId: string) =>
-    request<{ caseId: string; contradictions: Contradiction[] }>(`/cases/${caseId}/contradictions`),
+    request<{ caseId: string; contradictions: Contradiction[] }>(`/cases/${encodeURIComponent(caseId)}/contradictions`),
   getPendingFacts: (caseId: string, limit?: number) =>
-    request<{ caseId: string; pending: TimelineFact[] }>(`/cases/${caseId}/pending-facts${limit ? '?limit=' + limit : ''}`),
+    request<{ caseId: string; pending: TimelineFact[] }>(`/cases/${encodeURIComponent(caseId)}/pending-facts${limit ? '?limit=' + limit : ''}`),
 
   // Litigation Assistant
   litigationSynthesize: (data: { rawNotes: string; property?: string; caseNumber?: string }) =>

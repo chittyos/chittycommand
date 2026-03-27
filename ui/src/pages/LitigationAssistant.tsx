@@ -50,24 +50,33 @@ export function LitigationAssistant() {
   const synthesisRef = useRef<HTMLDivElement>(null);
   const draftRef = useRef<HTMLDivElement>(null);
 
+  const [disputeLoadError, setDisputeLoadError] = useState(false);
+  const prePopulated = useRef(false);
+
   // Load disputes for the picker
   useEffect(() => {
-    api.getDisputes().then(setDisputes).catch(() => {});
+    api.getDisputes()
+      .then(setDisputes)
+      .catch(() => setDisputeLoadError(true));
   }, []);
 
-  // Pre-populate from dispute context if URL has ?dispute=ID
+  // Pre-populate from dispute context if URL has ?dispute=ID (once only)
   useEffect(() => {
+    if (prePopulated.current) return;
     const params = new URLSearchParams(window.location.search);
     const disputeId = params.get('dispute');
     if (disputeId && disputes.length > 0) {
+      prePopulated.current = true;
       setSelectedDisputeId(disputeId);
       const d = disputes.find(dd => dd.id === disputeId);
       if (d) {
         if (d.counterparty) setRecipient(d.counterparty);
         if (d.description) setRawNotes(prev => prev || d.description || '');
+      } else {
+        toast.error('Dispute not found', `Linked dispute ${disputeId.slice(0, 8)}... was not found`);
       }
     }
-  }, [disputes]);
+  }, [disputes, toast]);
 
   const saveToDispute = async () => {
     if (!selectedDisputeId || !draft) return;
@@ -356,7 +365,7 @@ export function LitigationAssistant() {
                     onChange={(e) => setSelectedDisputeId(e.target.value)}
                     className="flex-1 px-2 py-1.5 rounded-lg bg-slate-50 border border-slate-200 text-card-text text-xs focus:outline-none"
                   >
-                    <option value="">Link to dispute...</option>
+                    <option value="">{disputeLoadError ? 'Failed to load disputes' : 'Link to dispute...'}</option>
                     {disputes.map((d) => (
                       <option key={d.id} value={d.id}>
                         {d.title} ({d.counterparty})

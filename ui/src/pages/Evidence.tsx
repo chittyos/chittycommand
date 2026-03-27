@@ -23,14 +23,22 @@ export function Evidence() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [contradictionError, setContradictionError] = useState(false);
+
   const loadTimeline = useCallback(async () => {
     if (!caseId.trim()) return;
     setLoading(true);
     setError(null);
+    setTimeline(null);
+    setContradictions([]);
+    setContradictionError(false);
     try {
       const [tl, ctr] = await Promise.all([
         api.getCaseTimeline(caseId),
-        api.getCaseContradictions(caseId).catch(() => ({ caseId, contradictions: [] })),
+        api.getCaseContradictions(caseId).catch(() => {
+          setContradictionError(true);
+          return { caseId, contradictions: [] as Contradiction[] };
+        }),
       ]);
       setTimeline(tl);
       setContradictions(ctr.contradictions);
@@ -87,9 +95,11 @@ export function Evidence() {
             <MetricCard label="Contradictions" value={String(contradictions.length)} valueClassName={contradictions.length > 0 ? 'text-urgency-red' : 'text-urgency-green'} />
           </div>
 
-          {timeline.warnings && timeline.warnings.length > 0 && (
+          {(timeline.partial || contradictionError || (timeline.warnings && timeline.warnings.length > 0)) && (
             <div className="bg-amber-500/10 border border-amber-500/30 rounded-xl p-3 text-amber-400 text-sm">
-              {timeline.warnings.map((w, i) => <p key={i}>{w}</p>)}
+              {timeline.partial && <p>Warning: Timeline data may be incomplete — some sources returned partial results.</p>}
+              {contradictionError && <p>Warning: Contradictions could not be loaded — data may be incomplete.</p>}
+              {timeline.warnings?.map((w, i) => <p key={i}>{w}</p>)}
             </div>
           )}
 
