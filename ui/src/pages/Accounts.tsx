@@ -4,7 +4,7 @@ import { Card } from '../components/ui/Card';
 import { ActionButton } from '../components/ui/ActionButton';
 import { formatCurrency, formatDate, cn } from '../lib/utils';
 import { useToast } from '../lib/toast';
-import { ChevronDown, ChevronUp, RefreshCw, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
+import { ChevronDown, ChevronUp, ArrowDownLeft, ArrowUpRight } from 'lucide-react';
 
 export function Accounts() {
   const [accounts, setAccounts] = useState<Account[]>([]);
@@ -12,6 +12,7 @@ export function Accounts() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [txLoading, setTxLoading] = useState(false);
+  const [txError, setTxError] = useState<string | null>(null);
   const [syncing, setSyncing] = useState(false);
   const toast = useToast();
 
@@ -27,11 +28,13 @@ export function Accounts() {
     }
     setExpandedId(id);
     setTxLoading(true);
+    setTxError(null);
     try {
       const data = await api.getAccount(id);
       setTransactions(data.transactions || []);
-    } catch {
+    } catch (e: unknown) {
       setTransactions([]);
+      setTxError(e instanceof Error ? e.message : 'Failed to load transactions');
     } finally {
       setTxLoading(false);
     }
@@ -129,6 +132,8 @@ export function Accounts() {
                   <div className="ml-4 border-l-2 border-card-border pl-4 mt-1 mb-2">
                     {txLoading ? (
                       <p className="text-card-muted text-sm py-4">Loading transactions...</p>
+                    ) : txError ? (
+                      <p className="text-urgency-red text-sm py-4">Failed to load transactions: {txError}</p>
                     ) : transactions.length === 0 ? (
                       <p className="text-card-muted text-sm py-4">No recent transactions</p>
                     ) : (

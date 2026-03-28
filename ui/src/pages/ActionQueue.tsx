@@ -89,13 +89,17 @@ export function ActionQueue() {
     }
   }, []);
 
+  const [historyError, setHistoryError] = useState(false);
+
   const loadHistory = useCallback(async () => {
     setHistoryLoading(true);
+    setHistoryError(false);
     try {
       const data = await api.getQueueHistory(50);
       setHistory(data);
-    } catch {
-      // History is non-critical
+    } catch (e: unknown) {
+      console.error('[ActionQueue] history load failed:', e);
+      setHistoryError(true);
     } finally {
       setHistoryLoading(false);
     }
@@ -267,6 +271,11 @@ export function ActionQueue() {
         <div className="space-y-2">
           {historyLoading ? (
             <p className="text-card-muted text-center py-8">Loading history...</p>
+          ) : historyError ? (
+            <Card className="text-center py-8">
+              <p className="text-urgency-red">Failed to load decision history.</p>
+              <ActionButton label="Retry" variant="secondary" onClick={loadHistory} className="mt-2" />
+            </Card>
           ) : history.length === 0 ? (
             <Card className="text-center py-8">
               <p className="text-card-muted">No decision history yet.</p>

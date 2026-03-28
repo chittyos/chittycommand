@@ -92,15 +92,21 @@ export interface TokenActionResponse {
   result: unknown;
 }
 
+function buildQs(params?: Record<string, unknown>): string {
+  if (!params) return '';
+  const qs = new URLSearchParams(
+    Object.fromEntries(Object.entries(params).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])),
+  ).toString();
+  return qs ? '?' + qs : '';
+}
+
 export const api = {
   // Dashboard
   getDashboard: () => request<DashboardData>('/dashboard'),
 
   // Obligations
-  getObligations: (params?: { status?: string; category?: string }) => {
-    const qs = new URLSearchParams(params as Record<string, string>).toString();
-    return request<Obligation[]>(`/obligations${qs ? '?' + qs : ''}`);
-  },
+  getObligations: (params?: { status?: string; category?: string }) =>
+    request<Obligation[]>(`/obligations${buildQs(params)}`),
   getCalendar: (start: string, end: string) =>
     request<Obligation[]>(`/obligations/calendar?start=${start}&end=${end}`),
   createObligation: (data: Partial<Obligation>) =>
@@ -325,12 +331,8 @@ export const api = {
     }),
 
   // Tasks
-  getTasks: (params?: { status?: string; task_type?: string; source?: string; limit?: number; offset?: number }) => {
-    const qs = new URLSearchParams(
-      Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null).map(([k, v]) => [k, String(v)])),
-    ).toString();
-    return request<{ tasks: Task[]; total: number; limit: number; offset: number }>(`/tasks${qs ? '?' + qs : ''}`);
-  },
+  getTasks: (params?: { status?: string; task_type?: string; source?: string; limit?: number; offset?: number }) =>
+    request<{ tasks: Task[]; total: number; limit: number; offset: number }>(`/tasks${buildQs(params)}`),
   getTask: (id: string) =>
     request<{ task: Task; actions: TaskAction[] }>(`/tasks/${id}`),
   updateTaskStatus: (id: string, status: string, notes?: string) =>
@@ -360,18 +362,14 @@ export const api = {
     request<LegalDeadline>(`/legal/${id}`, { method: 'PATCH', body: JSON.stringify(data) }),
 
   // Evidence Timeline
-  getCaseTimeline: (caseId: string, params?: { start?: string; end?: string }) => {
-    const qs = new URLSearchParams(
-      Object.fromEntries(Object.entries(params || {}).filter(([, v]) => v != null)),
-    ).toString();
-    return request<TimelineResponse>(`/cases/${caseId}/timeline${qs ? '?' + qs : ''}`);
-  },
+  getCaseTimeline: (caseId: string, params?: { start?: string; end?: string }) =>
+    request<TimelineResponse>(`/cases/${encodeURIComponent(caseId)}/timeline${buildQs(params)}`),
   getCaseFacts: (caseId: string) =>
-    request<{ caseId: string; facts: TimelineFact[] }>(`/cases/${caseId}/facts`),
+    request<{ caseId: string; facts: TimelineFact[] }>(`/cases/${encodeURIComponent(caseId)}/facts`),
   getCaseContradictions: (caseId: string) =>
-    request<{ caseId: string; contradictions: Contradiction[] }>(`/cases/${caseId}/contradictions`),
+    request<{ caseId: string; contradictions: Contradiction[] }>(`/cases/${encodeURIComponent(caseId)}/contradictions`),
   getPendingFacts: (caseId: string, limit?: number) =>
-    request<{ caseId: string; pending: TimelineFact[] }>(`/cases/${caseId}/pending-facts${limit ? '?limit=' + limit : ''}`),
+    request<{ caseId: string; pending: TimelineFact[] }>(`/cases/${encodeURIComponent(caseId)}/pending-facts${limit ? '?limit=' + limit : ''}`),
 
   // Litigation Assistant
   litigationSynthesize: (data: { rawNotes: string; property?: string; caseNumber?: string }) =>

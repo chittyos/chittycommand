@@ -5,7 +5,7 @@ import { MetricCard } from '../components/ui/MetricCard';
 import { ActionButton } from '../components/ui/ActionButton';
 import { formatCurrency, cn } from '../lib/utils';
 import { useToast } from '../lib/toast';
-import { Calendar, Mail, Globe, Clock, X } from 'lucide-react';
+import { X } from 'lucide-react';
 
 type FollowThrough = {
   recId: string;
@@ -63,10 +63,11 @@ export function Recommendations() {
 
     try {
       await api.actOnRecommendation(id, { action_taken: action });
-      setRecs(recs.filter(r => r.id !== id));
+      setRecs(prev => prev.filter(r => r.id !== id));
       toast.success('Action taken', `Recommendation marked as ${action}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Action failed';
+      console.error('[Recommendations] act failed:', msg, e);
       setError(msg);
     }
   };
@@ -79,7 +80,7 @@ export function Recommendations() {
 
     try {
       await api.actOnRecommendation(followThrough.recId, { action_taken: action });
-      setRecs(recs.filter(r => r.id !== followThrough.recId));
+      setRecs(prev => prev.filter(r => r.id !== followThrough.recId));
       toast.success('Action completed', `${followThrough.type} action recorded`);
       setFollowThrough(null);
       setDeferDate('');
@@ -94,6 +95,7 @@ export function Recommendations() {
       setRecs(recs.filter(r => r.id !== id));
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Dismiss failed';
+      console.error('[Recommendations] dismiss failed:', msg, e);
       setError(msg);
     }
   };
@@ -125,14 +127,6 @@ export function Recommendations() {
       prepare_legal: 'Prepare', review_cashflow: 'Review', execute_browser: 'Automate', send_email: 'Send Email',
     };
     return labels[type || ''] || 'Act';
-  };
-
-  const actionIcon = (type: string | null) => {
-    if (type === 'defer') return Calendar;
-    if (type === 'send_email') return Mail;
-    if (type === 'execute_browser') return Globe;
-    if (type === 'negotiate') return Clock;
-    return null;
   };
 
   const activeRec = followThrough ? recs.find(r => r.id === followThrough.recId) : null;
@@ -232,7 +226,6 @@ export function Recommendations() {
       ) : (
         <div className="space-y-2">
           {recs.map((rec) => {
-            const Icon = actionIcon(rec.action_type);
             return (
               <Card key={rec.id} urgency={rec.priority <= 2 ? 'amber' : rec.priority <= 3 ? 'green' : null}>
                 <div className="space-y-3">

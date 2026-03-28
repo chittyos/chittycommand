@@ -24,6 +24,7 @@ export function Legal() {
   });
 
   const load = () => {
+    setError(null);
     api.getLegalDeadlines().then(setDeadlines).catch((e) => setError(e.message));
   };
 
