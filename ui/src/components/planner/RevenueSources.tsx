@@ -6,6 +6,8 @@ import { ActionButton } from '../ui/ActionButton';
 import { useToast } from '../../lib/toast';
 import { Plus, X, Pencil, Check } from 'lucide-react';
 
+const emptyForm = { description: '', amount: '', recurrence: 'monthly', source: 'manual', confidence: '0.8' };
+
 export function RevenueSources() {
   const [sources, setSources] = useState<RevenueSource[]>([]);
   const [summary, setSummary] = useState({ count: 0, total_monthly: 0, weighted_monthly: 0 });
@@ -15,8 +17,6 @@ export function RevenueSources() {
   const [editingId, setEditingId] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const toast = useToast();
-
-  const emptyForm = { description: '', amount: '', recurrence: 'monthly', source: 'manual', confidence: '0.8' };
   const [form, setForm] = useState(emptyForm);
 
   const load = useCallback(async () => {

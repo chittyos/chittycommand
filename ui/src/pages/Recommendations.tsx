@@ -63,7 +63,7 @@ export function Recommendations() {
 
     try {
       await api.actOnRecommendation(id, { action_taken: action });
-      setRecs(recs.filter(r => r.id !== id));
+      setRecs(prev => prev.filter(r => r.id !== id));
       toast.success('Action taken', `Recommendation marked as ${action}`);
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : 'Action failed';
@@ -80,7 +80,7 @@ export function Recommendations() {
 
     try {
       await api.actOnRecommendation(followThrough.recId, { action_taken: action });
-      setRecs(recs.filter(r => r.id !== followThrough.recId));
+      setRecs(prev => prev.filter(r => r.id !== followThrough.recId));
       toast.success('Action completed', `${followThrough.type} action recorded`);
       setFollowThrough(null);
       setDeferDate('');
