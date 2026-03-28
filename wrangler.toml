@@ -3,10 +3,10 @@ account_id = "0bc21e3a5a9de1a4cc843be9c3e98121"
 main = "src/index.ts"
 compatibility_date = "2026-01-15"
 compatibility_flags = ["nodejs_compat"]
-routes = [
-  { pattern = "command.chitty.cc", custom_domain = true }
-  # { pattern = "command.mychitty.com", custom_domain = true }  # DNS conflict — external records exist
-]
+# Custom domain (command.chitty.cc) managed via CF dashboard — no zone token needed
+
+[placement]
+mode = "smart"
 
 [vars]
 ENVIRONMENT = "production"
@@ -49,6 +49,18 @@ id = "64eef343b99b46ac909dbbcc1c4b2dee"
 # AI Gateway binding
 [ai]
 binding = "AI"
+
+# Observability — match dashboard config
+[observability]
+enabled = true
+head_sampling_rate = 1
+[observability.logs]
+enabled = true
+head_sampling_rate = 1
+invocation_logs = true
+[observability.traces]
+enabled = true
+head_sampling_rate = 1
 
 # ChittyTrack observability
 [[tail_consumers]]
