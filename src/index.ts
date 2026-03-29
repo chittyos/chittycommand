@@ -1,5 +1,6 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
+import { agentsMiddleware } from 'hono-agents';
 import { authMiddleware, bridgeAuthMiddleware, mcpAuthMiddleware } from './middleware/auth';
 import type { AuthVariables } from './middleware/auth';
 import { getDb } from './lib/db';
@@ -32,11 +33,15 @@ import { tokenManagementRoutes } from './routes/token-management';
 import { jobRoutes } from './routes/jobs';
 import { timelineRoutes } from './routes/timeline';
 
+// Re-export ActionAgent DO class so the runtime can find it
+export { ActionAgent } from './agents/action-agent';
+
 export type Env = {
   AI: Ai;
   HYPERDRIVE: Hyperdrive;
   DOCUMENTS: R2Bucket;
   COMMAND_KV: KVNamespace;
+  ACTION_AGENT: DurableObjectNamespace;
   DATABASE_URL?: string;
   ENVIRONMENT?: string;
   CHITTYAUTH_URL?: string;
@@ -144,6 +149,10 @@ app.route('/api/v1', tokenManagementRoutes);
 app.route('/api/v1', jobRoutes);
 // Case timeline & evidence (authenticated)
 app.route('/api/v1', timelineRoutes);
+
+// ActionAgent — authenticated, per-user Durable Object with tool-use chat
+app.use('/agent/*', authMiddleware);
+app.use('/agent/*', agentsMiddleware());
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
