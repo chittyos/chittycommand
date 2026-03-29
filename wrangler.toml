@@ -50,6 +50,16 @@ id = "64eef343b99b46ac909dbbcc1c4b2dee"
 [ai]
 binding = "AI"
 
+# ActionAgent Durable Object (Agents SDK)
+[durable_objects]
+bindings = [
+  { name = "ACTION_AGENT", class_name = "ActionAgent" }
+]
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ActionAgent"]
+
 # Observability — match dashboard config
 [observability]
 enabled = true
