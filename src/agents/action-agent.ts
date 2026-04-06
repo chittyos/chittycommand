@@ -7,6 +7,7 @@ import { getDb } from '../lib/db';
 import { buildSystemPrompt } from './system-prompt';
 import { createFinancialTools } from './tools/financial';
 import { createStorageTools } from './tools/storage';
+import { createActionTools } from './tools/actions';
 import type { Env } from '../index';
 
 /**
@@ -43,6 +44,7 @@ export class ActionAgent extends AIChatAgent<Env> {
     const tools = {
       ...createFinancialTools(sql),
       ...createStorageTools(),
+      ...createActionTools(this.env, sql),
     };
 
     const modelMessages = await convertToModelMessages(this.messages);
