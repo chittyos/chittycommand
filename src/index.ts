@@ -54,6 +54,8 @@ export type Env = {
   CHITTYASSETS_URL?: string;
   CHITTYSCRAPE_URL?: string;
   CHITTYROUTER_URL?: string;
+  CHITTYGOV_URL?: string;
+  CHITTYGOV_TOKEN?: string;
   CHITTYAGENT_SCRAPE_URL?: string;
   CHITTYREGISTER_URL?: string;
   CHITTYCHAT_DATA_API?: string;

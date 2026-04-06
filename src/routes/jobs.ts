@@ -65,7 +65,7 @@ jobRoutes.post('/jobs', async (c) => {
     return c.json({ error: 'job_type and target are required' }, 400);
   }
 
-  const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'];
+  const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape', 'sos_status', 'recorder_filings', 'assessor_check'];
   if (!validTypes.includes(body.job_type)) {
     return c.json({ error: `Invalid job_type. Must be one of: ${validTypes.join(', ')}` }, 400);
   }
