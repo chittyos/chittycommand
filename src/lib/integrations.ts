@@ -1033,6 +1033,9 @@ export function govClient(env: Env) {
     'Content-Type': 'application/json',
     'X-Source-Service': 'chittycommand',
   };
+  if (env.CHITTYGOV_TOKEN) {
+    headers['Authorization'] = `Bearer ${env.CHITTYGOV_TOKEN}`;
+  }
 
   return {
     getComplianceCalendar: async (params?: { status?: string; days?: number; entityId?: string }): Promise<{ filings: ComplianceFiling[]; total: number } | null> => {
@@ -1043,7 +1046,11 @@ export function govClient(env: Env) {
         if (params?.entityId) qs.set('entity_id', params.entityId);
         const url = `${govUrl}/api/compliance/calendar${qs.toString() ? `?${qs}` : ''}`;
         const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          console.error(`[gov] getComplianceCalendar failed: ${res.status} — ${body.slice(0, 500)}`);
+          return null;
+        }
         return await res.json() as { filings: ComplianceFiling[]; total: number };
       } catch (err) {
         console.error('[gov] getComplianceCalendar error:', err);
@@ -1059,6 +1066,10 @@ export function govClient(env: Env) {
           body: JSON.stringify(data || {}),
           signal: AbortSignal.timeout(10000),
         });
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          console.error(`[gov] verifyFiling failed: ${res.status} — ${body.slice(0, 500)}`);
+        }
         return res.ok;
       } catch (err) {
         console.error('[gov] verifyFiling error:', err);
@@ -1073,7 +1084,11 @@ export function govClient(env: Env) {
           headers,
           signal: AbortSignal.timeout(10000),
         });
-        if (!res.ok) return null;
+        if (!res.ok) {
+          const body = await res.text().catch(() => '');
+          console.error(`[gov] getMonitors failed: ${res.status} — ${body.slice(0, 500)}`);
+          return null;
+        }
         return await res.json() as { monitors: ComplianceMonitor[]; total: number };
       } catch (err) {
         console.error('[gov] getMonitors error:', err);

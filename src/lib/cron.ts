@@ -884,10 +884,11 @@ export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<
   }
 
   let synced = 0;
+  let failed = 0;
 
   // Pull upcoming filings within 60 days
   const calendarResult = await gov.getComplianceCalendar({ status: 'upcoming,due_soon,overdue', days: 60 });
-  if (!calendarResult?.filings) {
+  if (!calendarResult?.filings || !Array.isArray(calendarResult.filings)) {
     console.warn('[governance] No filings returned from ChittyGov');
     return 0;
   }
@@ -895,7 +896,10 @@ export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<
   for (const filing of calendarResult.filings) {
     // Upsert into cc_obligations as governance category
     const payee = `${filing.jurisdiction} — ${filing.filingType.replace(/_/g, ' ')}`;
-    const amount = filing.fee ? Number(filing.fee) : 0;
+    const rawAmount = filing.fee ? Number(filing.fee) : 0;
+    const amount = isNaN(rawAmount) ? 0 : rawAmount;
+    const rawPenalty = filing.latePenalty ? Number(filing.latePenalty) : null;
+    const latePenalty = rawPenalty !== null && !isNaN(rawPenalty) ? rawPenalty : null;
 
     try {
       const [existing] = await sql`
@@ -930,7 +934,7 @@ export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<
             ${filing.dueDate},
             ${filing.filingType === 'annual_report' ? 'yearly' : filing.filingType === 'tax_estimate' ? 'quarterly' : null},
             ${filing.status === 'overdue' ? 'overdue' : 'pending'},
-            ${filing.latePenalty ? 0 : null},
+            ${latePenalty},
             ${JSON.stringify({
               filing_id: filing.filingId,
               jurisdiction: filing.jurisdiction,
@@ -943,15 +947,27 @@ export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<
       }
       synced++;
     } catch (dbErr) {
+      failed++;
       console.error(`[governance] DB error for filing ${filing.filingId}:`, dbErr);
     }
+  }
+
+  if (failed > 0) {
+    console.warn(`[governance] synced ${synced}, failed ${failed} of ${calendarResult.filings.length} filings`);
   }
 
   // Enqueue verification scrapes for active monitors
   try {
     const monitorsResult = await gov.getMonitors('active');
-    if (monitorsResult?.monitors) {
-      const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
+    if (!monitorsResult?.monitors) {
+      console.warn('[governance] Failed to fetch monitors from ChittyGov — skipping enqueue');
+    } else {
+      let chittyId: string | undefined;
+      try {
+        chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
+      } catch (kvErr) {
+        console.error('[governance] KV read for chitty_id failed:', kvErr);
+      }
       for (const monitor of monitorsResult.monitors) {
         if (!monitor.scraperId) continue;
 
@@ -980,7 +996,7 @@ export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<
       }
     }
   } catch (err) {
-    console.error('[governance] monitor enqueue failed:', err);
+    console.error('[governance] monitor fetch/enqueue failed:', err);
   }
 
   return synced;
