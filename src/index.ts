@@ -31,6 +31,7 @@ import { connectRoutes } from './routes/connect';
 import { ledgerRoutes } from './routes/ledger';
 import { tokenManagementRoutes } from './routes/token-management';
 import { jobRoutes } from './routes/jobs';
+import { transactionRoutes } from './routes/transactions';
 import { timelineRoutes } from './routes/timeline';
 
 // Re-export ActionAgent DO class so the runtime can find it
@@ -121,6 +122,7 @@ app.use('/api/*', authMiddleware);
 // API routes
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/accounts', accountRoutes);
+app.route('/api/transactions', transactionRoutes);
 app.route('/api/obligations', obligationRoutes);
 app.route('/api/disputes', disputeRoutes);
 app.route('/api/legal', legalRoutes);
