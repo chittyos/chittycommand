@@ -104,7 +104,7 @@ Access auth context in handlers via `c.get('userId')` and `c.get('scopes')`.
 ## Security Requirements
 
 - **Never hardcode** secrets, tokens, API keys, or credentials anywhere in source code.
-- All secrets go through `wrangler secret put` — never in `[vars]` in `wrangler.toml`.
+- All secrets go through `wrangler secret put` — never in `[vars]` in `wrangler.jsonc`.
 - KV service tokens: `bridge:service_token`, `mcp:service_token`, `scrape:service_token`.
 - CORS is restricted to approved origins: `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`.
 - Credentials use 1Password (`op run`) in local development — never expose in terminal output or logs.
@@ -135,7 +135,7 @@ Always check if optional URL bindings are present before using them (e.g., `if (
 
 ## Cron Schedule
 
-Defined in `wrangler.toml` and dispatched via `src/lib/cron.ts`:
+Defined in `wrangler.jsonc` and dispatched via `src/lib/cron.ts`:
 
 | Schedule | Purpose |
 |----------|---------|

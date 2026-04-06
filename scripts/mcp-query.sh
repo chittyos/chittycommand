@@ -5,7 +5,7 @@ set -euo pipefail
 TOOL="${1:?Usage: mcp-query.sh <tool_name> [json_args]}"
 ARGS="${2:-\{\}}"
 
-KV_ID=$(grep -A1 'COMMAND_KV' wrangler.toml | grep 'id' | head -1 | sed 's/.*= *"//;s/".*//')
+KV_ID="64eef343b99b46ac909dbbcc1c4b2dee"  # COMMAND_KV namespace from wrangler.jsonc
 TOKEN=$(npx wrangler kv key get "mcp:service_token" --namespace-id="$KV_ID" --remote 2>/dev/null)
 
 if [ -z "$TOKEN" ]; then

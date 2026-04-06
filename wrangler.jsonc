@@ -1,0 +1,88 @@
+{
+  "name": "chittycommand",
+  "account_id": "0bc21e3a5a9de1a4cc843be9c3e98121",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-03-02",
+  "compatibility_flags": ["nodejs_compat"],
+  // Custom domain (command.chitty.cc) managed via CF dashboard — no zone token needed
+
+  "placement": { "mode": "smart" },
+
+  "vars": {
+    "ENVIRONMENT": "production",
+    "CHITTYAUTH_URL": "https://auth.chitty.cc",
+    "CHITTYLEDGER_URL": "https://ledger.chitty.cc",
+    "CHITTYFINANCE_URL": "https://finance.chitty.cc",
+    "CHITTYCHARGE_URL": "https://charge.chitty.cc",
+    "CHITTYCONNECT_URL": "https://connect.chitty.cc",
+    "PLAID_ENV": "production",
+    "CHITTYBOOKS_URL": "https://chittybooks.chitty.cc",
+    "CHITTYASSETS_URL": "https://chittyassets.chitty.cc",
+    "CHITTYSCRAPE_URL": "https://scrape.chitty.cc",
+    "CHITTYROUTER_URL": "https://router.chitty.cc",
+    "CHITTYAGENT_SCRAPE_URL": "https://chittyagent-scrape.ccorp.workers.dev",
+    "CHITTYEVIDENCE_URL": "https://evidence.chitty.cc",
+    "CHITTYGOV_URL": "https://gov.chitty.cc",
+    "CHITTYREGISTER_URL": "https://register.chitty.cc"
+    // PLAID_CLIENT_ID and PLAID_SECRET set via `wrangler secret put`
+    // CHITTYCHAT_DATA_API, CHITTYSCHEMA_URL, CHITTYCERT_URL — uncomment when deployed
+  },
+
+  // Neon PostgreSQL via Hyperdrive
+  "hyperdrive": [
+    { "binding": "HYPERDRIVE", "id": "6f6cba43540b430eb77045f79384ca00" }
+  ],
+
+  // R2 for document storage
+  "r2_buckets": [
+    { "binding": "DOCUMENTS", "bucket_name": "chittycommand-documents" }
+  ],
+
+  // KV for sync state and caching
+  "kv_namespaces": [
+    { "binding": "COMMAND_KV", "id": "64eef343b99b46ac909dbbcc1c4b2dee" }
+  ],
+
+  // AI Gateway binding
+  "ai": { "binding": "AI" },
+
+  // ActionAgent Durable Object (Agents SDK)
+  "durable_objects": {
+    "bindings": [
+      { "name": "ACTION_AGENT", "class_name": "ActionAgent" }
+    ]
+  },
+
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["ActionAgent"] }
+  ],
+
+  // Observability — match dashboard config
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "head_sampling_rate": 1,
+      "invocation_logs": true
+    },
+    "traces": {
+      "enabled": true,
+      "head_sampling_rate": 1
+    }
+  },
+
+  // ChittyTrack observability
+  "tail_consumers": [
+    { "service": "chittytrack" }
+  ],
+
+  "triggers": {
+    "crons": [
+      "0 12 * * *",   // Daily 6 AM CT: Plaid + ChittyFinance sync
+      "0 13 * * *",   // Daily 7 AM CT: Court docket check
+      "0 14 * * 1",   // Weekly Monday 8 AM CT: Utility scrapers
+      "0 15 1 * *"    // Monthly 1st 9 AM CT: Mortgage, property tax
+    ]
+  }
+}
