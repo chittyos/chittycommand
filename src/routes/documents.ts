@@ -1,10 +1,8 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { evidenceClient } from '../lib/integrations';
 
 export const documentRoutes = new Hono<{ Bindings: Env }>();
-const UUID_V4ISH = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 documentRoutes.get('/', async (c) => {
   const sql = getDb(c.env);
@@ -19,18 +17,13 @@ const ALLOWED_TYPES = new Set([
 ]);
 const MAX_FILE_SIZE = 25 * 1024 * 1024; // 25MB
 
-// Upload document to R2 and create DB record
+// Upload document via ChittyStorage (content-addressed, entity-linked)
 documentRoutes.post('/upload', async (c) => {
   const formData = await c.req.formData();
   const file = formData.get('file') as unknown as File | null;
-  const linkedDisputeRaw = formData.get('linked_dispute_id');
-  const linkedDisputeId = typeof linkedDisputeRaw === 'string' && linkedDisputeRaw.trim().length > 0
-    ? linkedDisputeRaw.trim()
-    : null;
+  const entitySlug = (formData.get('entity_slug') as string) ?? '';
+  const origin = (formData.get('origin') as string) ?? 'first-party';
   if (!file || typeof file === 'string') return c.json({ error: 'No file provided' }, 400);
-  if (linkedDisputeId && !UUID_V4ISH.test(linkedDisputeId)) {
-    return c.json({ error: 'Invalid linked_dispute_id' }, 400);
-  }
 
   if (!ALLOWED_TYPES.has(file.type)) {
     return c.json({ error: 'Unsupported file type', allowed: [...ALLOWED_TYPES] }, 400);
@@ -39,137 +32,137 @@ documentRoutes.post('/upload', async (c) => {
     return c.json({ error: `File too large (max ${MAX_FILE_SIZE / 1024 / 1024}MB)` }, 400);
   }
 
-  // Sanitize filename: keep only alphanumeric, dash, underscore, dot
   const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
   const sql = getDb(c.env);
-  const r2Key = `documents/${Date.now()}_${safeName}`;
 
-  // Store in R2
-  await c.env.DOCUMENTS.put(r2Key, file.stream(), {
-    httpMetadata: { contentType: file.type },
-  });
+  // Hash locally for chitty_id generation (temporary until ChittyIdentity integration)
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
+  const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+  const chittyId = `scan-${contentHash.slice(0, 12)}`;
 
-  // Create DB record
-  const [doc] = await sql`
-    INSERT INTO cc_documents (doc_type, source, filename, r2_key, linked_dispute_id, processing_status)
-    VALUES ('upload', 'manual', ${safeName}, ${r2Key}, ${linkedDisputeId}, 'pending')
-    RETURNING *
-  `;
-
-  // Fire-and-forget: push to ChittyEvidence pipeline
-  const evidence = evidenceClient(c.env);
-  if (evidence) {
-    evidence.submitDocument({
-      filename: safeName,
-      fileType: file.type,
-      fileSize: String(file.size),
-      description: `Uploaded via ChittyCommand`,
-      evidenceTier: 'BUSINESS_RECORDS',
-    }).then((ev) => {
-      if (ev?.id) {
-        sql`UPDATE cc_documents SET metadata = jsonb_build_object('ledger_evidence_id', ${ev.id}), processing_status = 'synced' WHERE id = ${doc.id}`
-          .catch((err) => console.error(`[documents] Failed to update metadata for doc ${doc.id}:`, err));
-      } else {
-        console.warn(`[documents] Evidence submission returned no ID for ${safeName}`);
+  // Submit to ChittyStorage via service binding
+  if (c.env.SVC_STORAGE) {
+    try {
+      const content_base64 = btoa(String.fromCharCode(...bytes));
+      const storageRes = await c.env.SVC_STORAGE.fetch('https://internal/mcp', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jsonrpc: '2.0',
+          method: 'tools/call',
+          params: {
+            name: 'storage_ingest',
+            arguments: {
+              chitty_id: chittyId,
+              filename: safeName,
+              content_base64,
+              mime_type: file.type,
+              source_platform: 'chittycommand',
+              origin,
+              copyright: '©2026_IT-CAN-BE-LLC_ALL-RIGHTS-RESERVED',
+              entity_slugs: entitySlug ? [entitySlug] : [],
+            },
+          },
+          id: 1,
+        }),
+      });
+      // MCP response - extract result
+      const mcp = await storageRes.json() as any;
+      const result = mcp?.result?.content?.[0]?.text;
+      if (result) {
+        const parsed = JSON.parse(result);
+        // Track in local cc_documents for ChittyCommand UI
+        const [doc] = await sql`
+          INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status, metadata)
+          VALUES ('upload', 'chittycommand', ${safeName}, ${parsed.r2_key ?? `sha256/${contentHash}`}, 'synced',
+            ${JSON.stringify({ content_hash: contentHash, storage_chitty_id: chittyId, deduplicated: parsed.deduplicated })}::jsonb)
+          RETURNING *
+        `;
+        return c.json({ ...doc, content_hash: contentHash, storage: parsed }, 201);
       }
-    }).catch((err) => console.error(`[documents] Evidence submission failed for ${safeName}:`, err));
+    } catch (err) {
+      console.error('[documents] ChittyStorage ingest failed, falling back to direct R2:', err);
+    }
   }
 
+  // Fallback: direct R2 (legacy path — remove once SVC_STORAGE is confirmed stable)
+  const r2Key = `sha256/${contentHash}`;
+  await c.env.DOCUMENTS.put(r2Key, bytes, {
+    httpMetadata: { contentType: file.type },
+    customMetadata: { filename: safeName, source: 'chittycommand' },
+  });
+  const [doc] = await sql`
+    INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status)
+    VALUES ('upload', 'manual', ${safeName}, ${r2Key}, 'pending')
+    RETURNING *
+  `;
   return c.json(doc, 201);
 });
 
-// Batch upload multiple documents (with dedup)
+// Batch upload via ChittyStorage
 documentRoutes.post('/upload/batch', async (c) => {
   const formData = await c.req.formData();
   const files = formData.getAll('files') as unknown as File[];
+  const entitySlug = (formData.get('entity_slug') as string) ?? '';
   if (!files.length) return c.json({ error: 'No files provided' }, 400);
   if (files.length > 20) return c.json({ error: 'Maximum 20 files per batch' }, 400);
 
-  const sql = getDb(c.env);
-
-  // Fetch existing filenames for dedup check
-  const safeNames = files.map((f) => typeof f === 'string' ? '' : f.name.replace(/[^a-zA-Z0-9._-]/g, '_'));
-  const existing = await sql`SELECT filename FROM cc_documents WHERE filename = ANY(${safeNames})`;
-  const existingSet = new Set(existing.map((r: any) => r.filename));
-
-  const results: { filename: string; status: 'ok' | 'skipped' | 'error'; error?: string; doc?: any }[] = [];
+  const results: { filename: string; status: 'ok' | 'skipped' | 'error'; error?: string; content_hash?: string }[] = [];
 
   for (const file of files) {
-    if (typeof file === 'string') {
-      results.push({ filename: '(invalid)', status: 'error', error: 'Not a file' });
-      continue;
-    }
-    if (!ALLOWED_TYPES.has(file.type)) {
-      results.push({ filename: file.name, status: 'error', error: `Unsupported type: ${file.type}` });
-      continue;
-    }
-    if (file.size > MAX_FILE_SIZE) {
-      results.push({ filename: file.name, status: 'error', error: 'File too large (max 25MB)' });
-      continue;
-    }
+    if (typeof file === 'string') { results.push({ filename: '(invalid)', status: 'error', error: 'Not a file' }); continue; }
+    if (!ALLOWED_TYPES.has(file.type)) { results.push({ filename: file.name, status: 'error', error: `Unsupported: ${file.type}` }); continue; }
+    if (file.size > MAX_FILE_SIZE) { results.push({ filename: file.name, status: 'error', error: 'Too large' }); continue; }
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, '_');
 
-    // Dedup: skip if this filename was already uploaded
-    if (existingSet.has(safeName)) {
-      results.push({ filename: safeName, status: 'skipped', error: 'Already uploaded' });
-      continue;
-    }
-
-    const r2Key = `documents/${Date.now()}_${safeName}`;
-
     try {
-      await c.env.DOCUMENTS.put(r2Key, file.stream(), {
-        httpMetadata: { contentType: file.type },
-      });
-      const [doc] = await sql`
-        INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status)
-        VALUES ('upload', 'manual', ${safeName}, ${r2Key}, 'pending')
-        RETURNING *
-      `;
-      existingSet.add(safeName); // prevent dupes within same batch
-      results.push({ filename: safeName, status: 'ok', doc });
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
+      const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
+
+      if (c.env.SVC_STORAGE) {
+        const content_base64 = btoa(String.fromCharCode(...bytes));
+        await c.env.SVC_STORAGE.fetch('https://internal/mcp', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            jsonrpc: '2.0', method: 'tools/call',
+            params: { name: 'storage_ingest', arguments: {
+              chitty_id: `scan-${contentHash.slice(0, 12)}`, filename: safeName,
+              content_base64, mime_type: file.type, source_platform: 'chittycommand',
+              origin: 'first-party', copyright: '©2026_IT-CAN-BE-LLC_ALL-RIGHTS-RESERVED',
+              entity_slugs: entitySlug ? [entitySlug] : [],
+            }}, id: 1,
+          }),
+        });
+      } else {
+        await c.env.DOCUMENTS.put(`sha256/${contentHash}`, bytes, {
+          httpMetadata: { contentType: file.type },
+          customMetadata: { filename: safeName, source: 'chittycommand' },
+        });
+      }
+      results.push({ filename: safeName, status: 'ok', content_hash: contentHash });
     } catch (err) {
       results.push({ filename: safeName, status: 'error', error: String(err) });
     }
   }
 
-  const succeeded = results.filter((r) => r.status === 'ok').length;
-  const skipped = results.filter((r) => r.status === 'skipped').length;
-  return c.json({ total: files.length, succeeded, skipped, failed: files.length - succeeded - skipped, results }, 201);
+  return c.json({ total: files.length, succeeded: results.filter(r => r.status === 'ok').length, results }, 201);
 });
 
 // Identify missing documents / coverage gaps
 documentRoutes.get('/gaps', async (c) => {
   const sql = getDb(c.env);
-
-  // All obligation payees that should have statements
-  const payees = await sql`
-    SELECT DISTINCT payee, category, recurrence
-    FROM cc_obligations
-    WHERE status IN ('pending', 'overdue')
-    ORDER BY payee
-  `;
-
-  // Documents uploaded per payee (match by filename containing payee name)
+  const payees = await sql`SELECT DISTINCT payee, category, recurrence FROM cc_obligations WHERE status IN ('pending', 'overdue') ORDER BY payee`;
   const docs = await sql`SELECT filename, created_at FROM cc_documents ORDER BY created_at DESC`;
 
   const gaps: { payee: string; category: string; recurrence: string | null; has_document: boolean; last_upload: string | null }[] = [];
-
   for (const p of payees) {
     const payeeLower = (p.payee as string).toLowerCase().replace(/[^a-z0-9]/g, '');
-    const match = docs.find((d: any) =>
-      d.filename && (d.filename as string).toLowerCase().replace(/[^a-z0-9]/g, '').includes(payeeLower)
-    );
-    gaps.push({
-      payee: p.payee as string,
-      category: p.category as string,
-      recurrence: p.recurrence as string | null,
-      has_document: !!match,
-      last_upload: match ? (match.created_at as string) : null,
-    });
+    const match = docs.find((d: any) => d.filename && (d.filename as string).toLowerCase().replace(/[^a-z0-9]/g, '').includes(payeeLower));
+    gaps.push({ payee: p.payee as string, category: p.category as string, recurrence: p.recurrence as string | null, has_document: !!match, last_upload: match ? (match.created_at as string) : null });
   }
-
-  const missing = gaps.filter((g) => !g.has_document);
-  return c.json({ total_payees: gaps.length, covered: gaps.length - missing.length, missing: missing.length, gaps });
+  return c.json({ total_payees: gaps.length, covered: gaps.length - gaps.filter(g => !g.has_document).length, missing: gaps.filter(g => !g.has_document).length, gaps });
 });
