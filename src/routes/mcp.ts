@@ -5,7 +5,7 @@ import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
-import { evidenceClient, ledgerClient } from '../lib/integrations';
+import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
 
 /**
  * MCP (Model Context Protocol) server for ChittyCommand.
@@ -302,7 +302,7 @@ const TOOLS = [
       type: 'object' as const,
       properties: {
         status: { type: 'string', description: 'Filter by status', enum: ['queued', 'running', 'completed', 'failed', 'retrying', 'dead_letter'] },
-        type: { type: 'string', description: 'Filter by job type', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'] },
+        type: { type: 'string', description: 'Filter by job type', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape', 'sos_status', 'recorder_filings', 'assessor_check'] },
         chitty_id: { type: 'string', description: 'Filter by ChittyID' },
         limit: { type: 'number', description: 'Max results (default 20)' },
       },
@@ -348,11 +348,37 @@ const TOOLS = [
     inputSchema: {
       type: 'object' as const,
       properties: {
-        job_type: { type: 'string', description: 'Type of scrape', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'] },
+        job_type: { type: 'string', description: 'Type of scrape', enum: ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape', 'sos_status', 'recorder_filings', 'assessor_check'] },
         target: { type: 'object', description: 'Target parameters (e.g. {case_number}, {pin}, {property}, {portal})' },
         chitty_id: { type: 'string', description: 'Optional ChittyID to bind results to' },
       },
       required: ['job_type', 'target'],
+    },
+  },
+  // ── Governance Compliance ──────────────────────────────────
+  {
+    name: 'query_compliance_calendar',
+    description: 'Get upcoming governance/compliance filing deadlines from ChittyGov. Returns LLC annual reports, tax estimates, and other filings with days until due.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        status: { type: 'string', description: 'Filter by status (upcoming, due_soon, overdue, verified). Comma-separated for multiple.' },
+        days: { type: 'number', description: 'Only show filings due within this many days (default: 90)' },
+        entity_id: { type: 'string', description: 'Filter by entity ID (e.g. ENT-JAV)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'verify_compliance_filing',
+    description: 'Mark a governance filing as verified (filed/completed). Triggers recurrence roll-forward for recurring filings.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        filing_id: { type: 'string', description: 'Filing ID (e.g. FIL-JAV-annual_report-2026)' },
+        source: { type: 'string', description: 'Verification source (scrape, email, manual)' },
+      },
+      required: ['filing_id'],
     },
   },
   {
@@ -1161,7 +1187,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const target = args.target as Record<string, unknown>;
       if (!jobType || !target) throw new Error('Missing arguments: job_type, target');
 
-      const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape'];
+      const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape', 'sos_status', 'recorder_filings', 'assessor_check'];
       if (!validTypes.includes(jobType)) throw new Error(`Invalid job_type. Must be one of: ${validTypes.join(', ')}`);
 
       const jobId = await enqueueJob(sql, jobType, target, {
@@ -1169,6 +1195,32 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         cronSource: 'mcp',
       }, env);
       return { ok: true, id: jobId, status: 'queued' };
+    }
+
+    // ── Governance Compliance Tool Handlers ────────────────
+    case 'query_compliance_calendar': {
+      const gov = govClient(env);
+      if (!gov) return { error: 'ChittyGov not configured (CHITTYGOV_URL missing)' };
+      const result = await gov.getComplianceCalendar({
+        status: args.status ? String(args.status) : undefined,
+        days: args.days ? Number(args.days) : 90,
+        entityId: args.entity_id ? String(args.entity_id) : undefined,
+      });
+      if (!result) return { error: 'Failed to fetch compliance calendar from ChittyGov' };
+      return result;
+    }
+
+    case 'verify_compliance_filing': {
+      const filingId = String(args.filing_id || '').trim();
+      if (!filingId) throw new Error('Missing argument: filing_id');
+      const gov = govClient(env);
+      if (!gov) return { error: 'ChittyGov not configured (CHITTYGOV_URL missing)' };
+      const ok = await gov.verifyFiling(filingId, {
+        source: args.source ? String(args.source) : 'mcp',
+      });
+      return ok
+        ? { ok: true, filingId, message: 'Filing marked as verified' }
+        : { error: 'Failed to verify filing', filingId };
     }
 
     case 'synthesize_case_facts': {

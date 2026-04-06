@@ -7,7 +7,10 @@ export type ScrapeJobType =
   | 'court_docket'
   | 'cook_county_tax'
   | 'mr_cooper'
-  | 'portal_scrape';
+  | 'portal_scrape'
+  | 'sos_status'
+  | 'recorder_filings'
+  | 'assessor_check';
 
 export type ScrapeJobStatus =
   | 'queued'

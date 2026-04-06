@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
-import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal } from '../lib/cron';
+import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal, syncGovernanceCompliance } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -25,6 +25,7 @@ syncRoutes.post('/trigger/:source', async (c) => {
     'mercury', 'plaid', 'chittyfinance',
     'wave', 'stripe', 'turbotenant', 'chittyrental',
     'court_docket', 'mr_cooper', 'cook_county_tax',
+    'sos_status', 'recorder_filings', 'assessor_check',
     'comed', 'peoples_gas', 'xfinity',
     'citi', 'home_depot', 'lowes',
   ];
@@ -52,6 +53,9 @@ syncRoutes.post('/trigger/:source', async (c) => {
     court_docket: () => syncCourtDocket(c.env, sql),
     mr_cooper: () => syncMrCooper(c.env, sql),
     cook_county_tax: () => syncCookCountyTax(c.env, sql),
+    sos_status: () => syncGovernanceCompliance(c.env, sql),
+    recorder_filings: () => syncGovernanceCompliance(c.env, sql),
+    assessor_check: () => syncGovernanceCompliance(c.env, sql),
   };
 
   // Resolve aliases and portal sources to their dispatcher

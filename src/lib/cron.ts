@@ -1,6 +1,6 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
-import { plaidClient, financeClient, mercuryClient, scrapeClient, routerClient } from './integrations';
+import { plaidClient, financeClient, mercuryClient, scrapeClient, routerClient, govClient } from './integrations';
 import { runTriage } from './triage';
 import { matchTransactions } from './matcher';
 import { generateProjections } from './projections';
@@ -134,6 +134,19 @@ export async function runCronSync(
         }
       } catch (err) {
         console.error('[cron:dispute_reconcile] failed:', err);
+      }
+
+      // Phase 11: Governance compliance check
+      // Pulls upcoming deadlines from ChittyGov, upserts into cc_obligations,
+      // and enqueues verification scrapes for monitors with scrapers.
+      try {
+        const govSynced = await syncGovernanceCompliance(env, sql);
+        if (govSynced > 0) {
+          recordsSynced += govSynced;
+          console.log(`[cron:governance] synced ${govSynced} compliance filings`);
+        }
+      } catch (err) {
+        console.error('[cron:governance] failed:', err);
       }
     }
 
@@ -854,5 +867,121 @@ export async function syncEmailParsedBills(env: Env, sql: NeonQueryFunction<fals
   }
 
   console.log(`[email_bills] ingested ${synced} items from ChittyRouter`);
+  return synced;
+}
+
+/**
+ * Sync governance compliance deadlines from ChittyGov.
+ * Pulls upcoming filings (60-day window), upserts into cc_obligations
+ * as category='governance', and enqueues verification scrapes for
+ * monitors that have a scraper_id.
+ */
+export async function syncGovernanceCompliance(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+  const gov = govClient(env);
+  if (!gov) {
+    console.warn('[governance] ChittyGov not configured — skipping');
+    return 0;
+  }
+
+  let synced = 0;
+
+  // Pull upcoming filings within 60 days
+  const calendarResult = await gov.getComplianceCalendar({ status: 'upcoming,due_soon,overdue', days: 60 });
+  if (!calendarResult?.filings) {
+    console.warn('[governance] No filings returned from ChittyGov');
+    return 0;
+  }
+
+  for (const filing of calendarResult.filings) {
+    // Upsert into cc_obligations as governance category
+    const payee = `${filing.jurisdiction} — ${filing.filingType.replace(/_/g, ' ')}`;
+    const amount = filing.fee ? Number(filing.fee) : 0;
+
+    try {
+      const [existing] = await sql`
+        SELECT id FROM cc_obligations
+        WHERE category = 'governance'
+          AND metadata->>'filing_id' = ${filing.filingId}
+        LIMIT 1
+      `;
+
+      if (existing) {
+        await sql`
+          UPDATE cc_obligations
+          SET status = ${filing.status === 'overdue' ? 'overdue' : 'pending'},
+              due_date = ${filing.dueDate},
+              amount_due = CASE WHEN ${amount} > 0 THEN ${amount} ELSE amount_due END,
+              metadata = jsonb_set(
+                COALESCE(metadata, '{}'::jsonb),
+                '{last_gov_sync}',
+                ${JSON.stringify({ syncedAt: new Date().toISOString(), daysUntil: filing.daysUntil, latePenalty: filing.latePenalty })}::jsonb
+              ),
+              updated_at = NOW()
+          WHERE id = ${existing.id}
+        `;
+      } else {
+        await sql`
+          INSERT INTO cc_obligations (category, subcategory, payee, amount_due, due_date, recurrence, status, late_fee, metadata)
+          VALUES (
+            'governance',
+            ${filing.filingType},
+            ${payee},
+            ${amount},
+            ${filing.dueDate},
+            ${filing.filingType === 'annual_report' ? 'yearly' : filing.filingType === 'tax_estimate' ? 'quarterly' : null},
+            ${filing.status === 'overdue' ? 'overdue' : 'pending'},
+            ${filing.latePenalty ? 0 : null},
+            ${JSON.stringify({
+              filing_id: filing.filingId,
+              jurisdiction: filing.jurisdiction,
+              entity_name: filing.entityName,
+              authority_url: filing.authorityUrl,
+              source: 'chittygov_sync',
+            })}::jsonb
+          )
+        `;
+      }
+      synced++;
+    } catch (dbErr) {
+      console.error(`[governance] DB error for filing ${filing.filingId}:`, dbErr);
+    }
+  }
+
+  // Enqueue verification scrapes for active monitors
+  try {
+    const monitorsResult = await gov.getMonitors('active');
+    if (monitorsResult?.monitors) {
+      const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
+      for (const monitor of monitorsResult.monitors) {
+        if (!monitor.scraperId) continue;
+
+        // Map monitor types to scrape job types
+        const jobTypeMap: Record<string, ScrapeJobType> = {
+          sos_status: 'sos_status',
+          registered_agent: 'portal_scrape',
+          recorder_filings: 'recorder_filings',
+          assessment_status: 'assessor_check',
+        };
+        const jobType = jobTypeMap[monitor.monitorType];
+        if (!jobType) continue;
+
+        try {
+          await enqueueJob(sql, jobType, {
+            scraper_id: monitor.scraperId,
+            monitor_id: monitor.monitorId,
+            ...((monitor.scrapeInput as Record<string, unknown>) || {}),
+          }, {
+            chittyId,
+            cronSource: 'governance',
+          }, env);
+        } catch (err) {
+          console.error(`[governance] enqueue ${monitor.monitorId} failed:`, err);
+        }
+      }
+    }
+  } catch (err) {
+    console.error('[governance] monitor enqueue failed:', err);
+  }
+
   return synced;
 }

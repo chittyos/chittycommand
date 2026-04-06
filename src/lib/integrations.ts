@@ -995,3 +995,90 @@ export function notionClient(env: Env) {
     },
   };
 }
+
+// ── ChittyGov ─────────────────────────────────────────────
+// Corporate governance: compliance calendar, filing deadlines, monitors
+
+export interface ComplianceFiling {
+  filingId: string;
+  entityId: number;
+  entityName?: string;
+  filingType: string;
+  jurisdiction: string;
+  dueDate: string;
+  status: string;
+  daysUntil: number;
+  fee?: string;
+  latePenalty?: string;
+  authorityUrl?: string;
+}
+
+export interface ComplianceMonitor {
+  monitorId: string;
+  entityId?: number;
+  entityName?: string;
+  monitorType: string;
+  scraperId?: string;
+  scrapeInput?: Record<string, unknown>;
+  checkFrequency: string;
+  lastCheckedAt?: string;
+  status: string;
+}
+
+export function govClient(env: Env) {
+  const govUrl = env.CHITTYGOV_URL;
+  if (!govUrl) return null;
+
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    'X-Source-Service': 'chittycommand',
+  };
+
+  return {
+    getComplianceCalendar: async (params?: { status?: string; days?: number; entityId?: string }): Promise<{ filings: ComplianceFiling[]; total: number } | null> => {
+      try {
+        const qs = new URLSearchParams();
+        if (params?.status) qs.set('status', params.status);
+        if (params?.days) qs.set('days', String(params.days));
+        if (params?.entityId) qs.set('entity_id', params.entityId);
+        const url = `${govUrl}/api/compliance/calendar${qs.toString() ? `?${qs}` : ''}`;
+        const res = await fetch(url, { headers, signal: AbortSignal.timeout(10000) });
+        if (!res.ok) return null;
+        return await res.json() as { filings: ComplianceFiling[]; total: number };
+      } catch (err) {
+        console.error('[gov] getComplianceCalendar error:', err);
+        return null;
+      }
+    },
+
+    verifyFiling: async (filingId: string, data?: { source?: string; data?: Record<string, unknown> }): Promise<boolean> => {
+      try {
+        const res = await fetch(`${govUrl}/api/compliance/verify/${encodeURIComponent(filingId)}`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify(data || {}),
+          signal: AbortSignal.timeout(10000),
+        });
+        return res.ok;
+      } catch (err) {
+        console.error('[gov] verifyFiling error:', err);
+        return false;
+      }
+    },
+
+    getMonitors: async (status?: string): Promise<{ monitors: ComplianceMonitor[]; total: number } | null> => {
+      try {
+        const qs = status ? `?status=${status}` : '';
+        const res = await fetch(`${govUrl}/api/compliance/monitors${qs}`, {
+          headers,
+          signal: AbortSignal.timeout(10000),
+        });
+        if (!res.ok) return null;
+        return await res.json() as { monitors: ComplianceMonitor[]; total: number };
+      } catch (err) {
+        console.error('[gov] getMonitors error:', err);
+        return null;
+      }
+    },
+  };
+}
