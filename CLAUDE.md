@@ -62,7 +62,7 @@ Three auth layers in `src/middleware/auth.ts`:
 
 ### Cron Schedule
 
-Defined in `wrangler.toml`, dispatched via `src/lib/cron.ts`:
+Defined in `wrangler.jsonc`, dispatched via `src/lib/cron.ts`:
 - `0 12 * * *` — Daily 6 AM CT: Plaid + ChittyFinance sync
 - `0 13 * * *` — Daily 7 AM CT: Court docket check
 - `0 14 * * 1` — Weekly Mon 8 AM CT: Utility scrapers
