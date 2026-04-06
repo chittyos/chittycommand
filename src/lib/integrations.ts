@@ -568,6 +568,25 @@ export function mercuryClient(token: string) {
     }
   }
 
+  async function post<T>(path: string, body: unknown): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        body: JSON.stringify(body),
+      });
+      if (!res.ok) {
+        const text = await res.text().catch(() => '');
+        console.error(`[mercury] POST ${path} failed: ${res.status} — ${text.slice(0, 500)}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[mercury] POST ${path} error:`, err);
+      return null;
+    }
+  }
+
   return {
     getAccounts: () => get<{ accounts: MercuryAccount[] }>('/accounts'),
 
@@ -577,6 +596,19 @@ export function mercuryClient(token: string) {
       ).toString() : '';
       return get<{ transactions: MercuryTransaction[] }>(`/account/${accountId}/transactions${qs}`);
     },
+
+    /** Get recipients for an account */
+    getRecipients: (accountId: string) =>
+      get<{ recipients: Array<{ id: string; name: string; accountNumber?: string; routingNumber?: string }> }>(`/account/${accountId}/recipients`),
+
+    /** Create an ACH payment from an account to a recipient */
+    createPayment: (accountId: string, payment: {
+      recipientId: string;
+      amount: number;
+      paymentMethod: 'ach' | 'wire' | 'check';
+      idempotencyKey: string;
+      note?: string;
+    }) => post<{ id: string; status: string; amount: number }>(`/account/${accountId}/transactions`, payment),
   };
 }
 
