@@ -41,6 +41,7 @@ export type Env = {
   AI: Ai;
   HYPERDRIVE: Hyperdrive;
   DOCUMENTS: R2Bucket;
+  SVC_STORAGE: Fetcher;
   COMMAND_KV: KVNamespace;
   ACTION_AGENT: DurableObjectNamespace;
   DATABASE_URL?: string;
