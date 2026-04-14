@@ -2,6 +2,16 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 
+/** Chunked base64 encoding — avoids stack overflow on files >64KB */
+function uint8ToBase64(bytes: Uint8Array): string {
+  let binary = '';
+  const chunkSize = 0x8000;
+  for (let i = 0; i < bytes.length; i += chunkSize) {
+    binary += String.fromCharCode(...bytes.subarray(i, i + chunkSize));
+  }
+  return btoa(binary);
+}
+
 export const documentRoutes = new Hono<{ Bindings: Env }>();
 
 documentRoutes.get('/', async (c) => {
@@ -44,7 +54,7 @@ documentRoutes.post('/upload', async (c) => {
   // Submit to ChittyStorage via service binding
   if (c.env.SVC_STORAGE) {
     try {
-      const content_base64 = btoa(String.fromCharCode(...bytes));
+      const content_base64 = uint8ToBase64(bytes);
       const storageRes = await c.env.SVC_STORAGE.fetch('https://internal/mcp', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -84,6 +94,8 @@ documentRoutes.post('/upload', async (c) => {
     } catch (err) {
       console.error('[documents] ChittyStorage ingest failed, falling back to direct R2:', err);
     }
+    // If we reach here, ChittyStorage either isn't bound or returned unparseable result — fall through to direct R2
+    console.warn('[documents] Using legacy R2 fallback for:', safeName);
   }
 
   // Fallback: direct R2 (legacy path — remove once SVC_STORAGE is confirmed stable)
@@ -108,6 +120,7 @@ documentRoutes.post('/upload/batch', async (c) => {
   if (!files.length) return c.json({ error: 'No files provided' }, 400);
   if (files.length > 20) return c.json({ error: 'Maximum 20 files per batch' }, 400);
 
+  const sql = getDb(c.env);
   const results: { filename: string; status: 'ok' | 'skipped' | 'error'; error?: string; content_hash?: string }[] = [];
 
   for (const file of files) {
@@ -122,27 +135,47 @@ documentRoutes.post('/upload/batch', async (c) => {
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
       const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
 
+      const chittyId = `scan-${contentHash.slice(0, 12)}`;
+      let r2Key = `sha256/${contentHash}`;
+
       if (c.env.SVC_STORAGE) {
-        const content_base64 = btoa(String.fromCharCode(...bytes));
-        await c.env.SVC_STORAGE.fetch('https://internal/mcp', {
+        const content_base64 = uint8ToBase64(bytes);
+        const storageRes = await c.env.SVC_STORAGE.fetch('https://internal/mcp', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
             jsonrpc: '2.0', method: 'tools/call',
             params: { name: 'storage_ingest', arguments: {
-              chitty_id: `scan-${contentHash.slice(0, 12)}`, filename: safeName,
+              chitty_id: chittyId, filename: safeName,
               content_base64, mime_type: file.type, source_platform: 'chittycommand',
               origin: 'first-party', copyright: '©2026_IT-CAN-BE-LLC_ALL-RIGHTS-RESERVED',
               entity_slugs: entitySlug ? [entitySlug] : [],
             }}, id: 1,
           }),
         });
+        const mcp = await storageRes.json() as any;
+        const resultText = mcp?.result?.content?.[0]?.text;
+        if (resultText) {
+          const parsed = JSON.parse(resultText);
+          r2Key = parsed.r2_key ?? r2Key;
+        } else if (!storageRes.ok || mcp?.error) {
+          console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, mcp?.error ?? storageRes.status);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        }
       } else {
-        await c.env.DOCUMENTS.put(`sha256/${contentHash}`, bytes, {
+        await c.env.DOCUMENTS.put(r2Key, bytes, {
           httpMetadata: { contentType: file.type },
           customMetadata: { filename: safeName, source: 'chittycommand' },
         });
       }
+
+      await sql`
+        INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status, metadata)
+        VALUES ('upload', 'chittycommand', ${safeName}, ${r2Key}, 'synced',
+          ${JSON.stringify({ content_hash: contentHash, storage_chitty_id: chittyId, batch: true })}::jsonb)
+        ON CONFLICT (r2_key) DO NOTHING
+      `;
       results.push({ filename: safeName, status: 'ok', content_hash: contentHash });
     } catch (err) {
       results.push({ filename: safeName, status: 'error', error: String(err) });
