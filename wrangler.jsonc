@@ -72,6 +72,11 @@
     }
   },
 
+  // ChittyStorage service binding for document ingest
+  "services": [
+    { "binding": "SVC_STORAGE", "service": "chittystorage" }
+  ],
+
   // ChittyTrack observability
   "tail_consumers": [
     { "service": "chittytrack" }
