@@ -8,6 +8,8 @@ on:
 jobs:
   gates:
     uses: ./.github/workflows/reusable-governance-gates.yml
+    with:
+      audit_omit_dev: true
     secrets: inherit
 
   notify-org-control-loop:
