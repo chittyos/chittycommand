@@ -7,6 +7,10 @@ on:
         required: false
         type: boolean
         default: true
+      audit_omit_dev:
+        required: false
+        type: boolean
+        default: false
 
 permissions:
   contents: read
@@ -20,8 +24,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          secrets_in_use="$(grep -RhoE 'secrets\.[A-Za-z_][A-Za-z0-9_]*' .github/workflows \
-            | sed -E 's/.*secrets\.([A-Za-z_][A-Za-z0-9_]*).*/\1/' \
+          secrets_in_use="$(grep -RhoE '\$\{\{\s*secrets(\.[A-Za-z_][A-Za-z0-9_]*|\['"'"'\"[A-Za-z_][A-Za-z0-9_]*'"'"'\"\])\s*\}\}' .github/workflows \
+            | sed -E "s/.*secrets[.\['\"]([A-Za-z_][A-Za-z0-9_]*).*/\1/" \
             | sort -u || true)"
 
           if [[ -z "${secrets_in_use}" ]]; then
@@ -90,7 +94,7 @@ jobs:
         run: npm ci
       - name: Dependency Audit (High+)
         if: ${{ steps.lockfile.outputs.present == 'true' }}
-        run: npm audit --audit-level=high
+        run: npm audit --audit-level=high ${{ inputs.audit_omit_dev && '--omit=dev' || '' }}
       - name: Skip Dependency Audit (no package-lock.json)
         if: ${{ steps.lockfile.outputs.present != 'true' }}
         run: echo "No package-lock.json found; skipping dependency audit."

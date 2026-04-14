@@ -92,7 +92,7 @@ Three modes:
 - `src/lib/dispute-sync.ts` — Dispute ↔ Notion ↔ TriageAgent sync coordinator
 - `src/routes/bridge/index.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
 - `src/routes/bridge/disputes.ts` — Dispute-Notion manual sync bridge
-- `src/routes/mcp.ts` — MCP server for Claude integration (48 tools)
+- `src/routes/mcp.ts` — MCP server for Claude integration (50 tools)
 - `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
 - `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
 - `src/routes/ledger.ts` — ChittyLedger evidence/custody passthrough
@@ -137,7 +137,7 @@ Example client-side MCP configuration (conceptual):
 }
 ```
 
-The server exposes 48 tools across 12 domains:
+The server exposes 50 tools across 12 domains:
 
 **Core meta** — `get_canon_info`, `get_registry_status`, `get_schema_refs`, `whoami`, `get_context_summary`
 **Financial** — `query_obligations`, `query_accounts`, `query_disputes`, `get_recommendations`, `get_cash_position`, `get_cashflow_projections`, `query_revenue_sources`, `get_payment_plan`
