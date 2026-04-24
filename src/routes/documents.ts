@@ -156,10 +156,20 @@ documentRoutes.post('/upload/batch', async (c) => {
         const mcp = await storageRes.json() as any;
         const resultText = mcp?.result?.content?.[0]?.text;
         if (resultText) {
-          const parsed = JSON.parse(resultText);
-          r2Key = parsed.r2_key ?? r2Key;
+          try {
+            const parsed = JSON.parse(resultText);
+            r2Key = parsed.r2_key ?? r2Key;
+          } catch (parseErr) {
+            console.error(`[documents] Batch: ChittyStorage parse error for ${safeName}:`, { mcp, error: parseErr });
+            results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+            continue;
+          }
         } else if (!storageRes.ok || mcp?.error) {
           console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, mcp?.error ?? storageRes.status);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        } else {
+          console.error(`[documents] Batch: ChittyStorage missing result for ${safeName}:`, { mcp, response: storageRes });
           results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
           continue;
         }
