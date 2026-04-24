@@ -156,10 +156,21 @@ documentRoutes.post('/upload/batch', async (c) => {
         const mcp = await storageRes.json() as any;
         const resultText = mcp?.result?.content?.[0]?.text;
         if (resultText) {
-          const parsed = JSON.parse(resultText);
-          r2Key = parsed.r2_key ?? r2Key;
+          try {
+            const parsed = JSON.parse(resultText);
+            r2Key = parsed.r2_key ?? r2Key;
+          } catch (parseErr) {
+            console.error(`[documents] Batch: ChittyStorage JSON parse failed for ${safeName}:`, parseErr, 'MCP response:', mcp);
+            results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+            continue;
+          }
         } else if (!storageRes.ok || mcp?.error) {
           console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, mcp?.error ?? storageRes.status);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        } else {
+          // HTTP 200 but resultText is missing/empty — silent fall-through bug
+          console.error(`[documents] Batch: ChittyStorage returned OK but missing result.content[0].text for ${safeName}, MCP response:`, mcp);
           results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
           continue;
         }
