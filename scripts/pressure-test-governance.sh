@@ -420,6 +420,188 @@ assert_contains "${throttle_output}" "PR create throttled for Org/repo-throttle-
 assert_contains "${throttle_output}" "Opened remediation PR in Org/repo-throttle-ok" "throttle repo eventually opens PR"
 assert_contains "${throttle_output}" "Skipped PR create in Org/repo-throttle-fail: retries exhausted after GitHub throttle." "retry exhaustion is handled"
 
+echo "== Test 4: org-governance-remediate rewrites governance-gates.yml for hollow-stub pattern =="
+STUB_FAKE_BIN="${TMP_DIR}/stub-bin"
+STUB_FAKE_REPOS="${TMP_DIR}/stub-fake-repos"
+STUB_STATE_DIR="${TMP_DIR}/stub-gh-state"
+mkdir -p "${STUB_FAKE_BIN}" "${STUB_FAKE_REPOS}" "${STUB_STATE_DIR}"
+
+cat > "${STUB_FAKE_BIN}/gh" <<'GHEOF'
+#!/usr/bin/env bash
+set -euo pipefail
+
+cmd="${1:-}"
+shift || true
+
+case "${cmd}" in
+  label)
+    exit 0
+    ;;
+  issue)
+    sub="${1:-}"
+    shift || true
+    case "${sub}" in
+      list)
+        exit 0
+        ;;
+      create|comment|edit|close)
+        exit 0
+        ;;
+      *)
+        echo "unsupported gh issue subcommand: ${sub}" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  api)
+    echo "[]"
+    exit 0
+    ;;
+  pr)
+    sub="${1:-}"
+    shift || true
+    case "${sub}" in
+      list)
+        exit 0
+        ;;
+      create)
+        echo "https://example.invalid/pr/stub-fix"
+        exit 0
+        ;;
+      merge)
+        exit 0
+        ;;
+      *)
+        echo "unsupported gh pr subcommand: ${sub}" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  repo)
+    sub="${1:-}"
+    shift || true
+    case "${sub}" in
+      clone)
+        full_repo="${1:-}"
+        dest="${2:-}"
+        src="${GH_FAKE_REPOS_DIR}/${full_repo//\//__}"
+        if [[ ! -d "${src}/.git" ]]; then
+          echo "repo not found: ${full_repo}" >&2
+          exit 1
+        fi
+        git clone -q "${src}" "${dest}"
+        exit 0
+        ;;
+      *)
+        echo "unsupported gh repo subcommand: ${sub}" >&2
+        exit 1
+        ;;
+    esac
+    ;;
+  *)
+    echo "unsupported gh command: ${cmd}" >&2
+    exit 1
+    ;;
+esac
+GHEOF
+chmod +x "${STUB_FAKE_BIN}/gh"
+
+# Repo with the hollow-stub governance-gates.yml (local reference, no reusable file present).
+STUB_REPO="${STUB_FAKE_REPOS}/Org__repo-hollow-stub"
+mkdir -p "${STUB_REPO}/.github/workflows"
+cat > "${STUB_REPO}/.github/workflows/governance-gates.yml" <<'EOF'
+name: Governance Gates
+
+on:
+  pull_request:
+  push:
+    branches: [ main ]
+
+jobs:
+  gates:
+    uses: ./.github/workflows/reusable-governance-gates.yml
+    secrets: inherit
+EOF
+init_git_repo "${STUB_REPO}"
+
+STUB_REPORT="${TMP_DIR}/report-stub.json"
+cat > "${STUB_REPORT}" <<'EOF'
+[
+  {
+    "fullRepo": "Org/repo-hollow-stub",
+    "compliant": false,
+    "defaultBranch": "main",
+    "score": 50,
+    "missingFiles": [],
+    "missingPatterns": [".github/workflows/governance-gates.yml:CHITTYOS/chittycommand/.github/workflows/reusable-governance-gates.yml@main"],
+    "missingTriggers": [],
+    "missingStatusChecks": [],
+    "missingRepoSettings": [],
+    "branchProtection": true
+  }
+]
+EOF
+
+export GH_FAKE_STATE_DIR="${STUB_STATE_DIR}"
+export GH_FAKE_REPOS_DIR="${STUB_FAKE_REPOS}"
+set +e
+stub_output="$(
+  PATH="${STUB_FAKE_BIN}:$PATH" \
+  CHITTY_DISPATCH_STRICT=false \
+  CHITTY_LOCAL_AGENT_DISPATCH=false \
+  CHITTY_AUTO_ARM_PR_MERGE=false \
+  bash "${ROOT_DIR}/scripts/org-governance-remediate.sh" \
+    --policy "${ROOT_DIR}/.github/org-governance-policy.json" \
+    --report "${STUB_REPORT}" \
+    --auto-pr true \
+    --max-prs 5 2>&1
+)"
+stub_status=$?
+set -e
+
+if [[ "${stub_status}" -eq 0 ]]; then
+  pass "hollow-stub scenario exits successfully"
+else
+  fail "hollow-stub scenario failed (status=${stub_status}): ${stub_output}"
+fi
+
+assert_contains "${stub_output}" "Opened remediation PR in Org/repo-hollow-stub" "hollow-stub: remediation PR opened"
+
+# Verify the template no longer contains a local-only reusable workflow file.
+if [[ ! -f "${ROOT_DIR}/templates/governance-baseline/.github/workflows/reusable-governance-gates.yml" ]]; then
+  pass "hollow-stub: reusable-governance-gates.yml removed from baseline template"
+else
+  fail "hollow-stub: reusable-governance-gates.yml still present in baseline template (should be removed for Option B)"
+fi
+
+# Verify the template governance-gates.yml uses the cross-repo reference.
+if grep -q "CHITTYOS/chittycommand/.github/workflows/reusable-governance-gates.yml@main" \
+     "${ROOT_DIR}/templates/governance-baseline/.github/workflows/governance-gates.yml"; then
+  pass "hollow-stub: template governance-gates.yml uses cross-repo reference"
+else
+  fail "hollow-stub: template governance-gates.yml does not use cross-repo reference"
+fi
+
+# Verify the policy no longer requires reusable-governance-gates.yml as a standalone file.
+if ! jq -e '.requiredFiles | index(".github/workflows/reusable-governance-gates.yml")' \
+     "${ROOT_DIR}/.github/org-governance-policy.json" >/dev/null 2>&1; then
+  pass "hollow-stub: policy requiredFiles does not require reusable-governance-gates.yml"
+else
+  fail "hollow-stub: policy requiredFiles still requires reusable-governance-gates.yml"
+fi
+
+# Verify the policy requires the cross-repo reference pattern in governance-gates.yml.
+if jq -e '
+  .requiredFilePatterns[".github/workflows/governance-gates.yml"] |
+  . != null and
+  (map(select(. == "CHITTYOS/chittycommand/.github/workflows/reusable-governance-gates.yml@main")) | length > 0)
+' "${ROOT_DIR}/.github/org-governance-policy.json" >/dev/null 2>&1; then
+  pass "hollow-stub: policy requires cross-repo reference pattern in governance-gates.yml"
+else
+  fail "hollow-stub: policy missing cross-repo reference pattern for governance-gates.yml"
+fi
+
+
 echo "== Summary =="
 echo "Passed: ${PASS_COUNT}"
 echo "Failed: ${FAIL_COUNT}"
