@@ -16,7 +16,10 @@
     "CHITTYCHARGE_URL": "https://charge.chitty.cc",
     "CHITTYCONNECT_URL": "https://connect.chitty.cc",
     "PLAID_ENV": "production",
-    "CHITTYBOOKS_URL": "https://chittybooks.chitty.cc",
+    // CHITTYBOOKS_URL intentionally empty: books.chitty.cc does not resolve.
+    // See chittyfinance docs/contracts/chittybooks-chittyfinance.md.
+    // booksClient(env) returns null when this is empty, disabling itself.
+    "CHITTYBOOKS_URL": "",
     "CHITTYASSETS_URL": "https://chittyassets.chitty.cc",
     "CHITTYSCRAPE_URL": "https://scrape.chitty.cc",
     "CHITTYROUTER_URL": "https://router.chitty.cc",
