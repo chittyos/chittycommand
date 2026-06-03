@@ -14,9 +14,10 @@
  * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
  */
 
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, beforeAll } from 'vitest';
 import { deriveRouxFromType, linkDisputeToNotion } from '../../src/lib/dispute-sync';
 import { neon } from '@neondatabase/serverless';
+import type { NeonQueryFunction } from '@neondatabase/serverless';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const SKIP = !DATABASE_URL || process.env.SKIP_INTEGRATION === '1';
@@ -50,7 +51,12 @@ describe.skipIf(SKIP)('linkDisputeToNotion Roux gate (real Neon)', () => {
   // The gate evaluates effective values BEFORE notionClient is constructed,
   // so we can verify suppression without any Notion creds. The sql arg is
   // only used by the post-gate UPDATE path; suppression returns early.
-  const sql = neon(DATABASE_URL!);
+  // neon() is initialized in beforeAll so module-load doesn't crash when
+  // DATABASE_URL is absent (describe body still executes to register tests).
+  let sql: NeonQueryFunction<false, false>;
+  beforeAll(() => {
+    sql = neon(DATABASE_URL!);
+  });
 
   it('suppresses when explicit privilege=privileged (regardless of dispute_type)', async () => {
     const result = await linkDisputeToNotion(
