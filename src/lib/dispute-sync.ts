@@ -27,7 +27,35 @@ interface DisputeCore {
   amount_at_stake?: number | null;
   description?: string | null;
   priority: number;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilege?: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public' | null;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  space?: 'business' | 'legalink' | null;
   metadata?: Record<string, unknown> | null;
+}
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// Map a cc_disputes.dispute_type to default Roux (privilege, space).
+// Explicit caller-supplied values always override (Q1=(c) pass-through derive).
+export function deriveRouxFromType(disputeType: string): {
+  privilege: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
+  space: 'business' | 'legalink';
+} {
+  switch (disputeType) {
+    case 'legal':
+      return { privilege: 'privileged', space: 'legalink' };
+    case 'insurance':
+      return { privilege: 'pii', space: 'business' };
+    case 'property':
+    case 'vendor':
+    case 'tenant':
+    case 'financial':
+      return { privilege: 'public', space: 'business' };
+    default:
+      // Unknown dispute_type — fall back to the safest defaults that still
+      // route through the public/business bucket so the dispute is visible.
+      return { privilege: 'public', space: 'business' };
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────
@@ -180,7 +208,8 @@ export async function pushUnlinkedDisputesToNotion(
   sql: NeonQueryFunction<false, false>,
 ): Promise<number> {
   const unlinked = await sql`
-    SELECT id, title, counterparty, dispute_type, priority, description, metadata
+    SELECT id, title, counterparty, dispute_type, priority, description, metadata,
+           privilege, space
     FROM cc_disputes
     WHERE (metadata->>'notion_task_id') IS NULL
       AND status NOT IN ('resolved', 'dismissed')
@@ -192,6 +221,17 @@ export async function pushUnlinkedDisputesToNotion(
 
   for (const dispute of unlinked) {
     try {
+      // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+      // Q2=(a) pass-through-with-warn: rows that landed on the column defaults
+      // (public/business) may be untagged legacy rows. Emit a one-time warn per
+      // row so operators can decide whether to add an explicit tag.
+      const privilege = (dispute.privilege as string | null) ?? 'public';
+      const space = (dispute.space as string | null) ?? 'business';
+      if (privilege === 'public' && space === 'business') {
+        console.log(
+          `[dispute-sync:roux-backfill] dispute_id=${dispute.id} using default privilege=public space=business — explicit tag recommended`,
+        );
+      }
       const linked = await linkDisputeToNotion(dispute.id as string, dispute as unknown as DisputeCore, env, sql);
       if (linked) pushed++;
     } catch (err) {
@@ -204,12 +244,29 @@ export async function pushUnlinkedDisputesToNotion(
 
 // ── Internal helpers ──────────────────────────────────────────
 
-async function linkDisputeToNotion(
+export async function linkDisputeToNotion(
   disputeId: string,
-  dispute: Pick<DisputeCore, 'title' | 'dispute_type' | 'priority' | 'description'>,
+  dispute: Pick<DisputeCore, 'title' | 'dispute_type' | 'priority' | 'description' | 'privilege' | 'space'>,
   env: Env,
   sql: NeonQueryFunction<false, false>,
 ): Promise<boolean> {
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // Roux gate: privileged/pii content and anything in the legalink space must
+  // NOT be mirrored into Notion. Resolve effective values: explicit > derived.
+  const derived = deriveRouxFromType(dispute.dispute_type);
+  const effectivePrivilege = dispute.privilege ?? derived.privilege;
+  const effectiveSpace = dispute.space ?? derived.space;
+  if (
+    effectivePrivilege === 'privileged' ||
+    effectivePrivilege === 'pii' ||
+    effectiveSpace === 'legalink'
+  ) {
+    console.log(
+      `[dispute-sync:notion] suppressed (privilege=${effectivePrivilege} space=${effectiveSpace}) dispute=${disputeId}`,
+    );
+    return false;
+  }
+
   try {
     const notion = notionClient(env);
     if (!notion) {
