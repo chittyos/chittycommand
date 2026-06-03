@@ -7,6 +7,8 @@ related_adr: chittycanon://docs/architecture/chittycommand/ADR-001
 
 # Cluster daemon — supervision plan
 
+> **First-node target: `chittyserv-vm`.** Bring-up runbook + real systemd unit and bootstrap script live at [`docs/runbooks/daemon-bring-up-vm.md`](../docs/runbooks/daemon-bring-up-vm.md) (added in the stacked follow-on PR). The runtime artifacts are under [`daemon/runtime/`](./runtime/).
+
 This document is doc-only. No runtime supervisor code ships in the foundation
 PR. The targets below are the homelab cluster of 6 Mac Minis
 (`chittymini-01..06`) plus `chittyserv-vm`. Each node runs **one** instance of
