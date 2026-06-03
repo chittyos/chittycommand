@@ -393,3 +393,126 @@ export const ccUserNamespaces = pgTable('cc_user_namespaces', {
   namespace: text('namespace').notNull().unique(),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
 });
+
+// ─────────────────────────────────────────────────────────────
+// Meta-orchestrator: Goal → Plan → Intent ladder
+// ADR-001 — chittycanon://docs/architecture/chittycommand/ADR-001
+// ─────────────────────────────────────────────────────────────
+
+// ── Goals (top of ladder) ────────────────────────────────────
+// A Goal is a long-horizon outcome the operator wants achieved.
+// Owned by a ChittyID actor (P-Synthetic for command, P-Natural for nb).
+export const ccGoals = pgTable('cc_goals', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  ownerChittyId: varchar('owner_chitty_id', { length: 64 }).notNull(),
+  title: text('title').notNull(),
+  description: text('description'),
+  // 'open' | 'planning' | 'active' | 'achieved' | 'abandoned'
+  status: text('status').notNull().default('open'),
+  priority: integer('priority').notNull().default(5),
+  // Soft deadline; goals can outlive any single plan
+  targetDate: timestamp('target_date', { withTimezone: true }),
+  achievedAt: timestamp('achieved_at', { withTimezone: true }),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  ownerIdx: index('idx_cc_goals_owner').on(table.ownerChittyId),
+  statusIdx: index('idx_cc_goals_status').on(table.status),
+  priorityIdx: index('idx_cc_goals_priority').on(table.priority),
+}));
+
+// ── Plans (middle of ladder) ─────────────────────────────────
+// A Plan is a concrete strategy to advance one Goal. A goal may have
+// multiple plans over time (replans, alternative strategies).
+export const ccPlans = pgTable('cc_plans', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  goalId: uuid('goal_id').references(() => ccGoals.id, { onDelete: 'cascade' }).notNull(),
+  title: text('title').notNull(),
+  rationale: text('rationale'),
+  // 'draft' | 'active' | 'superseded' | 'completed' | 'abandoned'
+  status: text('status').notNull().default('draft'),
+  // If this plan replaces a previous one, point to it
+  supersedesPlanId: uuid('supersedes_plan_id'),
+  // Author — usually a ChittyID for the planning agent
+  authoredBy: varchar('authored_by', { length: 64 }),
+  // Sovereignty assessment at the time the plan was authored
+  // { decision: 'autonomous'|'requires_human'|'blocked', trustScore: number, reasoning: string }
+  sovereigntyAssessment: jsonb('sovereignty_assessment'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  goalIdx: index('idx_cc_plans_goal').on(table.goalId),
+  statusIdx: index('idx_cc_plans_status').on(table.status),
+}));
+
+// ── Intents (bottom of ladder — executable units) ────────────
+// An Intent is a discrete action the meta-orchestrator routes for
+// execution. Below this sits the existing task queue + ActionAgent.
+export const ccIntents = pgTable('cc_intents', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  planId: uuid('plan_id').references(() => ccPlans.id, { onDelete: 'cascade' }).notNull(),
+  goalId: uuid('goal_id').references(() => ccGoals.id, { onDelete: 'cascade' }).notNull(),
+  // What kind of intent: 'payment' | 'message' | 'status_update' | 'investigate' | etc.
+  intentType: text('intent_type').notNull(),
+  // Channel the intent should be fanned out through (matches channel registry).
+  // null = let the orchestrator pick.
+  targetChannel: text('target_channel'),
+  // Free-form structured payload — the contract is per intent_type.
+  payload: jsonb('payload').notNull().default({}),
+  // 'pending' | 'claimed' | 'running' | 'done' | 'failed' | 'blocked_human'
+  status: text('status').notNull().default('pending'),
+  priority: integer('priority').notNull().default(5),
+  // Sovereignty gate decision (frozen at intent enqueue time)
+  // { decision, trustScore, reasoning, assessed_at }
+  sovereigntyAssessment: jsonb('sovereignty_assessment'),
+  // If the gate said requires_human, who/what is blocking
+  humanGateReason: text('human_gate_reason'),
+  // Link to the underlying task once dispatched
+  dispatchedTaskId: text('dispatched_task_id'),
+  scheduledFor: timestamp('scheduled_for', { withTimezone: true }),
+  completedAt: timestamp('completed_at', { withTimezone: true }),
+  // Free-form error from the executor
+  errorMessage: text('error_message'),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  planIdx: index('idx_cc_intents_plan').on(table.planId),
+  goalIdx: index('idx_cc_intents_goal').on(table.goalId),
+  statusIdx: index('idx_cc_intents_status').on(table.status),
+  priorityIdx: index('idx_cc_intents_priority').on(table.priority),
+  scheduledIdx: index('idx_cc_intents_scheduled').on(table.scheduledFor),
+}));
+
+// ─────────────────────────────────────────────────────────────
+// Cluster daemon: node lease / leader election
+// Mirrors chittyentity workers/shared/agent-tasks.ts task_leases shape.
+// ADR-001 — chittycanon://docs/architecture/chittycommand/ADR-001
+// ─────────────────────────────────────────────────────────────
+
+// ── Node Leases ──────────────────────────────────────────────
+// One row per cluster role. Leader election = atomic UPDATE...RETURNING
+// on the matching role row. Heartbeat extends lease_expires_at.
+// nodeId is the per-node ChittyID (Location type, format VV-G-LLL-SSSS-L-YM-C-X).
+export const ccNodeLeases = pgTable('cc_node_leases', {
+  // The role being elected. Foundation PR uses 'meta-orchestrator-leader'.
+  role: text('role').primaryKey(),
+  // ChittyID of the node currently holding the lease, or null when free.
+  nodeId: varchar('node_id', { length: 64 }),
+  // Free-form descriptor (hostname, region) for ops.
+  nodeDescriptor: text('node_descriptor'),
+  // Process/session id; allows the same node host to take/release across restarts.
+  sessionId: text('session_id'),
+  // Lease tracking — mirrors task_leases columns
+  claimedAt: timestamp('claimed_at', { withTimezone: true }),
+  heartbeatAt: timestamp('heartbeat_at', { withTimezone: true }),
+  leaseExpiresAt: timestamp('lease_expires_at', { withTimezone: true }),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  nodeIdx: index('idx_cc_node_leases_node').on(table.nodeId),
+  expiresIdx: index('idx_cc_node_leases_expires').on(table.leaseExpiresAt),
+}));
