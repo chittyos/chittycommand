@@ -135,7 +135,7 @@ documentRoutes.post('/upload/batch', async (c) => {
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
       const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-      const chittyId = `scan-${contentHash.slice(0, 12)}`;
+      const chittyId = `scan-${contentHash.slice(0, 32)}`;
       let r2Key = `sha256/${contentHash}`;
 
       let usedStorage = false;
