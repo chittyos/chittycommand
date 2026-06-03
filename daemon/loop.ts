@@ -30,6 +30,7 @@ import {
   completeIntent,
   failIntent,
   markIntentDispatched,
+  reclaimStuckIntents,
   type Intent,
   type IntentEnv,
 } from '../meta/intent';
@@ -122,9 +123,10 @@ export async function runLeaderLoop(
     intentsProcessed = innerResult.intentsProcessed;
 
     if (innerResult.reason === 'aborted' || innerResult.reason === 'maxIntents') {
-      // Best-effort release on clean exit.
+      // Best-effort release on clean exit — pass sessionId so the release
+      // refuses to clear a newer leader's lease (fixes codex-p2 PR#101 finding-2).
       try {
-        await releaseLeadership(env, options.nodeId, { role });
+        await releaseLeadership(env, options.nodeId, { role, sessionId: options.sessionId });
       } catch (err) {
         log('release_error', { error: err instanceof Error ? err.message : String(err) });
       }
@@ -159,11 +161,22 @@ async function innerLoop(
   let intentsProcessed = startCount;
   let lastHeartbeat = Date.now();
 
+  // Heartbeat cadence inside executor.execute() — half the lease so a slow
+  // executor can't let the lease lapse mid-flight.
+  // fixes codex-p2 PR#101 finding-3
+  const innerHeartbeatMs = Math.max(1_000, Math.floor((leaseSeconds * 1000) / 2));
+
   while (!signal?.aborted) {
-    // Heartbeat if due.
+    // Heartbeat if due. Session-scoped so a restarted process can't extend
+    // a lease that already belongs to a newer leader.
+    // fixes codex-p2 PR#101 finding-5
     if (Date.now() - lastHeartbeat >= heartbeatMs) {
       try {
-        const renewed = await heartbeat(env, options.nodeId, { role, leaseSeconds });
+        const renewed = await heartbeat(env, options.nodeId, {
+          role,
+          leaseSeconds,
+          sessionId: options.sessionId,
+        });
         if (!renewed) {
           return { intentsProcessed, reason: 'leaseLost' };
         }
@@ -176,6 +189,17 @@ async function innerLoop(
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    }
+
+    // Reclaim intents stuck in running/claimed past 2x the lease window before
+    // we ask for new work. Idempotent and cheap; if nothing is stuck this is
+    // a single UPDATE returning 0 rows.
+    // fixes codex-p2 PR#101 finding-1
+    try {
+      const reclaimed = await reclaimStuckIntents(env, leaseSeconds * 2);
+      if (reclaimed > 0) log('intents_reclaimed', { count: reclaimed });
+    } catch (err) {
+      log('reclaim_error', { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Claim and dispatch one intent.
@@ -199,6 +223,31 @@ async function innerLoop(
 
     log('intent_claimed', { intentId: intent.id, intentType: intent.intentType });
 
+    // Background heartbeat ticker covering the executor.execute() span.
+    // Uses the current session token so the heartbeat is rejected if a newer
+    // leader has taken over.
+    // fixes codex-p2 PR#101 finding-3, finding-5
+    const executorHeartbeat = setInterval(() => {
+      heartbeat(env, options.nodeId, {
+        role,
+        leaseSeconds,
+        sessionId: options.sessionId,
+      })
+        .then((renewed) => {
+          if (renewed) {
+            lastHeartbeat = Date.now();
+            log('exec_heartbeat_ok', { expiresAt: renewed.leaseExpiresAt });
+          } else {
+            log('exec_heartbeat_lost', { intentId: intent!.id });
+          }
+        })
+        .catch((err) => {
+          log('exec_heartbeat_error', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }, innerHeartbeatMs);
+
     try {
       const result = await options.executor(intent);
       await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
@@ -211,6 +260,8 @@ async function innerLoop(
         /* surface only the original error */
       });
       log('intent_failed', { intentId: intent.id, error: msg });
+    } finally {
+      clearInterval(executorHeartbeat);
     }
 
     if (options.maxIntents && intentsProcessed >= options.maxIntents) {

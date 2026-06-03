@@ -93,7 +93,13 @@ describe.skipIf(SKIP)('daemon/leader integration (real Neon)', () => {
     expect(before?.nodeId).toBe(NODE_A);
     // Give time so heartbeat advances measurably.
     await new Promise((r) => setTimeout(r, 50));
-    const renewed = await heartbeat(env, NODE_A, { role: TEST_ROLE, leaseSeconds: 60 });
+    // Session-scoped heartbeat — pass the same sessionId used on claim.
+    // fixes codex-p2 PR#101 finding-5
+    const renewed = await heartbeat(env, NODE_A, {
+      role: TEST_ROLE,
+      leaseSeconds: 60,
+      sessionId: 'session-a-1',
+    });
     expect(renewed).not.toBeNull();
     expect(renewed!.leaseExpiresAt.getTime()).toBeGreaterThanOrEqual(
       before!.leaseExpiresAt.getTime(),
@@ -101,12 +107,21 @@ describe.skipIf(SKIP)('daemon/leader integration (real Neon)', () => {
   });
 
   it('a non-holder cannot heartbeat', async () => {
-    const result = await heartbeat(env, NODE_B, { role: TEST_ROLE, leaseSeconds: 60 });
+    const result = await heartbeat(env, NODE_B, {
+      role: TEST_ROLE,
+      leaseSeconds: 60,
+      sessionId: 'session-b-1',
+    });
     expect(result).toBeNull();
   });
 
   it('after release, a previously-rejected node can claim', async () => {
-    const released = await releaseLeadership(env, NODE_A, { role: TEST_ROLE });
+    // Session-scoped release — pass the same sessionId used on claim.
+    // fixes codex-p2 PR#101 finding-2
+    const released = await releaseLeadership(env, NODE_A, {
+      role: TEST_ROLE,
+      sessionId: 'session-a-1',
+    });
     expect(released).toBe(true);
 
     const lease = await claimLeadership(env, {
