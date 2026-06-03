@@ -33,6 +33,7 @@ import { tokenManagementRoutes } from './routes/token-management';
 import { jobRoutes } from './routes/jobs';
 import { transactionRoutes } from './routes/transactions';
 import { timelineRoutes } from './routes/timeline';
+import { triageRoutes } from './routes/triage';
 
 // Re-export ActionAgent DO class so the runtime can find it
 export { ActionAgent } from './agents/action-agent';
@@ -140,6 +141,9 @@ app.route('/api/email-connections', emailConnectionRoutes);
 app.route('/api/chat', chatRoutes);
 app.route('/api/litigation', litigationRoutes);
 app.route('/api/tasks', taskRoutes);
+// ChittyTriage — pending-intent queue partitioned by Roux (privilege, space)
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+app.route('/api/triage', triageRoutes);
 // Identity (authenticated)
 app.route('/api/v1', metaRoutes);
 // Context (authenticated)
