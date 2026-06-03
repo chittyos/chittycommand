@@ -268,7 +268,7 @@ open_remediation_pr() {
     [[ -z "${missing_pattern}" ]] && continue
     pattern_file="${missing_pattern%%:*}"
     case "${pattern_file}" in
-      CHITTY.md|CHARTER.md|docs/PERSISTENT_BRIEF.md)
+      CHITTY.md|CHARTER.md|docs/PERSISTENT_BRIEF.md|.github/workflows/governance-gates.yml)
         if [[ -f "${BASELINE_DIR}/${pattern_file}" ]]; then
           mkdir -p "$(dirname "${work_dir}/${pattern_file}")"
           cp "${BASELINE_DIR}/${pattern_file}" "${work_dir}/${pattern_file}"
