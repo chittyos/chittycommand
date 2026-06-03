@@ -7,7 +7,7 @@ on:
 
 jobs:
   gates:
-    uses: ./.github/workflows/reusable-governance-gates.yml
+    uses: CHITTYOS/chittycommand/.github/workflows/reusable-governance-gates.yml@main
     with:
       audit_omit_dev: true
     secrets: inherit

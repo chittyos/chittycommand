@@ -614,6 +614,10 @@ export function mercuryClient(token: string) {
 
 // ── ChittyBooks ─────────────────────────────────────────────
 // Bookkeeping and accounting: push executed actions as ledger entries
+// @deprecated books.chitty.cc does not resolve; CHITTYBOOKS_URL is intentionally
+// empty in wrangler config so this client self-disables. Until ChittyBooks
+// chooses a deploy path, use financeClient() for bookkeeping reads/writes.
+// See chittyfinance docs/contracts/chittybooks-chittyfinance.md.
 
 export function booksClient(env: Env) {
   const baseUrl = env.CHITTYBOOKS_URL;
