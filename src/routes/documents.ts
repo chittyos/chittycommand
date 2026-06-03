@@ -219,7 +219,7 @@ documentRoutes.post('/upload/batch', async (c) => {
           ${usedStorage ? 'synced' : 'pending'},
           ${JSON.stringify({ content_hash: contentHash, storage_chitty_id: chittyId, batch: true })}::jsonb
         )
-        ON CONFLICT (r2_key) DO NOTHING
+        ON CONFLICT (r2_key) WHERE (r2_key IS NOT NULL) DO NOTHING
       `;
       results.push({ filename: safeName, status: 'ok', content_hash: contentHash });
     } catch (err) {
