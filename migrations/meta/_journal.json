@@ -15,6 +15,13 @@
       "when": 1774375302000,
       "tag": "0001_dashing_bulldozer",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1780458101750,
+      "tag": "0002_naive_mac_gargan",
+      "breakpoints": true
     }
   ]
 }
