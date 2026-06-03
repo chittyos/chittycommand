@@ -6,6 +6,22 @@ import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
+import {
+  claimNextIntent,
+  completeIntent,
+  failIntent,
+  type IntentPrivilege,
+  type IntentSpace,
+} from '../../meta/intent';
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+const TRIAGE_VALID_PRIVILEGE: ReadonlySet<IntentPrivilege> = new Set<IntentPrivilege>([
+  'privileged',
+  'pii',
+  'hoa_evidentiary',
+  'public',
+]);
+const TRIAGE_VALID_SPACE: ReadonlySet<IntentSpace> = new Set<IntentSpace>(['business', 'legalink']);
 
 /**
  * MCP (Model Context Protocol) server for ChittyCommand.
@@ -439,6 +455,55 @@ const TOOLS = [
         limit: { type: 'number', description: 'Max results (default 50)' },
       },
       required: [] as string[],
+    },
+  },
+  // ChittyTriage / Roux — @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  {
+    name: 'triage_list_intents',
+    description: 'List pending intents in the ChittyTriage queue, optionally filtered by Roux privilege/space.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        privilege: { type: 'string', description: "Roux privilege class: 'privileged'|'pii'|'hoa_evidentiary'|'public'" },
+        space: { type: 'string', description: "Roux space: 'business'|'legalink'" },
+        limit: { type: 'number', description: 'Max results (default 25, cap 200)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'triage_claim_intent',
+    description: 'Atomically claim a specific pending intent by ID. Returns 409 if already claimed.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'string', description: 'Intent UUID' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'triage_claim_next',
+    description: 'Bucket-ordered claim of the next pending intent for an autonomous agent. Filters: privilege, space, priority_lte.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        privilege: { type: 'string' },
+        space: { type: 'string' },
+        priority_lte: { type: 'number', description: 'Only claim intents with priority <= this value' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'triage_complete_intent',
+    description: "Terminal transition for an intent. outcome must be 'done' (must be running) or 'failed' (must be claimed/running).",
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string' },
+        outcome: { type: 'string', description: "'done' | 'failed'" },
+        error: { type: 'string', description: 'Optional failure detail when outcome=failed' },
+      },
+      required: ['id', 'outcome'],
     },
   },
 ];
@@ -1357,6 +1422,91 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       if (!evidence) return { error: 'ChittyEvidence not configured' };
       const pending = await evidence.getPendingFacts(caseId, limit);
       return { caseId: caseId || 'all', pending: pending || [] };
+    }
+
+    // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+    case 'triage_list_intents': {
+      const privilegeRaw = typeof args.privilege === 'string' ? args.privilege : null;
+      const spaceRaw = typeof args.space === 'string' ? args.space : null;
+      if (privilegeRaw && !TRIAGE_VALID_PRIVILEGE.has(privilegeRaw as IntentPrivilege)) {
+        return { error: `Invalid privilege: ${privilegeRaw}` };
+      }
+      if (spaceRaw && !TRIAGE_VALID_SPACE.has(spaceRaw as IntentSpace)) {
+        return { error: `Invalid space: ${spaceRaw}` };
+      }
+      const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 200);
+      const rows = await sql`
+        SELECT id, plan_id, goal_id, intent_type, target_channel, status, priority,
+               privilege, space, scheduled_for, created_at, updated_at,
+               human_gate_reason, reclaim_count
+        FROM cc_intents
+        WHERE status = 'pending'
+          AND (${privilegeRaw}::text IS NULL OR privilege = ${privilegeRaw})
+          AND (${spaceRaw}::text IS NULL OR space = ${spaceRaw})
+          AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+        ORDER BY priority ASC, created_at ASC
+        LIMIT ${limit}
+      `;
+      return { intents: rows, count: rows.length, filter: { privilege: privilegeRaw, space: spaceRaw, limit } };
+    }
+
+    case 'triage_claim_intent': {
+      const id = String(args.id || '');
+      if (!id) return { error: 'id required' };
+      const existing = await sql`SELECT id, status FROM cc_intents WHERE id = ${id} LIMIT 1`;
+      if (existing.length === 0) return { error: 'Intent not found', code: 404 };
+      const claimed = await sql`
+        UPDATE cc_intents SET status = 'claimed', updated_at = NOW()
+        WHERE id = ${id} AND status = 'pending'
+        RETURNING *
+      `;
+      if (claimed.length === 0) {
+        return { error: 'Intent already claimed or not pending', code: 409, current_status: existing[0].status };
+      }
+      return { intent: claimed[0] };
+    }
+
+    case 'triage_claim_next': {
+      const privilegeRaw = typeof args.privilege === 'string' ? args.privilege : null;
+      const spaceRaw = typeof args.space === 'string' ? args.space : null;
+      if (privilegeRaw && !TRIAGE_VALID_PRIVILEGE.has(privilegeRaw as IntentPrivilege)) {
+        return { error: `Invalid privilege: ${privilegeRaw}` };
+      }
+      if (spaceRaw && !TRIAGE_VALID_SPACE.has(spaceRaw as IntentSpace)) {
+        return { error: `Invalid space: ${spaceRaw}` };
+      }
+      const priorityLteRaw = args.priority_lte;
+      let priorityLte: number | undefined;
+      if (priorityLteRaw !== undefined && priorityLteRaw !== null) {
+        const n = Number(priorityLteRaw);
+        if (!Number.isFinite(n)) return { error: 'priority_lte must be a number' };
+        priorityLte = Math.floor(n);
+      }
+      const intent = await claimNextIntent(env, {
+        privilege: (privilegeRaw as IntentPrivilege) ?? undefined,
+        space: (spaceRaw as IntentSpace) ?? undefined,
+        priorityLte,
+      });
+      if (!intent) return { intent: null, message: 'Queue empty for the requested bucket' };
+      return { intent };
+    }
+
+    case 'triage_complete_intent': {
+      const id = String(args.id || '');
+      if (!id) return { error: 'id required' };
+      const outcome = args.outcome;
+      if (outcome !== 'done' && outcome !== 'failed') {
+        return { error: "outcome must be 'done' or 'failed'" };
+      }
+      if (outcome === 'done') {
+        const updated = await completeIntent(env, id);
+        if (!updated) return { error: "Intent not in 'running' state; refusing to mark done", code: 409 };
+        return { intent: updated };
+      }
+      const errMsg = String(args.error ?? 'failed via mcp triage_complete_intent');
+      const updated = await failIntent(env, id, errMsg);
+      if (!updated) return { error: "Intent not in 'claimed' or 'running' state; refusing to mark failed", code: 409 };
+      return { intent: updated };
     }
 
     default:
