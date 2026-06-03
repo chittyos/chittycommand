@@ -279,16 +279,22 @@ export async function markIntentDispatched(
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
 
+// fixes codex-p2 PR#101 finding-6 — only flip to 'done' if still running.
+// Without the guard, a parallel cancellation/failure path that set status to
+// 'failed' or 'blocked_human' would be silently overwritten here.
 export async function completeIntent(env: IntentEnv, intentId: string): Promise<Intent | null> {
   const sql = getSql(env);
   const rows = await sql`
     UPDATE cc_intents
     SET status = 'done', completed_at = NOW(), updated_at = NOW()
-    WHERE id = ${intentId}
+    WHERE id = ${intentId} AND status = 'running'
     RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
 
+// fixes codex-p2 PR#101 finding-6 — symmetric guard on the failure path.
+// Allow failing from 'claimed' or 'running' (executor can blow up before
+// markIntentDispatched lands), but never overwrite a terminal state.
 export async function failIntent(
   env: IntentEnv,
   intentId: string,
@@ -299,9 +305,43 @@ export async function failIntent(
     UPDATE cc_intents
     SET status = 'failed', error_message = ${errorMessage},
         completed_at = NOW(), updated_at = NOW()
-    WHERE id = ${intentId}
+    WHERE id = ${intentId} AND status IN ('claimed', 'running')
     RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
+}
+
+/**
+ * Reset intents stuck in `status='running'` past `maxRunningSeconds` back to
+ * `status='pending'`, incrementing `reclaim_count` so persistent failures are
+ * visible. Idempotent — returns the number of rows reclaimed.
+ *
+ * cc_intents has no claimed_by/claimed_at columns; staleness is measured via
+ * `updated_at` (which the dispatch/heartbeat paths bump) and `dispatched_task_id`
+ * is cleared so a fresh dispatch can replace it.
+ *
+ * Called by daemon/loop.ts once per leader tick before claiming new work.
+ *
+ * fixes codex-p2 PR#101 finding-1
+ */
+export async function reclaimStuckIntents(
+  env: IntentEnv,
+  maxRunningSeconds: number,
+): Promise<number> {
+  if (!Number.isFinite(maxRunningSeconds) || maxRunningSeconds <= 0) {
+    throw new Error('[meta/intent] reclaimStuckIntents requires maxRunningSeconds > 0');
+  }
+  const sql = getSql(env);
+  const rows = await sql`
+    UPDATE cc_intents
+    SET status = 'pending',
+        dispatched_task_id = NULL,
+        error_message = NULL,
+        reclaim_count = reclaim_count + 1,
+        updated_at = NOW()
+    WHERE status IN ('claimed', 'running')
+      AND updated_at < NOW() - (${Math.floor(maxRunningSeconds)} * INTERVAL '1 second')
+    RETURNING id`;
+  return rows.length;
 }
 
 // ── Row mappers ─────────────────────────────────────────────
