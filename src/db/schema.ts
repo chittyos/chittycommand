@@ -134,10 +134,20 @@ export const ccDisputes = pgTable('cc_disputes', {
   nextAction: text('next_action'),
   nextActionDate: date('next_action_date'),
   resolutionTarget: text('resolution_target'),
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // privilege ∈ {privileged, pii, hoa_evidentiary, public}
+  privilege: text('privilege').notNull().default('public'),
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // space ∈ {business, legalink}
+  space: text('space').notNull().default('business'),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-});
+}, (table) => ({
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilegeIdx: index('idx_cc_disputes_privilege').on(table.privilege, table.status),
+  spaceIdx: index('idx_cc_disputes_space').on(table.space, table.status),
+}));
 
 // ── Dispute Correspondence ────────────────────────────────────
 export const ccDisputeCorrespondence = pgTable('cc_dispute_correspondence', {
@@ -482,6 +492,12 @@ export const ccIntents = pgTable('cc_intents', {
   errorMessage: text('error_message'),
   // fixes codex-p2 PR#101 finding-1 — bookkeeping for reclaimStuckIntents()
   reclaimCount: integer('reclaim_count').notNull().default(0),
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // privilege ∈ {privileged, pii, hoa_evidentiary, public}
+  privilege: text('privilege').notNull().default('public'),
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // space ∈ {business, legalink}
+  space: text('space').notNull().default('business'),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -491,6 +507,9 @@ export const ccIntents = pgTable('cc_intents', {
   statusIdx: index('idx_cc_intents_status').on(table.status),
   priorityIdx: index('idx_cc_intents_priority').on(table.priority),
   scheduledIdx: index('idx_cc_intents_scheduled').on(table.scheduledFor),
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilegeIdx: index('idx_cc_intents_privilege').on(table.privilege, table.status),
+  spaceIdx: index('idx_cc_intents_space').on(table.space, table.status),
   // fixes codex-p2 PR#101 finding-4 — composite FK so intent.goal_id MUST
   // match its plan's goal_id. Backed by UNIQUE(id, goal_id) on cc_plans.
   planGoalFk: foreignKey({
