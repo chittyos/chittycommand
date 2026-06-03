@@ -13,7 +13,6 @@
   "useOrgRulesets": true,
   "requiredFiles": [
     ".github/workflows/governance-gates.yml",
-    ".github/workflows/reusable-governance-gates.yml",
     ".github/workflows/adversarial-review.yml",
     ".github/workflows/identity-context-onboarding.yml",
     ".github/workflows/onepassword-rotation-audit.yml",
@@ -116,6 +115,9 @@
     "delegateTokenSecret": "CHITTY_REVIEW_DELEGATE_TOKEN"
   },
   "requiredFilePatterns": {
+    ".github/workflows/governance-gates.yml": [
+      "CHITTYOS/chittycommand/.github/workflows/reusable-governance-gates.yml@main"
+    ],
     "CHITTY.md": [
       "context_brief:",
       "chitty:discovery-links:start",

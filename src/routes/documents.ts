@@ -135,8 +135,10 @@ documentRoutes.post('/upload/batch', async (c) => {
       const hashBuf = await crypto.subtle.digest('SHA-256', bytes);
       const contentHash = Array.from(new Uint8Array(hashBuf)).map(b => b.toString(16).padStart(2, '0')).join('');
 
-      const chittyId = `scan-${contentHash.slice(0, 12)}`;
+      const chittyId = `scan-${contentHash.slice(0, 32)}`;
       let r2Key = `sha256/${contentHash}`;
+
+      let usedStorage = false;
 
       if (c.env.SVC_STORAGE) {
         const content_base64 = uint8ToBase64(bytes);
@@ -153,16 +155,53 @@ documentRoutes.post('/upload/batch', async (c) => {
             }}, id: 1,
           }),
         });
-        const mcp = await storageRes.json() as any;
-        const resultText = mcp?.result?.content?.[0]?.text;
-        if (resultText) {
-          const parsed = JSON.parse(resultText);
-          r2Key = parsed.r2_key ?? r2Key;
-        } else if (!storageRes.ok || mcp?.error) {
-          console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, mcp?.error ?? storageRes.status);
+
+        if (!storageRes.ok) {
+          console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, storageRes.status);
           results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
           continue;
         }
+
+        let mcp: unknown;
+        try {
+          mcp = await storageRes.json();
+        } catch (parseErr) {
+          console.error(`[documents] Batch: ChittyStorage returned non-JSON for ${safeName}:`, parseErr);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        }
+
+        const mcpTyped = mcp as { result?: { content?: Array<{ text?: string }> }; error?: unknown };
+        const resultText = mcpTyped?.result?.content?.[0]?.text;
+        const mcpError = mcpTyped?.error;
+
+        if (mcpError) {
+          console.error(`[documents] Batch: ChittyStorage failed for ${safeName}:`, mcpError);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        }
+
+        if (!resultText) {
+          console.error(`[documents] Batch: ChittyStorage returned OK but missing result.content[0].text for ${safeName}:`, mcp);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        }
+
+        try {
+          const parsed = JSON.parse(resultText) as { r2_key?: unknown };
+          if (typeof parsed.r2_key !== 'string' || parsed.r2_key.trim() === '') {
+            console.error(`[documents] Batch: ChittyStorage response missing r2_key for ${safeName}:`, mcp);
+            results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+            continue;
+          }
+          r2Key = parsed.r2_key;
+        } catch (parseErr) {
+          console.error(`[documents] Batch: ChittyStorage JSON parse failed for ${safeName}:`, parseErr, 'MCP response:', mcp);
+          results.push({ filename: safeName, status: 'error', error: 'ChittyStorage ingest failed' });
+          continue;
+        }
+
+        usedStorage = true;
       } else {
         await c.env.DOCUMENTS.put(r2Key, bytes, {
           httpMetadata: { contentType: file.type },
@@ -172,9 +211,15 @@ documentRoutes.post('/upload/batch', async (c) => {
 
       await sql`
         INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status, metadata)
-        VALUES ('upload', 'chittycommand', ${safeName}, ${r2Key}, 'synced',
-          ${JSON.stringify({ content_hash: contentHash, storage_chitty_id: chittyId, batch: true })}::jsonb)
-        ON CONFLICT (r2_key) DO NOTHING
+        VALUES (
+          'upload',
+          ${usedStorage ? 'chittycommand' : 'manual'},
+          ${safeName},
+          ${r2Key},
+          ${usedStorage ? 'synced' : 'pending'},
+          ${JSON.stringify({ content_hash: contentHash, storage_chitty_id: chittyId, batch: true })}::jsonb
+        )
+        ON CONFLICT (r2_key) WHERE (r2_key IS NOT NULL) DO NOTHING
       `;
       results.push({ filename: safeName, status: 'ok', content_hash: contentHash });
     } catch (err) {
