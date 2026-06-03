@@ -118,3 +118,48 @@ CHITTYOS/chittycommand
   surfaces the meta-orchestrator can route to. No code change required this PR.
 - The cluster-daemon runtime depends on Neon reachability for leader election;
   the "park the node" fallback is acceptable for MVP and will be revisited.
+
+---
+
+## Delta: Roux/Triage Carry-Through (2026-06-03)
+
+> @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+
+Ratified by chittycanon-code-cardinal.
+
+### Q1 — Where do `privilege` / `space` live?
+**(c) ratified.** Add to `cc_intents` AND `cc_disputes` directly as first-class
+columns (text, NOT NULL, defaults `public` / `business`), backed by indexes on
+`(privilege, status)` and `(space, status)`. CHECK constraints deferred because
+the Roux spec URI is `STATUS:PENDING` certification. App layer enforces the
+enum in `meta/intent.ts` and `src/routes/triage.ts`.
+
+### Q2 — Migration semantics on existing rows?
+**(a) pass-through-with-warn.** The migration applies `DEFAULT 'public'` /
+`'business'` so existing rows are valid. `pushUnlinkedDisputesToNotion` emits
+a one-time per-row log when it encounters a row sitting on those defaults
+recommending an explicit tag. No backfill writes.
+
+### Q3 — How does Triage claim work?
+**Both modes.** Specific-by-ID claim (`POST /api/triage/:id/claim`, atomic,
+409 if not pending) for human triagers; bucket-ordered claim
+(`POST /api/triage/claim-next`) for autonomous agents, parameterised on
+`privilege`, `space`, `priority_lte`. Routes are MCP-exposed as
+`triage_list_intents`, `triage_claim_intent`, `triage_claim_next`,
+`triage_complete_intent`.
+
+### Q4 — Vocabulary alignment with sovereignty.ts?
+**Orthogonal axes — DO NOT TOUCH `decide()`.** The pre-existing
+`sensitivity ∈ {low, normal, sensitive, critical}` on
+`IntentForSovereignty` is the trust-tier axis the sovereignty matrix consumes.
+`privilege ∈ {privileged, pii, hoa_evidentiary, public}` is the Roux
+classification axis — informational on `IntentForSovereignty`, persisted on
+the intent row, but never an input to the autonomous/human/blocked decision.
+
+### Notion mirror gate
+`linkDisputeToNotion` refuses to mirror any dispute where the effective
+`privilege ∈ {privileged, pii}` OR `space === 'legalink'`. Effective values
+resolve as `explicit > deriveRouxFromType(dispute_type)`. `legal` ⇒
+`(privileged, legalink)`; `insurance` ⇒ `(pii, business)`; everything else
+defaults to `(public, business)`. This prevents privileged work-product and
+PII from being mirrored into the operations Notion workspace.
