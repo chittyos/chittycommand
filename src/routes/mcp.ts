@@ -1,11 +1,38 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
+import { hasTriageScope } from '../middleware/auth';
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// fixes codex-p2 PR#104 P1 — triage MCP tools require elevated scope; we
+// filter them from tools/list and gate tools/call for callers without it.
+const TRIAGE_TOOL_NAMES = new Set([
+  'triage_list_intents',
+  'triage_claim_intent',
+  'triage_claim_next',
+  'triage_complete_intent',
+]);
 import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
+import {
+  claimNextIntent,
+  completeIntent,
+  failIntent,
+  type IntentPrivilege,
+  type IntentSpace,
+} from '../../meta/intent';
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+const TRIAGE_VALID_PRIVILEGE: ReadonlySet<IntentPrivilege> = new Set<IntentPrivilege>([
+  'privileged',
+  'pii',
+  'hoa_evidentiary',
+  'public',
+]);
+const TRIAGE_VALID_SPACE: ReadonlySet<IntentSpace> = new Set<IntentSpace>(['business', 'legalink']);
 
 /**
  * MCP (Model Context Protocol) server for ChittyCommand.
@@ -441,6 +468,55 @@ const TOOLS = [
       required: [] as string[],
     },
   },
+  // ChittyTriage / Roux — @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  {
+    name: 'triage_list_intents',
+    description: 'List pending intents in the ChittyTriage queue, optionally filtered by Roux privilege/space.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        privilege: { type: 'string', description: "Roux privilege class: 'privileged'|'pii'|'hoa_evidentiary'|'public'" },
+        space: { type: 'string', description: "Roux space: 'business'|'legalink'" },
+        limit: { type: 'number', description: 'Max results (default 25, cap 200)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'triage_claim_intent',
+    description: 'Atomically claim a specific pending intent by ID. Returns 409 if already claimed.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: { id: { type: 'string', description: 'Intent UUID' } },
+      required: ['id'],
+    },
+  },
+  {
+    name: 'triage_claim_next',
+    description: 'Bucket-ordered claim of the next pending intent for an autonomous agent. Filters: privilege, space, priority_lte.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        privilege: { type: 'string' },
+        space: { type: 'string' },
+        priority_lte: { type: 'number', description: 'Only claim intents with priority <= this value' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'triage_complete_intent',
+    description: "Terminal transition for an intent. outcome must be 'done' (must be running) or 'failed' (must be claimed/running).",
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        id: { type: 'string' },
+        outcome: { type: 'string', description: "'done' | 'failed'" },
+        error: { type: 'string', description: 'Optional failure detail when outcome=failed' },
+      },
+      required: ['id', 'outcome'],
+    },
+  },
 ];
 
 // MCP endpoint — handles JSON-RPC 2.0 requests
@@ -483,8 +559,16 @@ mcpRoutes.post('/', async (c) => {
       // Per JSON-RPC 2.0: notifications have no id and MUST NOT receive a response
       return c.body(null, 204);
 
-    case 'tools/list':
-      return c.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+    case 'tools/list': {
+      // fixes codex-p2 PR#104 P1 — filter triage_* tools from the catalog
+      // when the caller lacks chittytriage:write (don't advertise what they
+      // can't call).
+      const listScopes = c.get('scopes');
+      const visibleTools = hasTriageScope(listScopes)
+        ? TOOLS
+        : TOOLS.filter((t) => !TRIAGE_TOOL_NAMES.has(t.name));
+      return c.json({ jsonrpc: '2.0', id, result: { tools: visibleTools } });
+    }
 
     case 'tools/call': {
       const toolName = params?.name as string;
@@ -493,6 +577,19 @@ mcpRoutes.post('/', async (c) => {
         const sql = getDb(c.env);
         const userId = c.get('userId');
         const scopes = c.get('scopes');
+        // fixes codex-p2 PR#104 P1 — defense-in-depth scope gate for the
+        // triage tools so a caller that knows the name can't bypass the
+        // tools/list filter.
+        if (TRIAGE_TOOL_NAMES.has(toolName) && !hasTriageScope(scopes)) {
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [{ type: 'text', text: 'Error: Insufficient scope: chittytriage:write required' }],
+              isError: true,
+            },
+          });
+        }
         const result = await executeTool(c.env, sql, toolName, args, { userId, scopes });
         const content = [{ type: 'text' as const, text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }];
 
@@ -1357,6 +1454,107 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       if (!evidence) return { error: 'ChittyEvidence not configured' };
       const pending = await evidence.getPendingFacts(caseId, limit);
       return { caseId: caseId || 'all', pending: pending || [] };
+    }
+
+    // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+    case 'triage_list_intents': {
+      const privilegeRaw = typeof args.privilege === 'string' ? args.privilege : null;
+      const spaceRaw = typeof args.space === 'string' ? args.space : null;
+      if (privilegeRaw && !TRIAGE_VALID_PRIVILEGE.has(privilegeRaw as IntentPrivilege)) {
+        return { error: `Invalid privilege: ${privilegeRaw}` };
+      }
+      if (spaceRaw && !TRIAGE_VALID_SPACE.has(spaceRaw as IntentSpace)) {
+        return { error: `Invalid space: ${spaceRaw}` };
+      }
+      const limit = Math.min(Math.max(Number(args.limit) || 25, 1), 200);
+      const rows = await sql`
+        SELECT id, plan_id, goal_id, intent_type, target_channel, status, priority,
+               privilege, space, scheduled_for, created_at, updated_at,
+               human_gate_reason, reclaim_count
+        FROM cc_intents
+        WHERE status = 'pending'
+          AND (${privilegeRaw}::text IS NULL OR privilege = ${privilegeRaw})
+          AND (${spaceRaw}::text IS NULL OR space = ${spaceRaw})
+          AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+        ORDER BY priority ASC, created_at ASC
+        LIMIT ${limit}
+      `;
+      return { intents: rows, count: rows.length, filter: { privilege: privilegeRaw, space: spaceRaw, limit } };
+    }
+
+    case 'triage_claim_intent': {
+      const id = String(args.id || '');
+      if (!id) return { error: 'id required' };
+      const existing = await sql`SELECT id, status, scheduled_for FROM cc_intents WHERE id = ${id} LIMIT 1`;
+      if (existing.length === 0) return { error: 'Intent not found', code: 404 };
+      // Finding 5: mirror the HTTP route — direct claim must not bypass
+      // scheduled_for the way list + claim-next don't.
+      const claimed = await sql`
+        UPDATE cc_intents SET status = 'claimed', updated_at = NOW()
+        WHERE id = ${id}
+          AND status = 'pending'
+          AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+        RETURNING *
+      `;
+      if (claimed.length === 0) {
+        const scheduledFor = existing[0].scheduled_for as string | null;
+        if (
+          existing[0].status === 'pending' &&
+          scheduledFor &&
+          new Date(scheduledFor) > new Date()
+        ) {
+          return {
+            error: 'Intent scheduled for future; refusing to claim early',
+            code: 409,
+            scheduled_for: scheduledFor,
+          };
+        }
+        return { error: 'Intent already claimed or not pending', code: 409, current_status: existing[0].status };
+      }
+      return { intent: claimed[0] };
+    }
+
+    case 'triage_claim_next': {
+      const privilegeRaw = typeof args.privilege === 'string' ? args.privilege : null;
+      const spaceRaw = typeof args.space === 'string' ? args.space : null;
+      if (privilegeRaw && !TRIAGE_VALID_PRIVILEGE.has(privilegeRaw as IntentPrivilege)) {
+        return { error: `Invalid privilege: ${privilegeRaw}` };
+      }
+      if (spaceRaw && !TRIAGE_VALID_SPACE.has(spaceRaw as IntentSpace)) {
+        return { error: `Invalid space: ${spaceRaw}` };
+      }
+      const priorityLteRaw = args.priority_lte;
+      let priorityLte: number | undefined;
+      if (priorityLteRaw !== undefined && priorityLteRaw !== null) {
+        const n = Number(priorityLteRaw);
+        if (!Number.isFinite(n)) return { error: 'priority_lte must be a number' };
+        priorityLte = Math.floor(n);
+      }
+      const intent = await claimNextIntent(env, {
+        privilege: (privilegeRaw as IntentPrivilege) ?? undefined,
+        space: (spaceRaw as IntentSpace) ?? undefined,
+        priorityLte,
+      });
+      if (!intent) return { intent: null, message: 'Queue empty for the requested bucket' };
+      return { intent };
+    }
+
+    case 'triage_complete_intent': {
+      const id = String(args.id || '');
+      if (!id) return { error: 'id required' };
+      const outcome = args.outcome;
+      if (outcome !== 'done' && outcome !== 'failed') {
+        return { error: "outcome must be 'done' or 'failed'" };
+      }
+      if (outcome === 'done') {
+        const updated = await completeIntent(env, id);
+        if (!updated) return { error: "Intent not in 'claimed' or 'running' state; refusing to mark done", code: 409 };
+        return { intent: updated };
+      }
+      const errMsg = String(args.error ?? 'failed via mcp triage_complete_intent');
+      const updated = await failIntent(env, id, errMsg);
+      if (!updated) return { error: "Intent not in 'claimed' or 'running' state; refusing to mark failed", code: 409 };
+      return { intent: updated };
     }
 
     default:

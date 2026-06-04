@@ -27,7 +27,44 @@ interface DisputeCore {
   amount_at_stake?: number | null;
   description?: string | null;
   priority: number;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilege?: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public' | null;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  space?: 'business' | 'legalink' | null;
   metadata?: Record<string, unknown> | null;
+}
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// Map a cc_disputes.dispute_type to default Roux (privilege, space).
+// Explicit caller-supplied values always override (Q1=(c) pass-through derive).
+export function deriveRouxFromType(disputeType: string): {
+  privilege: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
+  space: 'business' | 'legalink';
+} {
+  // Fail-safe routing: dispute_type is free-text from the API/UI. Any string
+  // containing "legal" routes to privileged/legalink (prevents leakage of
+  // "Legal", "legal dispute", etc. to the public/business Notion bucket).
+  // Any string containing "insurance" routes to pii/business. This is
+  // intentionally over-broad on the privileged side — better to over-suppress
+  // a Notion mirror than to leak privileged content.
+  const normalized = (disputeType ?? '').toLowerCase().trim();
+  if (normalized.includes('legal')) {
+    return { privilege: 'privileged', space: 'legalink' };
+  }
+  if (normalized.includes('insurance')) {
+    return { privilege: 'pii', space: 'business' };
+  }
+  switch (normalized) {
+    case 'property':
+    case 'vendor':
+    case 'tenant':
+    case 'financial':
+      return { privilege: 'public', space: 'business' };
+    default:
+      // Unknown dispute_type — fall back to the safest defaults that still
+      // route through the public/business bucket so the dispute is visible.
+      return { privilege: 'public', space: 'business' };
+  }
 }
 
 // ── Public API ────────────────────────────────────────────────
@@ -180,7 +217,8 @@ export async function pushUnlinkedDisputesToNotion(
   sql: NeonQueryFunction<false, false>,
 ): Promise<number> {
   const unlinked = await sql`
-    SELECT id, title, counterparty, dispute_type, priority, description, metadata
+    SELECT id, title, counterparty, dispute_type, priority, description, metadata,
+           privilege, space
     FROM cc_disputes
     WHERE (metadata->>'notion_task_id') IS NULL
       AND status NOT IN ('resolved', 'dismissed')
@@ -192,7 +230,32 @@ export async function pushUnlinkedDisputesToNotion(
 
   for (const dispute of unlinked) {
     try {
-      const linked = await linkDisputeToNotion(dispute.id as string, dispute as unknown as DisputeCore, env, sql);
+      // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+      // Q2=(a) pass-through-with-warn: rows that landed on the column defaults
+      // (public/business) may be untagged legacy rows (the DB stores defaults
+      // even when the caller didn't supply explicit values). For the Notion-gate
+      // decision, we cannot distinguish "caller explicitly chose public/business"
+      // from "caller omitted both fields and PG defaulted them". When both axes
+      // sit on the defaults, re-derive from dispute_type so a row with
+      // dispute_type='legal' is still suppressed even though privilege/space
+      // were stored as public/business. The DB row itself is left untouched —
+      // an explicit retag is a separate concern.
+      const storedPrivilege = (dispute.privilege as string | null) ?? 'public';
+      const storedSpace = (dispute.space as string | null) ?? 'business';
+      const onDefaults = storedPrivilege === 'public' && storedSpace === 'business';
+      let gateDispute = dispute as unknown as DisputeCore;
+      if (onDefaults) {
+        console.log(
+          `[dispute-sync:roux-backfill] dispute_id=${dispute.id} on default privilege=public space=business — re-deriving from dispute_type=${dispute.dispute_type as string} for gate decision; explicit tag recommended`,
+        );
+        const derived = deriveRouxFromType(dispute.dispute_type as string);
+        gateDispute = {
+          ...(dispute as unknown as DisputeCore),
+          privilege: derived.privilege,
+          space: derived.space,
+        };
+      }
+      const linked = await linkDisputeToNotion(dispute.id as string, gateDispute, env, sql);
       if (linked) pushed++;
     } catch (err) {
       console.error(`[dispute-sync:push] Failed for dispute ${dispute.id}:`, err);
@@ -204,12 +267,29 @@ export async function pushUnlinkedDisputesToNotion(
 
 // ── Internal helpers ──────────────────────────────────────────
 
-async function linkDisputeToNotion(
+export async function linkDisputeToNotion(
   disputeId: string,
-  dispute: Pick<DisputeCore, 'title' | 'dispute_type' | 'priority' | 'description'>,
+  dispute: Pick<DisputeCore, 'title' | 'dispute_type' | 'priority' | 'description' | 'privilege' | 'space'>,
   env: Env,
   sql: NeonQueryFunction<false, false>,
 ): Promise<boolean> {
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // Roux gate: privileged/pii content and anything in the legalink space must
+  // NOT be mirrored into Notion. Resolve effective values: explicit > derived.
+  const derived = deriveRouxFromType(dispute.dispute_type);
+  const effectivePrivilege = dispute.privilege ?? derived.privilege;
+  const effectiveSpace = dispute.space ?? derived.space;
+  if (
+    effectivePrivilege === 'privileged' ||
+    effectivePrivilege === 'pii' ||
+    effectiveSpace === 'legalink'
+  ) {
+    console.log(
+      `[dispute-sync:notion] suppressed (privilege=${effectivePrivilege} space=${effectiveSpace}) dispute=${disputeId}`,
+    );
+    return false;
+  }
+
   try {
     const notion = notionClient(env);
     if (!notion) {

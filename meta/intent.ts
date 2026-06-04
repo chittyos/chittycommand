@@ -20,6 +20,14 @@ export type IntentStatus =
   | 'failed'
   | 'blocked_human';
 
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// ChittyRoux privilege class — orthogonal to sovereignty trust-tier sensitivity.
+export type IntentPrivilege = 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// ChittyRoux two-Space partition.
+export type IntentSpace = 'business' | 'legalink';
+
 export interface SovereigntyAssessmentSnapshot {
   decision: 'autonomous' | 'requires_human' | 'blocked';
   trustScore: number;
@@ -75,6 +83,10 @@ export interface Intent {
   scheduledFor: Date | null;
   completedAt: Date | null;
   errorMessage: string | null;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilege: IntentPrivilege;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  space: IntentSpace;
   metadata: Record<string, unknown>;
   createdAt: Date;
   updatedAt: Date;
@@ -192,6 +204,10 @@ export interface CreateIntentInput {
   sovereigntyAssessment?: SovereigntyAssessmentSnapshot;
   humanGateReason?: string;
   scheduledFor?: Date;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  privilege?: IntentPrivilege;
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  space?: IntentSpace;
   metadata?: Record<string, unknown>;
 }
 
@@ -206,16 +222,20 @@ export async function createIntent(env: IntentEnv, input: CreateIntentInput): Pr
         ? 'failed'
         : 'pending';
 
+  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+  // privilege/space default to public/business at the column level; pass through
+  // explicit caller values so high-privilege intents are tagged at creation.
   const rows = await sql`
     INSERT INTO cc_intents
       (plan_id, goal_id, intent_type, target_channel, payload, status, priority,
-       sovereignty_assessment, human_gate_reason, scheduled_for, metadata)
+       sovereignty_assessment, human_gate_reason, scheduled_for, privilege, space, metadata)
     VALUES
       (${input.planId}, ${input.goalId}, ${input.intentType},
        ${input.targetChannel ?? null}, ${JSON.stringify(input.payload)}::jsonb,
        ${initialStatus}, ${input.priority ?? 5},
        ${input.sovereigntyAssessment ? JSON.stringify(input.sovereigntyAssessment) : null}::jsonb,
        ${input.humanGateReason ?? null}, ${input.scheduledFor ?? null},
+       ${input.privilege ?? 'public'}, ${input.space ?? 'business'},
        ${JSON.stringify(input.metadata ?? {})}::jsonb)
     RETURNING *`;
   return rowToIntent(rows[0]);
@@ -231,37 +251,39 @@ export async function getIntent(env: IntentEnv, id: string): Promise<Intent | nu
  * Claim the next pending intent for execution. Atomic via UPDATE...RETURNING.
  * Mirrors the lease pattern in chittyentity/workers/shared/agent-tasks.ts.
  */
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// privilege/space filters use the null-passthrough pattern (param IS NULL OR
+// col = param) so a single prepared statement covers all four filter combos.
 export async function claimNextIntent(
   env: IntentEnv,
-  options: { channel?: string } = {},
+  options: {
+    channel?: string;
+    privilege?: IntentPrivilege;
+    space?: IntentSpace;
+    priorityLte?: number;
+  } = {},
 ): Promise<Intent | null> {
   const sql = getSql(env);
-  const rows = options.channel
-    ? await sql`
-        UPDATE cc_intents
-        SET status = 'claimed', updated_at = NOW()
-        WHERE id = (
-          SELECT id FROM cc_intents
-          WHERE status = 'pending'
-            AND target_channel = ${options.channel}
-            AND (scheduled_for IS NULL OR scheduled_for <= NOW())
-          ORDER BY priority ASC, created_at ASC
-          FOR UPDATE SKIP LOCKED
-          LIMIT 1
-        )
-        RETURNING *`
-    : await sql`
-        UPDATE cc_intents
-        SET status = 'claimed', updated_at = NOW()
-        WHERE id = (
-          SELECT id FROM cc_intents
-          WHERE status = 'pending'
-            AND (scheduled_for IS NULL OR scheduled_for <= NOW())
-          ORDER BY priority ASC, created_at ASC
-          FOR UPDATE SKIP LOCKED
-          LIMIT 1
-        )
-        RETURNING *`;
+  const channel = options.channel ?? null;
+  const privilege = options.privilege ?? null;
+  const space = options.space ?? null;
+  const priorityLte = options.priorityLte ?? null;
+  const rows = await sql`
+    UPDATE cc_intents
+    SET status = 'claimed', updated_at = NOW()
+    WHERE id = (
+      SELECT id FROM cc_intents
+      WHERE status = 'pending'
+        AND (${channel}::text IS NULL OR target_channel = ${channel})
+        AND (${privilege}::text IS NULL OR privilege = ${privilege})
+        AND (${space}::text IS NULL OR space = ${space})
+        AND (${priorityLte}::int IS NULL OR priority <= ${priorityLte})
+        AND (scheduled_for IS NULL OR scheduled_for <= NOW())
+      ORDER BY priority ASC, created_at ASC
+      FOR UPDATE SKIP LOCKED
+      LIMIT 1
+    )
+    RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
 
@@ -288,6 +310,11 @@ export async function markIntentDispatched(
 // returns after a fresher leader has reclaimed + redispatched the intent, the
 // stale dispatched_task_id will no longer match and the UPDATE will affect 0
 // rows. Pass `undefined` to skip the token check (legacy / non-leader paths).
+// fixes codex-p2 PR#104 finding-4 — accept 'claimed' as well as 'running'.
+// The triage routes expose claim (→'claimed') but no explicit transition to
+// 'running', so an autonomous agent that does work and then calls complete
+// always hit 409. The token gate from P1-B still prevents stale completions
+// when a token is supplied. Failing from terminal states is still rejected.
 export async function completeIntent(
   env: IntentEnv,
   intentId: string,
@@ -299,13 +326,13 @@ export async function completeIntent(
       ? await sql`
           UPDATE cc_intents
           SET status = 'done', completed_at = NOW(), updated_at = NOW()
-          WHERE id = ${intentId} AND status = 'running'
+          WHERE id = ${intentId} AND status IN ('claimed', 'running')
           RETURNING *`
       : await sql`
           UPDATE cc_intents
           SET status = 'done', completed_at = NOW(), updated_at = NOW()
           WHERE id = ${intentId}
-            AND status = 'running'
+            AND status IN ('claimed', 'running')
             AND dispatched_task_id = ${expectedDispatchedTaskId}
           RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
@@ -434,6 +461,10 @@ function rowToIntent(row: Record<string, unknown>): Intent {
     scheduledFor: row.scheduled_for ? new Date(row.scheduled_for as string) : null,
     completedAt: row.completed_at ? new Date(row.completed_at as string) : null,
     errorMessage: (row.error_message as string) ?? null,
+    // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+    privilege: ((row.privilege as IntentPrivilege | undefined) ?? 'public'),
+    // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+    space: ((row.space as IntentSpace | undefined) ?? 'business'),
     metadata: (row.metadata as Record<string, unknown>) ?? {},
     createdAt: new Date(row.created_at as string),
     updatedAt: new Date(row.updated_at as string),

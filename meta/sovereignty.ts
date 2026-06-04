@@ -28,6 +28,19 @@ export interface IntentForSovereignty {
    * decision. Optional — defaults to 'normal'.
    */
   sensitivity?: 'low' | 'normal' | 'sensitive' | 'critical';
+  /**
+   * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+   *
+   * ChittyRoux privilege class — orthogonal to `sensitivity` (which is the
+   * trust-tier axis the decide() matrix consumes). `privilege` is informational
+   * here so callers can persist it on the intent; it does NOT feed decide().
+   *
+   * - privileged       — attorney-client / work-product
+   * - pii              — personally identifiable info
+   * - hoa_evidentiary  — HOA-relevant evidentiary material
+   * - public           — no privilege class applies
+   */
+  privilege?: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
   /** Optional human-readable summary for audit trail. */
   summary?: string;
 }

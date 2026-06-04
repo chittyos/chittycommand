@@ -141,13 +141,15 @@ describe('MCP — tools/list', () => {
     expect(tools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('exposes exactly 50 tools', async () => {
+  it('exposes exactly 54 tools', async () => {
     const { post } = buildApp();
     const res = await post({ jsonrpc: '2.0', id: 1, method: 'tools/list' });
     const json = await res.json() as Record<string, unknown>;
     const result = json.result as Record<string, unknown>;
     const tools = result.tools as unknown[];
-    expect(tools.length).toBe(50);
+    // 50 base + 4 triage tools added in PR #104: triage_list_intents,
+    // triage_claim_intent, triage_claim_next, triage_complete_intent
+    expect(tools.length).toBe(54);
   });
 
   it('each tool has a name and inputSchema', async () => {
