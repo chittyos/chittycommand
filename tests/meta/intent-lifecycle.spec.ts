@@ -234,4 +234,65 @@ describe.skipIf(SKIP)('meta/intent lifecycle (real Neon)', () => {
     const liveComplete = await completeIntent(env, intent.id, 'token-T2');
     expect(liveComplete?.status).toBe('done');
   });
+
+  // fixes codex-p2 PR#104 P2 (reclaim claim-token race) — reviewer flagged a
+  // possible race where client A claims (token A) → reclaimStuckIntents resets
+  // → client B re-claims (token B) → client A returns and completes with token
+  // A. The existing P1-B token gate covers both 'claimed' AND 'running' (see
+  // completeIntent: status IN ('claimed','running') AND dispatched_task_id = $token),
+  // and reclaimStuckIntents NULLs dispatched_task_id, so token A can never
+  // match again. This test pins that behavior so a future refactor can't
+  // regress it.
+  it('claim → reclaim → re-claim race: stale tokenA cannot complete tokenB-owned work', async () => {
+    const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g-race` });
+    const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p-race` });
+    const intent = await createIntent(env, {
+      planId: plan.id,
+      goalId: goal.id,
+      intentType: 'race',
+      payload: { test: TEST_TAG },
+    });
+
+    const sql = neon(DATABASE_URL!);
+    // Client A claims with tokenA — and sat there past the reclaim window.
+    // The route doesn't currently expose dispatched_task_id on claim, so we
+    // simulate the "dispatched + stale" state directly.
+    await sql`
+      UPDATE cc_intents
+      SET status = 'claimed',
+          dispatched_task_id = 'tokenA',
+          updated_at = NOW() - INTERVAL '10 minutes'
+      WHERE id = ${intent.id}`;
+
+    // Reclaim window expires; daemon resets to pending and clears the token.
+    const reclaimed = await reclaimStuckIntents(env, 60);
+    expect(reclaimed).toBe(1);
+    const afterReclaim = await getIntent(env, intent.id);
+    expect(afterReclaim?.status).toBe('pending');
+    expect(afterReclaim?.dispatchedTaskId).toBeNull();
+
+    // Client B re-claims, getting tokenB.
+    await sql`
+      UPDATE cc_intents
+      SET status = 'claimed', dispatched_task_id = 'tokenB'
+      WHERE id = ${intent.id} AND status = 'pending'`;
+
+    // Client A finally returns. completeIntent with tokenA must NOT update
+    // the row — neither marking B's work done nor overwriting B's token.
+    const staleA = await completeIntent(env, intent.id, 'tokenA');
+    expect(staleA).toBeNull();
+    const stillBs = await getIntent(env, intent.id);
+    expect(stillBs?.status).toBe('claimed');
+    expect(stillBs?.dispatchedTaskId).toBe('tokenB');
+
+    // failIntent with tokenA is symmetric — also rejected.
+    const staleAFail = await failIntent(env, intent.id, 'A error', 'tokenA');
+    expect(staleAFail).toBeNull();
+    const stillBs2 = await getIntent(env, intent.id);
+    expect(stillBs2?.status).toBe('claimed');
+
+    // Client B completes with tokenB — succeeds.
+    const liveB = await completeIntent(env, intent.id, 'tokenB');
+    expect(liveB?.status).toBe('done');
+  });
 });
