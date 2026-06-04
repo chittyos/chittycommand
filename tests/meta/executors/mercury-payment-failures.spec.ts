@@ -242,6 +242,42 @@ describe('chat-surface tool — refuses Mercury payments unconditionally', () =>
   });
 });
 
+describe('mercury-payment — idempotency forwarded as HTTP header (PR #108 review C1)', () => {
+  it('createPayment sends Idempotency-Key as a request header, not just in body', async () => {
+    const captured: { url: string; headers: Headers; bodyText: string }[] = [];
+    const idemKey = 'i'.repeat(64);
+
+    const capturingFetch: typeof fetch = (async (
+      input: RequestInfo | URL,
+      init?: RequestInit,
+    ) => {
+      const req = new Request(input as RequestInfo, init);
+      const bodyText = await req.text();
+      captured.push({ url: req.url, headers: req.headers, bodyText });
+      return new Response(
+        JSON.stringify({ id: 'tx_hdr_001', status: 'sent', amount: 1.0 }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as unknown as typeof fetch;
+
+    const run = await runMercuryPayment({
+      env: envFor(KV_WITH_TOKEN),
+      payload: VALID_PAYLOAD,
+      sovereignty: FRESH_ASSESSMENT,
+      idempotencyKey: idemKey,
+      fetchImpl: capturingFetch,
+    });
+
+    expect(run.ok).toBe(true);
+    expect(captured.length).toBeGreaterThan(0);
+    const post = captured.find((c) => c.url.includes('/transactions'));
+    expect(post, 'expected a POST to /transactions to be captured').toBeDefined();
+    // The Idempotency-Key HTTP header is what Mercury uses to dedupe transfers
+    // on transport retry. Without it, a retried POST creates a duplicate ACH.
+    expect(post!.headers.get('Idempotency-Key')).toBe(idemKey);
+  });
+});
+
 // MERCURY_SOVEREIGNTY_FRESHNESS_MS import kept to ensure the constant remains
 // public (other tests / runbook docs reference it).
 void MERCURY_SOVEREIGNTY_FRESHNESS_MS;

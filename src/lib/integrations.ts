@@ -599,12 +599,25 @@ export function mercuryClient(token: string, fetchImpl: FetchImpl = fetch) {
    * audit row can show what Mercury returned without leaking secrets (body is
    * Mercury's payment object — no token in it).
    */
-  async function post<T>(path: string, body: unknown): Promise<MercuryPostResult<T>> {
+  async function post<T>(
+    path: string,
+    body: unknown,
+    opts?: { idempotencyKey?: string },
+  ): Promise<MercuryPostResult<T>> {
     let res: Response;
     try {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      // Mercury dedupes ACH/wire/check creations by the `Idempotency-Key` HTTP
+      // header. Putting the key only in the JSON body lets a transport retry
+      // create duplicate transfers — money out twice. Forward as header.
+      if (opts?.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
       res = await fetchImpl(`${baseUrl}${path}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers,
         body: JSON.stringify(body),
       });
     } catch (err) {
@@ -655,7 +668,16 @@ export function mercuryClient(token: string, fetchImpl: FetchImpl = fetch) {
       paymentMethod: 'ach' | 'wire' | 'check';
       idempotencyKey: string;
       note?: string;
-    }) => post<{ id: string; status: string; amount: number }>(`/account/${accountId}/transactions`, payment),
+    }) => {
+      // Mercury expects `Idempotency-Key` as an HTTP header, not in the body.
+      // Strip from body and forward via opts so transport retries dedupe.
+      const { idempotencyKey, ...bodyWithoutKey } = payment;
+      return post<{ id: string; status: string; amount: number }>(
+        `/account/${accountId}/transactions`,
+        bodyWithoutKey,
+        { idempotencyKey },
+      );
+    },
   };
 }
 
