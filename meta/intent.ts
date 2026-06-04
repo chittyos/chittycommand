@@ -382,6 +382,104 @@ export async function reclaimStuckIntents(
   return rows.length;
 }
 
+/**
+ * Execute a specific intent by id. Atomically claims it (pending → claimed),
+ * dispatches through the executor registry, then updates status based on the
+ * dispatcher's result.
+ *
+ * Idempotent: second call returns the prior replayed result via
+ * meta/executors/dispatch.ts's idempotency-key lookup.
+ *
+ * Per ADR-001 amendment (PR-A): this is the wiring between the Intent state
+ * machine and the executor registry. ActionAgent's chat path does NOT call
+ * this — it talks to tools directly. Both paths share executor implementations
+ * via meta/executors/*.
+ *
+ * @canonical-uri chittycanon://docs/architecture/chittycommand/ADR-001
+ */
+export async function executeIntent(
+  env: IntentEnv & Record<string, unknown>,
+  intentId: string,
+  options: { actorChittyId?: string; freshnessMs?: number } = {},
+): Promise<import('./executors/types').ExecutorResult> {
+  // Lazy import to avoid forcing the executor registry on every meta/intent
+  // consumer (and to keep the existing module's surface stable).
+  const { dispatch } = await import('./executors');
+
+  const sql = getSql(env);
+
+  // First, see if the intent is already terminal — if so, replay via dispatch.
+  const current = await getIntent(env, intentId);
+  if (!current) {
+    return {
+      ok: false,
+      idempotencyKey: '',
+      error: `Intent ${intentId} not found`,
+    };
+  }
+
+  // If pending, atomically claim (single-id variant of claimNextIntent).
+  let intent = current;
+  if (intent.status === 'pending') {
+    const claimed = await sql`
+      UPDATE cc_intents
+      SET status = 'claimed', updated_at = NOW()
+      WHERE id = ${intentId} AND status = 'pending'
+      RETURNING *`;
+    if (!claimed[0]) {
+      // Someone else got it; reload to see current state and let dispatch
+      // decide (replay if there's a matching audit row, else not_claimable).
+      const fresh = await getIntent(env, intentId);
+      if (!fresh) {
+        return {
+          ok: false,
+          idempotencyKey: '',
+          error: 'Intent disappeared between read and claim',
+        };
+      }
+      intent = fresh;
+    } else {
+      intent = rowToIntent(claimed[0]);
+    }
+  }
+
+  // Refuse to drive a terminal intent forward; dispatch handles replay
+  // detection by (intent_id, idempotency_key).
+  if (intent.status === 'failed' || intent.status === 'blocked_human') {
+    return {
+      ok: false,
+      idempotencyKey: '',
+      error: `Intent ${intentId} is in terminal state '${intent.status}'`,
+    };
+  }
+
+  const result = await dispatch(intent, env as unknown as Parameters<typeof dispatch>[1], {
+    actorChittyId: options.actorChittyId,
+    freshnessMs: options.freshnessMs,
+  });
+
+  // Reflect into cc_intents status. completeIntent / failIntent both guard on
+  // current status, so this is safe whether intent was 'claimed' (we claimed)
+  // or 'running'/'done' (already terminal — second call is a no-op).
+  if (result.ok) {
+    // Move to running then to done so completeIntent's status='running' guard
+    // matches (it's the canonical transition).
+    await sql`
+      UPDATE cc_intents
+      SET status = 'running', updated_at = NOW()
+      WHERE id = ${intentId} AND status = 'claimed'`;
+    await completeIntent(env, intentId);
+  } else if (!result.replayed) {
+    // Only mark failed on a fresh failure; replays should not overwrite
+    // terminal state.
+    await failIntent(env, intentId, result.error ?? 'unknown error').catch(
+      () => null,
+    );
+  }
+
+  return result;
+}
+
 // ── Row mappers ─────────────────────────────────────────────
 
 function rowToGoal(row: Record<string, unknown>): Goal {

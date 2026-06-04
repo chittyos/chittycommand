@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, numeric, boolean, integer, date, timestamp, jsonb, index, unique, foreignKey } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, numeric, boolean, integer, date, timestamp, jsonb, index, uniqueIndex, unique, foreignKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // ── Accounts ──────────────────────────────────────────────────
@@ -203,6 +203,9 @@ export const ccRecommendations = pgTable('cc_recommendations', {
 }));
 
 // ── Actions Log ───────────────────────────────────────────────
+// ADR-001 amendment (PR-A): intent-execution audit lives here, NOT in a
+// separate `intent_executions` table. Three additive columns + two indexes
+// per chittyschema-overlord review.
 export const ccActionsLog = pgTable('cc_actions_log', {
   id: uuid('id').primaryKey().defaultRandom(),
   actionType: text('action_type').notNull(),
@@ -215,8 +218,20 @@ export const ccActionsLog = pgTable('cc_actions_log', {
   errorMessage: text('error_message'),
   metadata: jsonb('metadata').default({}),
   executedAt: timestamp('executed_at', { withTimezone: true }).defaultNow(),
+  // Intent-execution linkage (nullable — ActionAgent chat path writes rows
+  // without an intent context).
+  intentId: uuid('intent_id').references(() => ccIntents.id, { onDelete: 'set null' }),
+  attempt: integer('attempt').notNull().default(1),
+  idempotencyKey: text('idempotency_key'),
 }, (table) => ({
   dateIdx: index('idx_cc_actions_log_date').on(table.executedAt),
+  intentExecutedIdx: index('idx_cc_actions_log_intent_executed').on(
+    table.intentId,
+    table.executedAt.desc(),
+  ),
+  intentIdempotencyUq: uniqueIndex('uq_cc_actions_log_intent_idempotency')
+    .on(table.intentId, table.idempotencyKey)
+    .where(sql`intent_id IS NOT NULL AND idempotency_key IS NOT NULL`),
 }));
 
 // ── Cash Flow Projections ─────────────────────────────────────
