@@ -94,15 +94,32 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
   const body = c.get('workspaceBody') as Record<string, unknown>;
   const wsCtx = c.get('workspaceContext');
 
-  // Channel registration check.
+  // Channel registration check + capability gate. roux_ingest from Workspace
+  // Studio requires the channel to declare gmail.ingest — otherwise the
+  // capability manifest is meaningless. We distinguish "not registered"
+  // (resolver returns null with no caps requested) from "lacks capability"
+  // (resolver returns null only with caps requested) so the operator can tell
+  // why a request was rejected.
+  const REQUIRED_CAPS = ['gmail.ingest'];
   const channelId =
     extractScalar(body, 'channel_id') ??
     extractInputScalar(body, 'channel_id') ??
     WORKSPACE_STUDIO_CHANNEL_ID;
-  const channel = await verifyRegisteredChannel(channelId, c.env);
-  if (!channel) {
+  const channelExists = await verifyRegisteredChannel(channelId, c.env);
+  if (!channelExists) {
     return c.json(
       stepError('CHANNEL_NOT_REGISTERED', `Channel ${channelId} is not registered`, 'NOT_RETRYABLE'),
+      403,
+    );
+  }
+  const channel = await verifyRegisteredChannel(channelId, c.env, REQUIRED_CAPS);
+  if (!channel) {
+    return c.json(
+      stepError(
+        'CHANNEL_MISSING_CAPABILITY',
+        `Channel ${channelId} lacks required capability: ${REQUIRED_CAPS.join(', ')}`,
+        'NOT_RETRYABLE',
+      ),
       403,
     );
   }

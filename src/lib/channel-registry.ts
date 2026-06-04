@@ -49,6 +49,7 @@ export const WORKSPACE_STUDIO_CHANNEL_ID = 'chitty:channel:workspace-studio-gmai
 export async function verifyRegisteredChannel(
   channelId: string,
   env: ChannelRegistryEnv,
+  requiredCapabilities: string[] = [],
 ): Promise<ChannelMeta | null> {
   if (!channelId) return null;
 
@@ -64,5 +65,15 @@ export async function verifyRegisteredChannel(
   const meta = parsed[channelId];
   if (!meta) return null;
   if (meta.status !== 'active') return null;
+  // Capability gate: the channel must declare every required capability. A
+  // registered+active channel that lacks the capability for THIS operation
+  // (e.g. an SMS channel asked to perform `gmail.ingest`) must be rejected
+  // so the capability manifest is actually enforced.
+  if (requiredCapabilities.length > 0) {
+    const caps = new Set(meta.capabilities ?? []);
+    for (const cap of requiredCapabilities) {
+      if (!caps.has(cap)) return null;
+    }
+  }
   return meta;
 }
