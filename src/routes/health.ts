@@ -113,9 +113,14 @@ async function probeDaemon(env: HealthEnv): Promise<DaemonProbe> {
   try {
     const sql = getDb(env as unknown as Parameters<typeof getDb>[0]);
     const rows = (await withTimeout(
+      // NOTE: cc_node_leases has no `released_at` column. Release is
+      // represented by NULLing `heartbeat_at`/`lease_expires_at` in
+      // daemon/leader.ts::releaseLeadership. We treat any row whose
+      // heartbeat_at is non-null as a currently-held lease and take the
+      // newest heartbeat across them.
       sql`SELECT EXTRACT(EPOCH FROM (NOW() - max(heartbeat_at))) * 1000 AS age_ms
           FROM cc_node_leases
-          WHERE released_at IS NULL`,
+          WHERE heartbeat_at IS NOT NULL`,
       2000,
       'daemon',
     )) as Array<{ age_ms: number | string | null }>;
