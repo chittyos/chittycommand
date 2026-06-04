@@ -34,6 +34,7 @@ import { jobRoutes } from './routes/jobs';
 import { transactionRoutes } from './routes/transactions';
 import { timelineRoutes } from './routes/timeline';
 import { triageRoutes } from './routes/triage';
+import { workspaceStudioRoutes } from './routes/workspace-studio';
 
 // Re-export ActionAgent DO class so the runtime can find it
 export { ActionAgent } from './agents/action-agent';
@@ -70,6 +71,13 @@ export type Env = {
   PLAID_CLIENT_ID?: string;
   PLAID_SECRET?: string;
   PLAID_ENV?: string;
+  // ChittyRoux × Workspace Studio integration
+  // @canon: chittycanon://core/services/chittycommand/workspace-studio
+  CHITTYROUX_GCP_SA_EMAIL?: string;
+  CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_ID?: string;
+  CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_SECRET?: string;
+  REGISTERED_CHANNELS_JSON?: string;
+  GCP_JWKS_URL?: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -166,6 +174,12 @@ app.route('/api/v1', timelineRoutes);
 // ActionAgent — authenticated, per-user Durable Object with tool-use chat
 app.use('/agent/*', authMiddleware);
 app.use('/agent/*', agentsMiddleware());
+
+// Workspace Studio HTTP-mode add-on endpoints (Roux Ingest custom step).
+// Auth is per-request via authorizationEventObject JWT verification — NOT
+// the global /api/* authMiddleware. Mount outside /api/*.
+// @canon: chittycanon://core/services/chittycommand/workspace-studio
+app.route('/workspace/studio/roux-ingest', workspaceStudioRoutes);
 
 // MCP server — authenticated via shared token in KV
 app.use('/mcp/*', mcpAuthMiddleware);
