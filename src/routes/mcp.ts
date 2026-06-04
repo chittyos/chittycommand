@@ -1453,14 +1453,30 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     case 'triage_claim_intent': {
       const id = String(args.id || '');
       if (!id) return { error: 'id required' };
-      const existing = await sql`SELECT id, status FROM cc_intents WHERE id = ${id} LIMIT 1`;
+      const existing = await sql`SELECT id, status, scheduled_for FROM cc_intents WHERE id = ${id} LIMIT 1`;
       if (existing.length === 0) return { error: 'Intent not found', code: 404 };
+      // Finding 5: mirror the HTTP route — direct claim must not bypass
+      // scheduled_for the way list + claim-next don't.
       const claimed = await sql`
         UPDATE cc_intents SET status = 'claimed', updated_at = NOW()
-        WHERE id = ${id} AND status = 'pending'
+        WHERE id = ${id}
+          AND status = 'pending'
+          AND (scheduled_for IS NULL OR scheduled_for <= NOW())
         RETURNING *
       `;
       if (claimed.length === 0) {
+        const scheduledFor = existing[0].scheduled_for as string | null;
+        if (
+          existing[0].status === 'pending' &&
+          scheduledFor &&
+          new Date(scheduledFor) > new Date()
+        ) {
+          return {
+            error: 'Intent scheduled for future; refusing to claim early',
+            code: 409,
+            scheduled_for: scheduledFor,
+          };
+        }
         return { error: 'Intent already claimed or not pending', code: 409, current_status: existing[0].status };
       }
       return { intent: claimed[0] };

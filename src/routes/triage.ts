@@ -102,17 +102,36 @@ triageRoutes.post('/:id/claim', async (c) => {
   if (!id) return c.json({ error: 'id required' }, 400);
 
   // Confirm existence vs. status separately so 404 and 409 are distinguishable.
-  const existing = await sql`SELECT id, status FROM cc_intents WHERE id = ${id} LIMIT 1`;
+  const existing = await sql`SELECT id, status, scheduled_for FROM cc_intents WHERE id = ${id} LIMIT 1`;
   if (existing.length === 0) return c.json({ error: 'Intent not found' }, 404);
 
+  // Finding 5: list + claim-next exclude future scheduled_for, so the direct
+  // claim path must too — otherwise a client with the ID can short-circuit the
+  // schedule and pull tomorrow's work today.
   const claimed = await sql`
     UPDATE cc_intents
     SET status = 'claimed', updated_at = NOW()
-    WHERE id = ${id} AND status = 'pending'
+    WHERE id = ${id}
+      AND status = 'pending'
+      AND (scheduled_for IS NULL OR scheduled_for <= NOW())
     RETURNING *
   `;
 
   if (claimed.length === 0) {
+    const scheduledFor = existing[0].scheduled_for as string | null;
+    if (
+      existing[0].status === 'pending' &&
+      scheduledFor &&
+      new Date(scheduledFor) > new Date()
+    ) {
+      return c.json(
+        {
+          error: 'Intent scheduled for future; refusing to claim early',
+          scheduled_for: scheduledFor,
+        },
+        409,
+      );
+    }
     return c.json(
       { error: 'Intent already claimed or not pending', current_status: existing[0].status },
       409,
