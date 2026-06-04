@@ -116,6 +116,53 @@ metaPublicRoutes.get('/cert/:id', async (c) => {
   }
 });
 
+// Authenticated: execute a queued intent via the executor registry.
+// Per ADR-001 amendment (PR-A): mirrors existing meta auth surface; calls
+// real Neon via executeIntent → meta/executors/dispatch.
+metaRoutes.post('/intents/:id/execute', async (c) => {
+  const userId = c.get('userId') as string | undefined;
+  if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+  const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Missing intent id' }, 400);
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const actorChittyId =
+    typeof body?.actor_chitty_id === 'string' ? body.actor_chitty_id : userId;
+
+  try {
+    const { executeIntent } = await import('../../meta/intent');
+    const result = await executeIntent(c.env as unknown as Record<string, unknown>, id, {
+      actorChittyId,
+    });
+    if (!result.ok) {
+      return c.json(
+        {
+          ok: false,
+          intent_id: id,
+          idempotency_key: result.idempotencyKey,
+          action_log_id: result.actionLogId,
+          replayed: Boolean(result.replayed),
+          error: result.error,
+        },
+        result.replayed ? 200 : 422,
+      );
+    }
+    return c.json({
+      ok: true,
+      intent_id: id,
+      idempotency_key: result.idempotencyKey,
+      action_log_id: result.actionLogId,
+      replayed: Boolean(result.replayed),
+      data: result.data ?? null,
+    });
+  } catch (err) {
+    console.error('[meta] executeIntent failed:', err);
+    return c.json(
+      { error: 'executeIntent failed', detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
+  }
+});
+
 // Authenticated: identity resolution
 metaRoutes.get('/whoami', (c) => {
   const userId = c.get('userId') as string | undefined;

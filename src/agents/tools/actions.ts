@@ -3,6 +3,13 @@ import { z } from 'zod';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../../index';
 import { mercuryClient } from '../../lib/integrations';
+// Canonical executor (registry-backed). ActionAgent's chat tool here wraps
+// the same pure runner the meta-orchestrator dispatcher invokes — sibling
+// surfaces, shared implementation. See ADR-001 amendment (PR-A).
+import {
+  updateObligationStatusSchema,
+  runUpdateObligationStatus,
+} from '../../../meta/executors/update-obligation-status';
 
 /**
  * Create action execution tools bound to environment and SQL.
@@ -95,31 +102,21 @@ export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>
 
     update_obligation_status: tool({
       description: 'Update the status of an obligation (bill). Use after confirming a payment was made or to defer a bill.',
-      inputSchema: z.object({
-        obligation_id: z.string().uuid().describe('Obligation ID to update'),
-        status: z.enum(['pending', 'paid', 'overdue', 'deferred']).describe('New status'),
-        notes: z.string().optional().describe('Reason for status change'),
-      }),
-      execute: async ({ obligation_id, status, notes }) => {
-        const [existing] = await sql`SELECT id, payee, status as old_status FROM cc_obligations WHERE id = ${obligation_id}::uuid`;
-        if (!existing) return { success: false, error: 'Obligation not found' };
-
-        await sql`
-          UPDATE cc_obligations
-          SET status = ${status}, updated_at = NOW(),
-              metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-                status_change: { from: existing.old_status, to: status, notes, date: new Date().toISOString() },
-              })}::jsonb
-          WHERE id = ${obligation_id}::uuid
-        `;
-
+      inputSchema: updateObligationStatusSchema,
+      execute: async (args) => {
+        // Delegates to the canonical executor's pure runner so chat + autonomous
+        // surfaces share the same implementation. The chat path still writes its
+        // own cc_actions_log row (without intent_id) so the existing chat audit
+        // trail behavior is preserved exactly.
+        const result = await runUpdateObligationStatus(args, sql);
+        if (!result.success) return result;
+        const notesSuffix = args.notes ? ` (${args.notes})` : '';
         await sql`
           INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status)
-          VALUES ('status_change', 'obligation', ${obligation_id},
-                  ${`${existing.payee}: ${existing.old_status} → ${status}${notes ? ` (${notes})` : ''}`}, 'completed')
+          VALUES ('status_change', 'obligation', ${args.obligation_id},
+                  ${`${result.payee}: ${result.old_status} → ${result.new_status}${notesSuffix}`}, 'completed')
         `;
-
-        return { success: true, payee: existing.payee, old_status: existing.old_status, new_status: status };
+        return result;
       },
     }),
 
