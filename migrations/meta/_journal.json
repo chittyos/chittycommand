@@ -29,6 +29,13 @@
       "when": 1780538575987,
       "tag": "0003_foamy_king_cobra",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1780539161737,
+      "tag": "0004_premium_toad_men",
+      "breakpoints": true
     }
   ]
 }
