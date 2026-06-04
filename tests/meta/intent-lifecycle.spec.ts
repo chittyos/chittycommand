@@ -46,7 +46,66 @@ describe.skipIf(SKIP)('meta/intent lifecycle (real Neon)', () => {
     await cleanup();
   });
 
-  it('completeIntent only succeeds when status=running (F6)', async () => {
+  // fixes codex-p2 PR#104 finding-4 — claim→complete path must work end-to-end.
+  it('completeIntent succeeds from claimed without an intervening running (F4)', async () => {
+    const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g-f4` });
+    const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p-f4` });
+    const intent = await createIntent(env, {
+      planId: plan.id,
+      goalId: goal.id,
+      intentType: 'noop',
+      payload: { test: TEST_TAG },
+    });
+    const sql = neon(DATABASE_URL!);
+    // Simulate the triage claim route's transition: pending → claimed.
+    await sql`UPDATE cc_intents SET status = 'claimed' WHERE id = ${intent.id}`;
+    // No intervening running transition — autonomous agent goes straight to done.
+    const completed = await completeIntent(env, intent.id);
+    expect(completed?.status).toBe('done');
+  });
+
+  // fixes codex-p2 PR#104 finding-4 — failIntent symmetric path from claimed.
+  it('failIntent succeeds from claimed without an intervening running (F4)', async () => {
+    const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g-f4b` });
+    const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p-f4b` });
+    const intent = await createIntent(env, {
+      planId: plan.id,
+      goalId: goal.id,
+      intentType: 'noop',
+      payload: { test: TEST_TAG },
+    });
+    const sql = neon(DATABASE_URL!);
+    await sql`UPDATE cc_intents SET status = 'claimed' WHERE id = ${intent.id}`;
+    const failed = await failIntent(env, intent.id, 'agent error before running');
+    expect(failed?.status).toBe('failed');
+    expect(failed?.errorMessage).toBe('agent error before running');
+  });
+
+  // fixes codex-p2 PR#104 finding-4 — token gate still rejects stale completions
+  // even on the relaxed claimed-or-running guard.
+  it('completeIntent token gate rejects stale token on claimed intent (F4 + P1-B)', async () => {
+    const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g-f4c` });
+    const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p-f4c` });
+    const intent = await createIntent(env, {
+      planId: plan.id,
+      goalId: goal.id,
+      intentType: 'noop',
+      payload: { test: TEST_TAG },
+    });
+    const sql = neon(DATABASE_URL!);
+    await sql`
+      UPDATE cc_intents
+      SET status = 'claimed', dispatched_task_id = 'token-live'
+      WHERE id = ${intent.id}`;
+    const stale = await completeIntent(env, intent.id, 'token-stale');
+    expect(stale).toBeNull();
+    const stillClaimed = await getIntent(env, intent.id);
+    expect(stillClaimed?.status).toBe('claimed');
+    const live = await completeIntent(env, intent.id, 'token-live');
+    expect(live?.status).toBe('done');
+  });
+
+  it('completeIntent rejects pending and respects state guard (F6)', async () => {
     const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g1` });
     const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p1` });
     const intent = await createIntent(env, {

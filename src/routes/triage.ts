@@ -202,7 +202,7 @@ triageRoutes.post('/:id/complete', async (c) => {
     const updated = await completeIntent(c.env, id);
     if (!updated) {
       return c.json(
-        { error: "Intent not in 'running' state; refusing to mark done" },
+        { error: "Intent not in 'claimed' or 'running' state; refusing to mark done" },
         409,
       );
     }

@@ -310,6 +310,11 @@ export async function markIntentDispatched(
 // returns after a fresher leader has reclaimed + redispatched the intent, the
 // stale dispatched_task_id will no longer match and the UPDATE will affect 0
 // rows. Pass `undefined` to skip the token check (legacy / non-leader paths).
+// fixes codex-p2 PR#104 finding-4 — accept 'claimed' as well as 'running'.
+// The triage routes expose claim (→'claimed') but no explicit transition to
+// 'running', so an autonomous agent that does work and then calls complete
+// always hit 409. The token gate from P1-B still prevents stale completions
+// when a token is supplied. Failing from terminal states is still rejected.
 export async function completeIntent(
   env: IntentEnv,
   intentId: string,
@@ -321,13 +326,13 @@ export async function completeIntent(
       ? await sql`
           UPDATE cc_intents
           SET status = 'done', completed_at = NOW(), updated_at = NOW()
-          WHERE id = ${intentId} AND status = 'running'
+          WHERE id = ${intentId} AND status IN ('claimed', 'running')
           RETURNING *`
       : await sql`
           UPDATE cc_intents
           SET status = 'done', completed_at = NOW(), updated_at = NOW()
           WHERE id = ${intentId}
-            AND status = 'running'
+            AND status IN ('claimed', 'running')
             AND dispatched_task_id = ${expectedDispatchedTaskId}
           RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;

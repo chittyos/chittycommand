@@ -1516,7 +1516,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       }
       if (outcome === 'done') {
         const updated = await completeIntent(env, id);
-        if (!updated) return { error: "Intent not in 'running' state; refusing to mark done", code: 409 };
+        if (!updated) return { error: "Intent not in 'claimed' or 'running' state; refusing to mark done", code: 409 };
         return { intent: updated };
       }
       const errMsg = String(args.error ?? 'failed via mcp triage_complete_intent');
