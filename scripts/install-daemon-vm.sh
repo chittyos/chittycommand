@@ -83,8 +83,12 @@ else
 fi
 
 # 2. Build
+# Build needs typescript (devDependency). We install ALL deps for the repo
+# build step here, then install --omit=dev separately into ${INSTALL_DIR}
+# below so the runtime image is dev-free.
+# Codex P2 PR#105: previously --omit=dev pruned tsc, breaking build:daemon.
 log "building daemon (npm run build:daemon)"
-run "cd ${REPO_ROOT} && npm ci --omit=dev --no-audit --no-fund || npm install --no-audit --no-fund"
+run "cd ${REPO_ROOT} && npm ci --no-audit --no-fund || npm install --no-audit --no-fund"
 run "cd ${REPO_ROOT} && npm run build:daemon"
 
 # 3. Install dir + artifact sync
@@ -118,8 +122,18 @@ else
   chown "root:${SERVICE_USER}" "${ENV_FILE}"
 fi
 
-# 6. systemd unit
-run "install -m 0644 -o root -g root ${UNIT_SRC} ${UNIT_DST}"
+# 6. systemd unit — substitute @@NODE_BIN@@ with detected node path.
+# Codex P2 PR#105: the unit ships with a placeholder so installs that use
+# nvm or /usr/local/bin/node don't fail on ExecStart=/usr/bin/node.
+if (( DRY_RUN )); then
+  plan "sed s|@@NODE_BIN@@|${NODE_BIN}| ${UNIT_SRC} > /tmp/chittycommand-daemon.service"
+  plan "install -m 0644 -o root -g root /tmp/chittycommand-daemon.service ${UNIT_DST}"
+else
+  RENDERED_UNIT="$(mktemp)"
+  sed "s|@@NODE_BIN@@|${NODE_BIN}|g" "${UNIT_SRC}" > "${RENDERED_UNIT}"
+  install -m 0644 -o root -g root "${RENDERED_UNIT}" "${UNIT_DST}"
+  rm -f "${RENDERED_UNIT}"
+fi
 run "systemctl daemon-reload"
 run "systemctl enable chittycommand-daemon.service"
 

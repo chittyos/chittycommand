@@ -19,10 +19,16 @@
   <key>Label</key>
   <string>com.chittyos.chittycommand-daemon</string>
 
+  <!--
+    Codex P2 PR#105: launchd has no native EnvironmentFile equivalent and
+    entrypoint.ts requires NODE_CHITTY_ID, DATABASE_URL, and
+    NODE_DESCRIPTOR/HOSTNAME. Invoke a shim that sources
+    /etc/chittycommand/env before exec'ing node, so the daemon sees the
+    same env shape on macOS as on systemd Linux.
+  -->
   <key>ProgramArguments</key>
   <array>
-    <string>/usr/local/bin/node</string>
-    <string>/opt/chittycommand/dist/daemon/runtime/entrypoint.js</string>
+    <string>/opt/chittycommand/dist/daemon/runtime/launchd-shim.sh</string>
   </array>
 
   <key>WorkingDirectory</key>

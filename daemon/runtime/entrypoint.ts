@@ -72,9 +72,12 @@ async function main(): Promise<void> {
     log('signal_received', { signal });
     controller.abort();
     // Belt-and-suspenders release in case the loop is wedged before the
-    // abort path reaches releaseLeadership.
+    // abort path reaches releaseLeadership. Pass sessionId — releaseLeadership
+    // gates on session ownership (codex-p2 PR#101 finding-2), so omitting it
+    // would no-op against a lease claimed with our sessionId.
     releaseLeadership({ DATABASE_URL: env.DATABASE_URL }, env.NODE_CHITTY_ID, {
       role: META_LEADER_ROLE,
+      sessionId,
     })
       .then((released) => log('release_on_signal', { released }))
       .catch((err) =>
@@ -89,15 +92,24 @@ async function main(): Promise<void> {
 
   const executor = async (intent: { id: string; intentType: string }) => {
     // Foundation entrypoint: no real executor wired yet — the ActionAgent
-    // bridge ships in the follow-up PR per ADR-001 out-of-scope list.
-    // We mark the intent as dispatched to a sentinel ID so the leader loop
-    // makes forward progress in smoke tests without inventing fake work.
-    log('intent_executor_stub', {
+    // bridge ships in PR #107 (feat/daemon-loop-executes-intents) per
+    // ADR-001 out-of-scope list. Until then, claimed intents must NOT be
+    // recorded as `done`. Throwing here routes the intent through the
+    // loop's failure path (failIntent), which records a clear refusal
+    // reason instead of inventing a successful dispatch.
+    //
+    // Codex P1 PR#105: previously returned a sentinel dispatchedTaskId,
+    // causing markIntentDispatched + completeIntent to record real work
+    // as `done` without execution. Refuse instead.
+    log('intent_executor_unwired', {
       intentId: intent.id,
       intentType: intent.intentType,
-      note: 'executor wiring deferred to follow-up PR',
+      note: 'real executor lands in PR #107; refusing to record fake success',
     });
-    return { dispatchedTaskId: `pending-executor:${intent.id}` };
+    throw new Error(
+      `daemon executor not wired on PR #105 (foundation only); ` +
+        `intent ${intent.id} routed to failed — real executor lands in PR #107`,
+    );
   };
 
   try {
