@@ -35,11 +35,45 @@ interface DisputeCore {
 }
 
 // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+export type RouxPrivilege = 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
+export type RouxSpace = 'business' | 'legalink';
+
+// Strictness ordering — higher = more sensitive. Used by mergeRouxClassification
+// to take the more sensitive of two derived roux candidates.
+const PRIVILEGE_RANK: Record<RouxPrivilege, number> = {
+  public: 0,
+  hoa_evidentiary: 1,
+  pii: 2,
+  privileged: 3,
+};
+const SPACE_RANK: Record<RouxSpace, number> = {
+  business: 0,
+  legalink: 1,
+};
+
+/**
+ * Pick the MORE sensitive of two Roux classifications. Privilege and space are
+ * compared independently — e.g. (public, legalink) merged with (privileged,
+ * business) yields (privileged, legalink). This prevents an upstream "public"
+ * classification from masking a caller-supplied "legal" dispute_type.
+ *
+ * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+ */
+export function mergeRouxClassification(
+  a: { privilege: RouxPrivilege; space: RouxSpace },
+  b: { privilege: RouxPrivilege; space: RouxSpace },
+): { privilege: RouxPrivilege; space: RouxSpace } {
+  return {
+    privilege: PRIVILEGE_RANK[a.privilege] >= PRIVILEGE_RANK[b.privilege] ? a.privilege : b.privilege,
+    space: SPACE_RANK[a.space] >= SPACE_RANK[b.space] ? a.space : b.space,
+  };
+}
+
 // Map a cc_disputes.dispute_type to default Roux (privilege, space).
 // Explicit caller-supplied values always override (Q1=(c) pass-through derive).
 export function deriveRouxFromType(disputeType: string): {
-  privilege: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
-  space: 'business' | 'legalink';
+  privilege: RouxPrivilege;
+  space: RouxSpace;
 } {
   // Fail-safe routing: dispute_type is free-text from the API/UI. Any string
   // containing "legal" routes to privileged/legalink (prevents leakage of

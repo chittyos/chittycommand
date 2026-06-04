@@ -241,6 +241,60 @@ export async function createIntent(env: IntentEnv, input: CreateIntentInput): Pr
   return rowToIntent(rows[0]);
 }
 
+/**
+ * Atomic create-or-fetch for roux_ingest intents keyed by Gmail message_id.
+ *
+ * Backed by the partial unique index `cc_intents_roux_ingest_message_id_uidx`
+ * (migration 0017). Two concurrent retries of the same Gmail event race on
+ * INSERT; the loser hits the unique violation and we re-SELECT to return the
+ * winner's row. Eliminates the TOCTOU window of SELECT-then-INSERT.
+ *
+ * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+ */
+export async function createRouxIngestIntentIdempotent(
+  env: IntentEnv,
+  input: CreateIntentInput & { messageId: string },
+): Promise<{ intent: Intent; created: boolean }> {
+  const sql = getSql(env);
+  const initialStatus: IntentStatus =
+    input.sovereigntyAssessment?.decision === 'requires_human'
+      ? 'blocked_human'
+      : input.sovereigntyAssessment?.decision === 'blocked'
+        ? 'failed'
+        : 'pending';
+
+  const inserted = await sql`
+    INSERT INTO cc_intents
+      (plan_id, goal_id, intent_type, target_channel, payload, status, priority,
+       sovereignty_assessment, human_gate_reason, scheduled_for, privilege, space, metadata)
+    VALUES
+      (${input.planId}, ${input.goalId}, ${input.intentType},
+       ${input.targetChannel ?? null}, ${JSON.stringify(input.payload)}::jsonb,
+       ${initialStatus}, ${input.priority ?? 5},
+       ${input.sovereigntyAssessment ? JSON.stringify(input.sovereigntyAssessment) : null}::jsonb,
+       ${input.humanGateReason ?? null}, ${input.scheduledFor ?? null},
+       ${input.privilege ?? 'public'}, ${input.space ?? 'business'},
+       ${JSON.stringify(input.metadata ?? {})}::jsonb)
+    ON CONFLICT ((payload->'source'->>'message_id'))
+      WHERE intent_type = 'roux_ingest'
+        AND payload->'source'->>'message_id' IS NOT NULL
+      DO NOTHING
+    RETURNING *`;
+  if (inserted[0]) {
+    return { intent: rowToIntent(inserted[0]), created: true };
+  }
+  // Conflict — re-fetch the winner.
+  const winner = await sql`
+    SELECT * FROM cc_intents
+    WHERE intent_type = 'roux_ingest'
+      AND payload->'source'->>'message_id' = ${input.messageId}
+    LIMIT 1`;
+  if (!winner[0]) {
+    throw new Error(`ON CONFLICT path with no winning row for message_id=${input.messageId}`);
+  }
+  return { intent: rowToIntent(winner[0]), created: false };
+}
+
 export async function getIntent(env: IntentEnv, id: string): Promise<Intent | null> {
   const sql = getSql(env);
   const rows = await sql`SELECT * FROM cc_intents WHERE id = ${id} LIMIT 1`;
