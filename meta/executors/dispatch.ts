@@ -84,43 +84,9 @@ export async function dispatch(
   const sql = getSql(env);
   const freshnessMs = options.freshnessMs ?? SOVEREIGNTY_FRESHNESS_MS;
 
-  // 1. Replay short-circuit: if any prior cc_actions_log row exists for this
-  //    intent that hit a terminal status ('completed' or 'failed'), the intent
-  //    has already been dispatched and the second call must NOT re-execute.
-  //    The unique partial index on (intent_id, idempotency_key) backs this
-  //    invariant for retry attempts; the latest-terminal-row lookup backs the
-  //    "intent already done" case.
-  const priorRows = (await sql`
-    SELECT id, status, response_payload, error_message, idempotency_key, attempt
-    FROM cc_actions_log
-    WHERE intent_id = ${intent.id}::uuid
-      AND status IN ('completed', 'failed')
-    ORDER BY executed_at DESC
-    LIMIT 1
-  `) as unknown as Array<{
-    id: string;
-    status: string;
-    response_payload: Record<string, unknown> | null;
-    error_message: string | null;
-    idempotency_key: string;
-    attempt: number;
-  }>;
-  if (priorRows[0]) {
-    const prior = priorRows[0];
-    return {
-      ok: prior.status === 'completed',
-      idempotencyKey: prior.idempotency_key,
-      actionLogId: prior.id,
-      data: prior.response_payload ?? undefined,
-      error: prior.error_message ?? undefined,
-      replayed: true,
-    };
-  }
-
-  // 2. Compute attempt number (prior rows + 1) and idempotency key for the
-  //    new audit row. The partial unique index on (intent_id, idempotency_key)
-  //    prevents two concurrent dispatchers from writing duplicate rows for
-  //    the same attempt.
+  // 1. Compute attempt number (prior rows + 1) and per-attempt idempotency
+  //    key. The partial unique index on (intent_id, idempotency_key) backs
+  //    the per-attempt invariant.
   const [{ count: priorCount } = { count: 0 }] = (await sql`
     SELECT COUNT(*)::int AS count FROM cc_actions_log WHERE intent_id = ${intent.id}::uuid
   `) as unknown as Array<{ count: number }>;
@@ -130,6 +96,36 @@ export async function dispatch(
     attempt,
     intent.intentType,
   );
+
+  // 2. Replay short-circuit (FIX 1, PR #106 critical): match on
+  //    (intent_id, idempotency_key) — NOT intent_id alone. Matching on
+  //    intent_id alone would short-circuit any new attempt (whose key
+  //    differs by `attempt`), making per-attempt retries unreachable for
+  //    any intent that ever produced a terminal row.
+  const priorRows = (await sql`
+    SELECT id, status, response_payload, error_message
+    FROM cc_actions_log
+    WHERE intent_id = ${intent.id}::uuid
+      AND idempotency_key = ${idempotencyKey}
+      AND status IN ('completed', 'failed')
+    LIMIT 1
+  `) as unknown as Array<{
+    id: string;
+    status: string;
+    response_payload: Record<string, unknown> | null;
+    error_message: string | null;
+  }>;
+  if (priorRows[0]) {
+    const prior = priorRows[0];
+    return {
+      ok: prior.status === 'completed',
+      idempotencyKey,
+      actionLogId: String(prior.id),
+      data: prior.response_payload ?? undefined,
+      error: prior.error_message ?? undefined,
+      replayed: true,
+    };
+  }
 
   // 3. Re-reckon sovereignty if snapshot stale.
   let sovereignty: SovereigntyAssessmentSnapshot;
@@ -162,7 +158,10 @@ export async function dispatch(
         metadata: { reason: 'no_actor_for_reckon' },
       });
       await failIntent(env, intent.id, errMsg).catch(() => null);
-      return { ok: false, idempotencyKey, error: errMsg };
+      // FIX 2 (PR #106 critical): replayed:true tells executeIntent's
+      // `!result.replayed` guard to skip its own failIntent — dispatch has
+      // already written the audit row + transitioned status.
+      return { ok: false, idempotencyKey, error: errMsg, replayed: true };
     }
     const result = await assessSovereignty(
       actor,
@@ -192,11 +191,14 @@ export async function dispatch(
         metadata: { sovereignty },
       });
       await failIntent(env, intent.id, refusal).catch(() => null);
+      // FIX 2 (PR #106 critical): replayed:true tells executeIntent's
+      // `!result.replayed` guard to skip its own failIntent.
       return {
         ok: false,
         idempotencyKey,
         actionLogId: auditId,
         error: refusal,
+        replayed: true,
       };
     }
   }
