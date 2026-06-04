@@ -19,7 +19,7 @@ ChittyCommand is a unified life management and action dashboard for the ChittyOS
 **Repo:** `CHITTYOS/chittycommand`
 **Deploy:** Cloudflare Workers at `command.chitty.cc` (alias: `disputes.chitty.cc`)
 **Stack:** Hono TypeScript, React + Tailwind, Neon PostgreSQL (via Hyperdrive), Cloudflare R2/KV
-**Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 5
+**Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 2 (Platform) with Tier-5 dashboard surface
 
 ## Common Commands
 
@@ -41,7 +41,16 @@ wrangler secret put DATABASE_URL
 
 ## Architecture
 
-Single Cloudflare Worker (`chittycommand`) serving API + cron. Frontend is a separate React SPA at `app.command.chitty.cc` (Cloudflare Pages).
+Per [ADR-001](docs/architecture/ADR-001-meta-orchestrator-extension.md), ChittyCommand is a Tier-2 platform with a Tier-5 dashboard surface. The Cloudflare Worker (`chittycommand`) and a separate supervised cluster daemon both consume the same canonical executor registry.
+
+### Tier-2 Platform Layers
+
+- **`meta/`** — Goal → Plan → Intent ladder (`meta/intent.ts`), sovereignty gate (`meta/sovereignty.ts`, trust-score → `autonomous | requires_human | blocked`), channel fanout (`meta/channels.ts`), forever-context wrapper (`meta/context.ts`), and the **executor registry** (`meta/executors/*`) with self-registration at module load. Canonical executor URIs: `chittycanon://core/services/chittycommand/executors/{intent_type}`. The sovereignty gate is invoked at (1) Intent creation (persisted into `cc_intents.sovereignty_assessment`) and (2) executor entry in `meta/executors/dispatch.ts` (re-reckoned if snapshot is older than the configured freshness window). Execution audit is additive columns on `cc_actions_log` — NOT a new table.
+- **`daemon/`** — Persistent supervised cluster process (launchd / systemd) running on each ChittyServ node. Leader election via Neon `cc_node_leases` (mirrors `task_leases` shape, atomic `UPDATE ... RETURNING`). Loop: claim → execute (same executor registry) → heartbeat → release. Float-free leadership; Neon-loss fallback is "park the node" (MVP).
+
+### Tier-5 Dashboard Surface
+
+Single Cloudflare Worker (`chittycommand`) serving API + cron + ActionAgent + MCP. Frontend is a separate React SPA at `app.command.chitty.cc` (Cloudflare Pages). ActionAgent (chat surface) and the cluster daemon (autonomous surface) are **siblings** that consume the same `meta/executors/*` registry; neither dispatches the other.
 
 ### Data Sources
 

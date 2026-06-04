@@ -106,7 +106,13 @@ app.get('/api/v1/status', (c) => c.json({
   version: '0.1.0',
   environment: c.env.ENVIRONMENT || 'production',
   canonicalUri: 'chittycanon://core/services/chittycommand',
-  tier: 5,
+  tier: 2,
+  tierSurface: 'Tier 2 (Platform) with Tier-5 dashboard surface',
+  meta: {
+    endpoints: [
+      '/api/v1/intents/:id/execute',
+    ],
+  },
 }));
 
 // Canon/schema (unauthenticated)
