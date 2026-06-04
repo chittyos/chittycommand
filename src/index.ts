@@ -35,6 +35,7 @@ import { transactionRoutes } from './routes/transactions';
 import { timelineRoutes } from './routes/timeline';
 import { triageRoutes } from './routes/triage';
 import { workspaceStudioRoutes } from './routes/workspace-studio';
+import { runHealthProbes } from './routes/health';
 
 // Re-export ActionAgent DO class so the runtime can find it
 export { ActionAgent } from './agents/action-agent';
@@ -101,13 +102,13 @@ app.notFound((c) => {
   return c.json({ error: 'Not Found' }, 404);
 });
 
-// Health endpoint (unauthenticated)
-app.get('/health', (c) => c.json({
-  status: 'ok',
-  service: 'chittycommand',
-  version: '0.1.0',
-  timestamp: new Date().toISOString(),
-}));
+// Health endpoint (unauthenticated) — real dependency probes (db, chittyconnect,
+// daemon heartbeat). See src/routes/health.ts. Returns 503 only if the DB is
+// down; chittyconnect/daemon problems surface as `degraded` with 200.
+app.get('/health', async (c) => {
+  const { body, httpStatus } = await runHealthProbes(c.env);
+  return c.json(body, httpStatus);
+});
 
 // Service status (unauthenticated) — ChittyOS standard
 app.get('/api/v1/status', (c) => c.json({
