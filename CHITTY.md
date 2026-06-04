@@ -17,7 +17,7 @@ discovery_refs:
 
 # ChittyCommand
 
-> `chittycanon://core/services/chittycommand` | Tier 5 (Application) | command.chitty.cc
+> `chittycanon://core/services/chittycommand` | Tier 2 (Platform) with Tier-5 dashboard surface | command.chitty.cc
 
 <!-- chitty:discovery-links:start -->
 ## Persistent Context
@@ -71,7 +71,7 @@ Source: `chittycanon://gov/governance#three-aspects`
 |--------|--------|--------|
 | **Identity** | TY | Unified life management dashboard — ingests financial, legal, and administrative data from 15+ sources, scores urgency, recommends and executes actions |
 | **Connectivity** | VY | Cron-scheduled syncs (Plaid, Mercury, court dockets, utilities); bridge API to ChittyScrape, ChittyLedger, ChittyFinance; MCP server for Claude-driven queries; action execution via API, email, or browser automation |
-| **Authority** | RY | Tier 5 Application — consumer of upstream data, not source of truth; delegates scraping to ChittyScrape, identity to ChittyID, financials to ChittyFinance |
+| **Authority** | RY | Tier 2 (Platform) with Tier-5 dashboard surface — sovereign meta-orchestrator that enforces trust gates on intent execution, dispatches actions across registered executors and channels, and ingests from 15+ upstreams. Source of truth for: intent ladder (`cc_intents`), executor registry, sovereignty assessments, cluster node leases. Still delegates: identity to ChittyID, browser scraping to ChittyScrape, financial aggregation to ChittyFinance, forever-context storage to ChittyConnect (ContextConsciousness + MemoryCloude). _Canonical source: [CHARTER.md](CHARTER.md#three-aspects-ty-vy-ry)._ |
 
 ## ChittyOS Ecosystem
 
@@ -84,6 +84,11 @@ Source: `chittycanon://gov/governance#three-aspects`
 - **ChittyID**: --
 - **DNA Hash**: --
 - **Lineage**: root (life management)
+
+### Ecosystem Position
+
+- **Upstream**: ChittyAuth, ChittyTrust, ChittyID, ChittyConnect (ContextConsciousness + MemoryCloude + sensitive-intent secret brokerage), chittyagent-orchestrator (routing + channel fanout), chittyagent-tasks (queue + lease pattern), chittyagent-ch1tty (MCP portal/OAuth), ChittyFinance, ChittyBooks, ChittyAssets, ChittyCharge, ChittyScrape, ChittyLedger, ChittyEvidence, ChittyRouter, ChittySchema, ChittyCert, ChittyRegister, ChittyChat.
+- **Downstream / sub-channels**: ChittyServ cluster nodes (`chittymini-01..06`, `chittyserv-vm`) — each runs a supervised `daemon/` process and registers as an L-type sub-channel via `agent.chitty.cc/api/v1/channels`. ActionAgent (chat surface) and dashboard SPA at `app.command.chitty.cc` are sibling consumers of the same `meta/executors/*` registry.
 
 ### Dependencies
 
@@ -130,7 +135,8 @@ See [CHARTER.md](CHARTER.md) (Dependencies section) — canonical source for the
 | `/api/v1/jobs/:id` | GET | Bearer | Scrape job details |
 | `/api/v1/jobs/:id/retry` | POST | Bearer | Retry failed scrape job |
 | `/api/v1/jobs/dead-letters` | GET | Bearer | Dead letter queue |
-| `/mcp/*` | Various | Service | MCP server (48 tools across 12 domains) |
+| `/api/v1/intents/:id/execute` | POST | Bearer | Dispatch a queued Intent through the executor registry (sovereignty re-checked at executor entry) |
+| `/mcp/*` | Various | Service | MCP server (50 tools across 12 domains) |
 
 ## Document Triad
 

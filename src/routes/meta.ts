@@ -19,7 +19,8 @@ metaPublicRoutes.get('/canon', async (c) => {
     environment: env.ENVIRONMENT || 'production',
     canonicalUri,
     namespace: 'chittycanon://core/services',
-    tier: 5,
+    tier: 2,
+    tierSurface: 'Tier 2 (Platform) with Tier-5 dashboard surface',
     registered_with: env.CHITTYREGISTER_URL || null,
     registration: { service_id: serviceId || null, last_beacon_at: lastBeaconAt || null, last_status: lastBeaconStatus || null },
   });

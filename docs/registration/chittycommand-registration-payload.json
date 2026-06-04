@@ -1,0 +1,73 @@
+{
+  "registrationToken": "<<CHITTY_REGISTER_TOKEN>>",
+  "environment": "production",
+  "service": {
+    "chittyId": "<<PENDING_P_SYNTHETIC_CHITTYID>>",
+    "serviceName": "chittycommand",
+    "displayName": "ChittyCommand",
+    "description": "Sovereign meta-orchestrator and life management platform — ingests data from 15+ financial, legal, and administrative sources; scores urgency; enforces trust gates on intent execution; dispatches actions via registered executor registry, cluster daemon, and MCP server.",
+    "version": "0.1.0",
+    "baseUrl": "https://command.chitty.cc",
+    "endpoints": [
+      { "path": "/health",                              "method": "GET",  "description": "Real-dependency health probe (db + chittyconnect + daemon heartbeat)", "authenticated": false },
+      { "path": "/api/v1/status",                       "method": "GET",  "description": "Service metadata, tier, meta endpoint surface",                        "authenticated": false },
+      { "path": "/api/v1/canon",                        "method": "GET",  "description": "Canon info and registry status",                                        "authenticated": false },
+      { "path": "/api/v1/schema",                       "method": "GET",  "description": "Lightweight schema references",                                         "authenticated": false },
+      { "path": "/api/v1/beacon",                       "method": "GET",  "description": "Last beacon timestamp and status",                                      "authenticated": false },
+      { "path": "/api/v1/cert/verify",                  "method": "POST", "description": "Verify a ChittyCert certificate",                                       "authenticated": false },
+      { "path": "/api/v1/cert/:id",                     "method": "GET",  "description": "Certificate details by ID",                                             "authenticated": false },
+      { "path": "/api/v1/whoami",                       "method": "GET",  "description": "Identity: subject and scopes",                                          "authenticated": true },
+      { "path": "/api/v1/intents/:id/execute",          "method": "POST", "description": "Atomic intent execution — claim, dispatch via executor registry, transition status", "authenticated": true },
+      { "path": "/api/v1/context",                      "method": "GET",  "description": "Get active persona, label, and tags",                                   "authenticated": true },
+      { "path": "/api/v1/context",                      "method": "POST", "description": "Set active persona, label, and tags",                                   "authenticated": true },
+      { "path": "/api/v1/connect/status",               "method": "GET",  "description": "ChittyConnect health",                                                  "authenticated": true },
+      { "path": "/api/v1/connect/discover",             "method": "POST", "description": "Resolve service URL via ChittyConnect",                                 "authenticated": true },
+      { "path": "/api/v1/ledger/evidence",              "method": "GET",  "description": "List evidence for a case via ChittyLedger",                             "authenticated": true },
+      { "path": "/api/v1/ledger/record-custody",        "method": "POST", "description": "Record custody entry for an evidence_id",                               "authenticated": true },
+      { "path": "/api/v1/timeline/:caseId",             "method": "GET",  "description": "Unified case timeline (facts, deadlines, disputes, docs)",              "authenticated": true },
+      { "path": "/api/v1/litigation/synthesize",        "method": "POST", "description": "AI fact synthesis from raw notes",                                      "authenticated": true },
+      { "path": "/api/v1/litigation/draft",             "method": "POST", "description": "AI email drafting from synthesized facts",                              "authenticated": true },
+      { "path": "/api/v1/litigation/qc",                "method": "POST", "description": "AI risk scan of draft vs source notes",                                 "authenticated": true },
+      { "path": "/api/v1/jobs",                         "method": "GET",  "description": "Scrape job queue",                                                      "authenticated": true },
+      { "path": "/api/v1/jobs",                         "method": "POST", "description": "Enqueue scrape job",                                                    "authenticated": true },
+      { "path": "/api/v1/jobs/:id",                     "method": "GET",  "description": "Scrape job details",                                                    "authenticated": true },
+      { "path": "/api/v1/jobs/:id/retry",               "method": "POST", "description": "Retry failed scrape job",                                               "authenticated": true },
+      { "path": "/api/v1/jobs/dead-letters",            "method": "GET",  "description": "Dead letter queue",                                                     "authenticated": true },
+      { "path": "/api/dashboard/summary",               "method": "GET",  "description": "Dashboard summary with urgency scores",                                 "authenticated": true },
+      { "path": "/api/accounts",                        "method": "GET",  "description": "Financial account list",                                                "authenticated": true },
+      { "path": "/api/accounts",                        "method": "POST", "description": "Create financial account",                                              "authenticated": true },
+      { "path": "/api/obligations",                     "method": "GET",  "description": "Bills, debts, recurring obligations",                                   "authenticated": true },
+      { "path": "/api/obligations",                     "method": "POST", "description": "Create obligation",                                                     "authenticated": true },
+      { "path": "/api/disputes",                        "method": "GET",  "description": "Active dispute management",                                             "authenticated": true },
+      { "path": "/api/disputes",                        "method": "POST", "description": "Create dispute",                                                        "authenticated": true },
+      { "path": "/api/recommendations",                 "method": "GET",  "description": "AI action recommendations",                                             "authenticated": true },
+      { "path": "/api/cashflow",                        "method": "GET",  "description": "Cash flow analysis and projections",                                    "authenticated": true },
+      { "path": "/api/sync",                            "method": "POST", "description": "Manual data sync trigger",                                              "authenticated": true },
+      { "path": "/api/bridge/*",                        "method": "GET",  "description": "Inter-service bridge passthrough (read)",                               "authenticated": true },
+      { "path": "/api/bridge/*",                        "method": "POST", "description": "Inter-service bridge passthrough (write)",                              "authenticated": true },
+      { "path": "/mcp/*",                               "method": "POST", "description": "MCP server — 50 tools across 12 domains (service-auth)",                "authenticated": true }
+    ],
+    "healthCheck": { "path": "/health", "method": "GET", "expectedStatus": 200, "timeout": 5000 },
+    "category": "core-infrastructure",
+    "dependencies": [
+      "chittyauth","chittyid","chittycert","chittyconnect","chittyregistry","chittyschema","chittyrouter","chittyfinance","chittyscrape","chittyledger","chittyevidence","chittyassets","chittycharge","chittybooks","chittytrust","chittyagent-orchestrator","chittyagent-tasks","chittyagent-ch1tty","chittychat"
+    ],
+    "capabilities": [
+      "intent-execution","executor-registry","sovereignty-gate","meta-orchestration","cluster-daemon","financial-ingest","legal-ingest","urgency-scoring","litigation-support","mcp-server","scrape-job-dispatch","document-storage","action-recommendations","bridge-api"
+    ],
+    "certificationLevel": null,
+    "metadata": {
+      "canonicalUri": "chittycanon://core/services/chittycommand",
+      "tier": 2,
+      "tierSurface": "Tier 2 (Platform) with Tier-5 dashboard surface",
+      "domain": "command.chitty.cc",
+      "adrs": ["ADR-001"],
+      "executors": ["update_obligation_status"],
+      "clusterDaemonRegistration": "sub-channel via agent.chitty.cc/api/v1/channels — NOT in this payload",
+      "previousChittyId": "03-1-USA-3846-T-2602-0-57",
+      "previousChittyIdDeprecationReason": "T-type (Thing) encoding — invalid for a P-Synthetic sovereign actor",
+      "mcpToolCount": 50,
+      "mcpDomains": 12
+    }
+  }
+}
