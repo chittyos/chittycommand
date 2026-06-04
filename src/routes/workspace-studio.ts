@@ -29,7 +29,7 @@ import {
   WORKSPACE_STUDIO_CHANNEL_ID,
 } from '../lib/channel-registry';
 import { createIntent, createGoal, createPlan } from '../../meta/intent';
-import { deriveRouxFromType } from '../lib/dispute-sync';
+import { deriveRouxFromType, mergeRouxClassification } from '../lib/dispute-sync';
 import { getDb } from '../lib/db';
 import { evidenceClient, routerClient } from '../lib/integrations';
 
@@ -154,8 +154,14 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
     );
   }
 
-  // Roux derivation — combines dispute_type and classification.
-  const roux = deriveRouxFromType(classification || disputeType);
+  // Roux derivation — derive from BOTH classification and dispute_type, then
+  // take the MORE sensitive of the two. Prior code used `classification ||
+  // disputeType` which let a "public" classification mask a privileged
+  // dispute_type (e.g. "legal"). Take strictest privilege AND strictest space
+  // independently — see mergeRouxClassification.
+  const rouxFromClassification = deriveRouxFromType(classification);
+  const rouxFromDisputeType = deriveRouxFromType(disputeType);
+  const roux = mergeRouxClassification(rouxFromClassification, rouxFromDisputeType);
   const gateOutcome =
     roux.privilege === 'privileged' || roux.privilege === 'pii' || roux.space === 'legalink'
       ? 'suppressed'
