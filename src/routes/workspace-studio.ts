@@ -42,49 +42,44 @@ export const workspaceStudioRoutes = new Hono<{
 // Returned to Workspace Studio when a workflow author opens the custom step
 // settings. Single-card limitation: no nav, no multi-step.
 workspaceStudioRoutes.post('/config', async (c) => {
+  // Workspace Studio onConfigFunction contract: return the Card proto as the
+  // BARE response body — NOT wrapped in renderActions/navigations/pushCard.
+  // Card navigation (pushCard) is explicitly unsupported for Studio
+  // configuration cards
+  // (https://developers.google.com/workspace/add-ons/studio/configuration-cards#card_considerations_and_limitations).
+  //
   // Config endpoint does not require user auth — the workflow author is
-  // already authenticated to Workspace. Google still sends a system token,
-  // but we don't gate the config preview on it.
+  // already authenticated to Workspace.
   return c.json({
-    renderActions: {
-      action: {
-        navigations: [
+    sections: [
+      {
+        header: 'ChittyCommand — Roux Ingest',
+        widgets: [
           {
-            pushCard: {
-              sections: [
-                {
-                  header: 'ChittyCommand — Roux Ingest',
-                  widgets: [
-                    {
-                      textParagraph: {
-                        text:
-                          'Routes the triggering Gmail message into ChittyCommand as a triage intent. ' +
-                          'ChittyRoux derives privilege (privileged/pii/hoa_evidentiary/public) and ' +
-                          'space (business/legalink) from message classification and applies the gate.',
-                      },
-                    },
-                    {
-                      textInput: {
-                        name: 'chittycommand_url',
-                        label: 'ChittyCommand endpoint',
-                        value: 'https://command.chitty.cc',
-                      },
-                    },
-                    {
-                      textInput: {
-                        name: 'default_privilege',
-                        label: 'Default privilege if classification fails',
-                        value: 'public',
-                      },
-                    },
-                  ],
-                },
-              ],
+            textParagraph: {
+              text:
+                'Routes the triggering Gmail message into ChittyCommand as a triage intent. ' +
+                'ChittyRoux derives privilege (privileged/pii/hoa_evidentiary/public) and ' +
+                'space (business/legalink) from message classification and applies the gate.',
+            },
+          },
+          {
+            textInput: {
+              name: 'chittycommand_url',
+              label: 'ChittyCommand endpoint',
+              value: 'https://command.chitty.cc',
+            },
+          },
+          {
+            textInput: {
+              name: 'default_privilege',
+              label: 'Default privilege if classification fails',
+              value: 'public',
             },
           },
         ],
       },
-    },
+    ],
   });
 });
 
