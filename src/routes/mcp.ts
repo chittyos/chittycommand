@@ -1,6 +1,17 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
+import { hasTriageScope } from '../middleware/auth';
+
+// @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// fixes codex-p2 PR#104 P1 — triage MCP tools require elevated scope; we
+// filter them from tools/list and gate tools/call for callers without it.
+const TRIAGE_TOOL_NAMES = new Set([
+  'triage_list_intents',
+  'triage_claim_intent',
+  'triage_claim_next',
+  'triage_complete_intent',
+]);
 import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
@@ -548,8 +559,16 @@ mcpRoutes.post('/', async (c) => {
       // Per JSON-RPC 2.0: notifications have no id and MUST NOT receive a response
       return c.body(null, 204);
 
-    case 'tools/list':
-      return c.json({ jsonrpc: '2.0', id, result: { tools: TOOLS } });
+    case 'tools/list': {
+      // fixes codex-p2 PR#104 P1 — filter triage_* tools from the catalog
+      // when the caller lacks chittytriage:write (don't advertise what they
+      // can't call).
+      const listScopes = c.get('scopes');
+      const visibleTools = hasTriageScope(listScopes)
+        ? TOOLS
+        : TOOLS.filter((t) => !TRIAGE_TOOL_NAMES.has(t.name));
+      return c.json({ jsonrpc: '2.0', id, result: { tools: visibleTools } });
+    }
 
     case 'tools/call': {
       const toolName = params?.name as string;
@@ -558,6 +577,19 @@ mcpRoutes.post('/', async (c) => {
         const sql = getDb(c.env);
         const userId = c.get('userId');
         const scopes = c.get('scopes');
+        // fixes codex-p2 PR#104 P1 — defense-in-depth scope gate for the
+        // triage tools so a caller that knows the name can't bypass the
+        // tools/list filter.
+        if (TRIAGE_TOOL_NAMES.has(toolName) && !hasTriageScope(scopes)) {
+          return c.json({
+            jsonrpc: '2.0',
+            id,
+            result: {
+              content: [{ type: 'text', text: 'Error: Insufficient scope: chittytriage:write required' }],
+              isError: true,
+            },
+          });
+        }
         const result = await executeTool(c.env, sql, toolName, args, { userId, scopes });
         const content = [{ type: 'text' as const, text: typeof result === 'string' ? result : JSON.stringify(result, null, 2) }];
 
