@@ -375,11 +375,16 @@ interface StepSuccessOutputs {
   sheet_row_url?: string | null;
 }
 
+// Workspace Studio output contract:
+// https://developers.google.com/workspace/add-ons/studio/output-variables
+// The execute step must wrap outputs in
+//   hostAppAction.workflowAction.returnOutputVariablesAction.outputVariables[]
+// for downstream Studio steps to see them. Errors mirror the matrix with
+// returnElementErrorAction.
 function stepSuccess(outputs: StepSuccessOutputs) {
-  // Workspace Studio expects an output object plus a log/notification block.
-  // We surface chip-style links via notifications text (HTTP mode has no
-  // TextFormatChip — we inline the URLs and Workspace's HTML renderer
-  // autolinks them).
+  const outputVariables = Object.entries(outputs)
+    .filter(([, v]) => v !== undefined)
+    .map(([name, value]) => ({ name, value }));
   const links: string[] = [`triage: ${outputs.triage_url}`];
   if (outputs.drive_folder_url) links.push(`drive: ${outputs.drive_folder_url}`);
   if (outputs.sheet_row_url) links.push(`sheet: ${outputs.sheet_row_url}`);
@@ -388,8 +393,19 @@ function stepSuccess(outputs: StepSuccessOutputs) {
     `gate=${outputs.gate_outcome} idempotent=${outputs.idempotent_hit ? 'yes' : 'no'}\n` +
     links.join('\n');
   return {
-    status: 'SUCCESS',
+    hostAppAction: {
+      workflowAction: {
+        returnOutputVariablesAction: {
+          outputVariables,
+          log: { text: logText },
+        },
+      },
+    },
+    // Keep the bare `outputs` field as a non-breaking shim for any internal
+    // consumer / test that already reads it. Studio itself reads from
+    // hostAppAction.workflowAction.returnOutputVariablesAction.
     outputs,
+    status: 'SUCCESS',
     renderActions: {
       action: {
         notifications: [{ text: `Roux ingest ok: ${outputs.intent_id}` }],
@@ -404,7 +420,20 @@ function stepError(
   message: string,
   retry: 'RETRYABLE' | 'NOT_RETRYABLE',
 ) {
+  // Workspace Studio error matrix: returnElementErrorAction with explicit
+  // actionability + retryability + an error log entry.
   return {
+    hostAppAction: {
+      workflowAction: {
+        returnElementErrorAction: {
+          errorActionability: 'ACTIONABLE',
+          errorRetryability: retry,
+          errorLog: { text: `error ${code}: ${message}` },
+          errorMessage: { text: message },
+          errorCode: code,
+        },
+      },
+    },
     status: 'ACTIONABLE',
     retry,
     error: { code, message },
