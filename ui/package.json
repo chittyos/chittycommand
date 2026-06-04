@@ -15,7 +15,7 @@
     "react-dom": "^18.3.0",
     "react-grid-layout": "^2.2.2",
     "react-is": "^19.2.5",
-    "react-router-dom": "^6.23.0",
+    "react-router-dom": "^6.30.4",
     "recharts": "^3.7.0",
     "tailwind-merge": "^2.3.0"
   },
