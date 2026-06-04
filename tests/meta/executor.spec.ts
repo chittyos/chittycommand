@@ -139,16 +139,22 @@ describe.skipIf(SKIP)('meta/executors — executeIntent round-trip', () => {
     `) as unknown as Array<{ status: string }>;
     expect(oblig[0].status).toBe('deferred');
 
-    // Second execution — must replay, not re-execute. attempt stays 1; no
-    // new audit row appears.
+    // Second execution — under FIX 1 (PR #106), idempotency is per-attempt-key,
+    // not per-intent. A second executeIntent against the same intent produces
+    // attempt=2 with a NEW key, the prior terminal row does NOT short-circuit
+    // it, and the executor re-runs (update-obligation-status is itself
+    // idempotent, so the obligation remains 'deferred'). Replay-by-key is
+    // exercised by the dedicated test below; this assertion captures the
+    // post-fix contract for same-intent re-invocation.
     const second = await executeIntent(env, intent.id, { actorChittyId: OWNER });
-    expect(second.replayed).toBe(true);
-    expect(second.idempotencyKey).toBe(first.idempotencyKey);
-    expect(second.actionLogId).toBe(first.actionLogId);
+    expect(second.replayed).toBeFalsy();
+    expect(second.idempotencyKey).not.toBe(first.idempotencyKey);
+    expect(second.actionLogId).not.toBe(first.actionLogId);
 
     const auditRowsAfter = (await sql`
-      SELECT id FROM cc_actions_log WHERE intent_id = ${intent.id}::uuid
-    `) as unknown as Array<{ id: string }>;
-    expect(auditRowsAfter.length).toBe(1);
+      SELECT attempt FROM cc_actions_log WHERE intent_id = ${intent.id}::uuid ORDER BY attempt ASC
+    `) as unknown as Array<{ attempt: number }>;
+    expect(auditRowsAfter.length).toBe(2);
+    expect(auditRowsAfter.map((r) => r.attempt)).toEqual([1, 2]);
   });
 });
