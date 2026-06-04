@@ -111,6 +111,7 @@ beforeAll(async () => {
     CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_ID: CLIENT_ID,
     GCP_JWKS_URL: signer.jwksUrl,
   };
+  if (process.env.SKIP_INTEGRATION === '1') return;
   if (DATABASE_URL) {
     const sql = neon(DATABASE_URL);
     await sql`DELETE FROM cc_goals WHERE title LIKE ${TEST_TAG + '%'}`;
@@ -119,6 +120,7 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (signer) await new Promise<void>((r) => signer.server.close(() => r()));
+  if (process.env.SKIP_INTEGRATION === '1') return;
   if (DATABASE_URL) {
     const sql = neon(DATABASE_URL);
     await sql`DELETE FROM cc_goals WHERE title LIKE ${TEST_TAG + '%'}`;
