@@ -3,13 +3,14 @@ import { z } from 'zod';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../../index';
 import { mercuryClient } from '../../lib/integrations';
-// Canonical executor (registry-backed). ActionAgent's chat tool here wraps
-// the same pure runner the meta-orchestrator dispatcher invokes — sibling
+// Canonical executors (registry-backed). ActionAgent's chat tools here wrap
+// the same pure runners the meta-orchestrator dispatcher invokes — sibling
 // surfaces, shared implementation. See ADR-001 amendment (PR-A).
 import {
   updateObligationStatusSchema,
   runUpdateObligationStatus,
 } from '../../../meta/executors/update-obligation-status';
+import { runMercuryPayment } from '../../../meta/executors/mercury-payment';
 
 /**
  * Create action execution tools bound to environment and SQL.
@@ -30,55 +31,60 @@ export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>
         obligation_id: z.string().uuid().optional().describe('Link payment to this obligation'),
       }),
       execute: async ({ account_slug, mercury_account_id, recipient_id, amount, note, obligation_id }) => {
-        // Get Mercury token from KV
-        const token = await env.COMMAND_KV.get(`mercury:token:${account_slug}`);
-        if (!token) {
-          return { success: false, error: `No Mercury token for org "${account_slug}". Run token refresh first.` };
-        }
-
-        const mercury = mercuryClient(token);
+        // Chat surface delegates to the canonical executor's pure runner so
+        // chat + autonomous paths share the same Mercury call, sovereignty
+        // gate, and amount cap. The chat path supplies an autonomous + fresh
+        // sovereignty snapshot because user-approval in chat is the gating
+        // event for this surface. See ADR-001 amendment (PR-A) and
+        // meta/executors/mercury-payment.ts.
         const idempotencyKey = crypto.randomUUID();
-
-        const result = await mercury.createPayment(mercury_account_id, {
-          recipientId: recipient_id,
-          amount,
-          paymentMethod: 'ach',
+        const amountCents = Math.round(amount * 100);
+        const run = await runMercuryPayment({
+          env,
+          payload: {
+            account_slug,
+            mercury_account_id,
+            recipient_id,
+            amount_cents: amountCents,
+            currency: 'USD',
+            memo: note || undefined,
+            obligation_id,
+          },
+          sovereignty: { decision: 'autonomous', assessedAt: new Date().toISOString() },
           idempotencyKey,
-          note: note || undefined,
         });
 
-        if (!result) {
-          // Log failed attempt
+        if (!run.ok) {
+          // Chat path keeps its own audit row (no intent_id) — preserves
+          // existing chat audit behavior exactly.
           await sql`
             INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
             VALUES ('payment', 'obligation', ${obligation_id || null},
-                    ${`Mercury ACH $${amount.toFixed(2)} to ${recipient_id} — FAILED`}, 'failed',
-                    ${JSON.stringify({ account_slug, mercury_account_id, recipient_id, amount, idempotencyKey })}::jsonb)
+                    ${`Mercury ACH $${amount.toFixed(2)} to ${recipient_id} — ${run.refusalReason ?? 'FAILED'}`}, 'failed',
+                    ${JSON.stringify({ account_slug, mercury_account_id, recipient_id, amount_cents: amountCents, idempotencyKey, refusal_reason: run.refusalReason })}::jsonb)
           `;
-          return { success: false, error: 'Mercury API rejected the payment. Check logs for details.' };
+          return { success: false, error: run.errorMessage ?? 'Mercury payment refused or failed.' };
         }
 
-        // Log successful payment
         await sql`
           INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
           VALUES ('payment', 'obligation', ${obligation_id || null},
-                  ${`Mercury ACH $${amount.toFixed(2)} — tx ${result.id}`}, 'completed',
-                  ${JSON.stringify({ ...result, account_slug, idempotencyKey })}::jsonb)
+                  ${`Mercury ACH $${amount.toFixed(2)} — tx ${run.transactionId}`}, 'completed',
+                  ${JSON.stringify({ transaction_id: run.transactionId, mercury_status: run.mercuryStatus, account_slug, idempotencyKey })}::jsonb)
         `;
 
-        // Update obligation if linked
         if (obligation_id) {
           await sql`
             UPDATE cc_obligations
             SET status = 'paid', updated_at = NOW(),
                 metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-                  last_payment: { amount, mercury_tx_id: result.id, date: new Date().toISOString() },
+                  last_payment: { amount, mercury_tx_id: run.transactionId, date: new Date().toISOString() },
                 })}::jsonb
             WHERE id = ${obligation_id}::uuid
           `;
         }
 
-        return { success: true, transaction_id: result.id, amount, status: result.status };
+        return { success: true, transaction_id: run.transactionId, amount, status: run.mercuryStatus };
       },
     }),
 

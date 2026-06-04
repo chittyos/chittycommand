@@ -13,3 +13,4 @@ export { dispatch } from './dispatch';
 
 // Side-effect imports: each executor file calls registerExecutor() at top level.
 import './update-obligation-status';
+import './mercury-payment';
