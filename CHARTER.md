@@ -36,7 +36,13 @@ This section is a persistent discovery hint for humans and agents. It is not an 
 - **Organization**: CHITTYOS
 - **Domain**: command.chitty.cc
 
-Per [ADR-001](docs/architecture/ADR-001-meta-orchestrator-extension.md), ChittyCommand is reclassified from Tier 5 Application to **Tier 2 (Platform) with Tier-5 dashboard surface**. The platform tier covers the meta-orchestrator (`meta/`), executor registry, sovereignty gate, and cluster daemon (`daemon/`). The Tier-5 surface is the existing user-facing dashboard + ActionAgent + MCP at `command.chitty.cc`. Both run from the same worker; the dashboard is one consumer of the platform among many.
+Per [ADR-001](docs/architecture/ADR-001-meta-orchestrator-extension.md), ChittyCommand is reclassified from Tier 5 Application to **Tier 2 (Platform) with Tier-5 dashboard surface**. The platform tier covers the meta-orchestrator (`meta/`), executor registry, sovereignty gate, and cluster daemon (`daemon/`). The Tier-5 surface is the existing user-facing dashboard + ActionAgent + MCP at `command.chitty.cc`.
+
+Deployment artifacts split across two runtimes (see Cluster Runtime section below):
+- **Cloudflare Worker** (`src/`, `meta/` HTTP routes, dashboard, ActionAgent, MCP): the Tier-5 surface and the meta-orchestrator's request-handling plane run from the same Worker at `command.chitty.cc`.
+- **Persistent daemon** (`daemon/`): the cluster leader / intent dispatcher does **not** run as a Worker. It is supervised as a launchd (macOS) / systemd (Linux) process on ChittyServ nodes and connects to the same Neon DB as the Worker.
+
+The dashboard is one consumer of the platform among many.
 
 ## Mission
 
