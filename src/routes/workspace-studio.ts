@@ -28,7 +28,7 @@ import {
   verifyRegisteredChannel,
   WORKSPACE_STUDIO_CHANNEL_ID,
 } from '../lib/channel-registry';
-import { createIntent, createGoal, createPlan } from '../../meta/intent';
+import { createGoal, createPlan, createRouxIngestIntentIdempotent } from '../../meta/intent';
 import { deriveRouxFromType, mergeRouxClassification } from '../lib/dispute-sync';
 import { getDb } from '../lib/db';
 import { evidenceClient, routerClient } from '../lib/integrations';
@@ -129,6 +129,14 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
   }
 
   // Idempotency by Gmail message_id.
+  //
+  // Pre-check via SELECT is a TOCTOU race — two concurrent Google retries can
+  // both pass before either INSERT lands. The atomic guard is the partial
+  // unique index `cc_intents_roux_ingest_message_id_uidx` (migration 0017)
+  // combined with `INSERT ... ON CONFLICT DO NOTHING` on the createIntent
+  // call below. The SELECT here is a fast-path for the common case (sequential
+  // retry) — if it hits, we return the existing row without re-running
+  // createGoal/createPlan/createIntent at all.
   const idempotencyKey = c.req.header('Idempotency-Key') ?? `gmail-${messageId}`;
   const sql = getDb(c.env);
   const existing = await sql`
@@ -168,8 +176,14 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
       : 'mirrored';
 
   // Create the goal/plan/intent chain. The intent is the durable artifact.
+  // Intent creation is idempotent on Gmail message_id (atomic ON CONFLICT
+  // against the partial unique index in migration 0017). If two concurrent
+  // Google retries reach this point, exactly one wins the INSERT; the loser
+  // re-SELECTs and gets the winner's intent_id. The goal/plan rows from the
+  // losing race are orphaned but harmless.
   const ownerChittyId = wsCtx.user_email; // user email is acceptable as owner anchor for now
   let intentId: string;
+  let idempotentHitFromRace = false;
   try {
     const goal = await createGoal(c.env, {
       ownerChittyId,
@@ -183,13 +197,14 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
       title: `Ingest Gmail message ${messageId}`,
       authoredBy: 'workspace-studio',
     });
-    const intent = await createIntent(c.env, {
+    const result = await createRouxIngestIntentIdempotent(c.env, {
       planId: plan.id,
       goalId: goal.id,
       intentType: 'roux_ingest',
       targetChannel: channel.channel_id,
       privilege: roux.privilege,
       space: roux.space,
+      messageId,
       payload: {
         source: {
           channel: 'gmail',
@@ -210,12 +225,14 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
         idempotency_key: idempotencyKey,
       },
     });
-    intentId = intent.id;
+    intentId = result.intent.id;
+    idempotentHitFromRace = !result.created;
   } catch (err) {
+    console.error('[ws-studio] createIntent failed:', err);
     return c.json(
       stepError(
         'INTENT_CREATE_FAILED',
-        `createIntent failed: ${err instanceof Error ? err.message : String(err)}`,
+        'Failed to create triage intent. Please retry.',
         'RETRYABLE',
       ),
       500,
@@ -223,8 +240,10 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
   }
 
   // Fan-out — fire-and-forget via waitUntil so we stay under the 30s ceiling.
+  // Skip when we lost the idempotency race; the winner already kicked off
+  // fanout.
   const ctx = c.executionCtx;
-  if (ctx && typeof ctx.waitUntil === 'function') {
+  if (ctx && typeof ctx.waitUntil === 'function' && !idempotentHitFromRace) {
     for (const attId of attachmentIds) {
       ctx.waitUntil(ingestAttachment(c.env, intentId, attId, wsCtx.user_oauth_token));
     }
@@ -250,7 +269,7 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
       space: roux.space,
       gate_outcome: gateOutcome,
       content_hashes: [] as string[],
-      idempotent_hit: false,
+      idempotent_hit: idempotentHitFromRace,
       idempotency_key: idempotencyKey,
       triage_url: `https://command.chitty.cc/triage/${intentId}`,
       drive_folder_url: driveFolder ?? null,
