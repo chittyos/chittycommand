@@ -41,11 +41,20 @@ export function deriveRouxFromType(disputeType: string): {
   privilege: 'privileged' | 'pii' | 'hoa_evidentiary' | 'public';
   space: 'business' | 'legalink';
 } {
-  switch (disputeType) {
-    case 'legal':
-      return { privilege: 'privileged', space: 'legalink' };
-    case 'insurance':
-      return { privilege: 'pii', space: 'business' };
+  // Fail-safe routing: dispute_type is free-text from the API/UI. Any string
+  // containing "legal" routes to privileged/legalink (prevents leakage of
+  // "Legal", "legal dispute", etc. to the public/business Notion bucket).
+  // Any string containing "insurance" routes to pii/business. This is
+  // intentionally over-broad on the privileged side — better to over-suppress
+  // a Notion mirror than to leak privileged content.
+  const normalized = (disputeType ?? '').toLowerCase().trim();
+  if (normalized.includes('legal')) {
+    return { privilege: 'privileged', space: 'legalink' };
+  }
+  if (normalized.includes('insurance')) {
+    return { privilege: 'pii', space: 'business' };
+  }
+  switch (normalized) {
     case 'property':
     case 'vendor':
     case 'tenant':
@@ -223,16 +232,30 @@ export async function pushUnlinkedDisputesToNotion(
     try {
       // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
       // Q2=(a) pass-through-with-warn: rows that landed on the column defaults
-      // (public/business) may be untagged legacy rows. Emit a one-time warn per
-      // row so operators can decide whether to add an explicit tag.
-      const privilege = (dispute.privilege as string | null) ?? 'public';
-      const space = (dispute.space as string | null) ?? 'business';
-      if (privilege === 'public' && space === 'business') {
+      // (public/business) may be untagged legacy rows (the DB stores defaults
+      // even when the caller didn't supply explicit values). For the Notion-gate
+      // decision, we cannot distinguish "caller explicitly chose public/business"
+      // from "caller omitted both fields and PG defaulted them". When both axes
+      // sit on the defaults, re-derive from dispute_type so a row with
+      // dispute_type='legal' is still suppressed even though privilege/space
+      // were stored as public/business. The DB row itself is left untouched —
+      // an explicit retag is a separate concern.
+      const storedPrivilege = (dispute.privilege as string | null) ?? 'public';
+      const storedSpace = (dispute.space as string | null) ?? 'business';
+      const onDefaults = storedPrivilege === 'public' && storedSpace === 'business';
+      let gateDispute = dispute as unknown as DisputeCore;
+      if (onDefaults) {
         console.log(
-          `[dispute-sync:roux-backfill] dispute_id=${dispute.id} using default privilege=public space=business — explicit tag recommended`,
+          `[dispute-sync:roux-backfill] dispute_id=${dispute.id} on default privilege=public space=business — re-deriving from dispute_type=${dispute.dispute_type as string} for gate decision; explicit tag recommended`,
         );
+        const derived = deriveRouxFromType(dispute.dispute_type as string);
+        gateDispute = {
+          ...(dispute as unknown as DisputeCore),
+          privilege: derived.privilege,
+          space: derived.space,
+        };
       }
-      const linked = await linkDisputeToNotion(dispute.id as string, dispute as unknown as DisputeCore, env, sql);
+      const linked = await linkDisputeToNotion(dispute.id as string, gateDispute, env, sql);
       if (linked) pushed++;
     } catch (err) {
       console.error(`[dispute-sync:push] Failed for dispute ${dispute.id}:`, err);
