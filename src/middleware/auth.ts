@@ -174,3 +174,49 @@ export async function mcpAuthMiddleware(c: Context<{ Bindings: Env; Variables: A
   c.set('scopes', ['mcp']);
   return next();
 }
+
+/**
+ * Elevated-scope gate for /api/triage/* and the MCP triage_* tools.
+ *
+ * The triage queue lists, claims, and completes orchestration intents that may
+ * be `privileged` or `legalink` — exposing them to any ordinary ChittyAuth
+ * user token (which authMiddleware grants `['admin']` for KV tokens or the
+ * raw `scopes` claim for ChittyAuth tokens) is too broad. This middleware
+ * runs AFTER authMiddleware/mcpAuthMiddleware has populated `c.var.scopes`
+ * and enforces that the caller carries one of the recognized elevated
+ * scopes:
+ *   - `chittytriage:write`  — canonical scope name for triage mutation
+ *   - `chittytriage:admin`  — admin-level
+ *   - `admin`               — local KV-token superuser path (authMiddleware
+ *                              sets ['admin'] for KV-issued tokens)
+ *   - `*`                   — wildcard (operator/service principal)
+ *
+ * fixes codex-p2 PR#104 P1 — elevated scope on triage routes/tools.
+ */
+export async function requireTriageScope(
+  c: Context<{ Bindings: Env; Variables: AuthVariables }>,
+  next: Next,
+) {
+  const scopes = c.get('scopes') || [];
+  const ok = scopes.some(
+    (s) => s === 'chittytriage:write' || s === 'chittytriage:admin' || s === 'admin' || s === '*',
+  );
+  if (!ok) {
+    return c.json({ error: 'Insufficient scope: chittytriage:write required' }, 403);
+  }
+  return next();
+}
+
+/**
+ * Returns true if the caller has the elevated triage scope. Used by MCP
+ * tool handlers and `tools/list` filtering, which run inside a JSON-RPC
+ * dispatcher rather than as Hono middleware.
+ *
+ * fixes codex-p2 PR#104 P1 — scope-aware MCP triage tool advertisement.
+ */
+export function hasTriageScope(scopes: string[] | undefined | null): boolean {
+  if (!scopes) return false;
+  return scopes.some(
+    (s) => s === 'chittytriage:write' || s === 'chittytriage:admin' || s === 'admin' || s === '*',
+  );
+}

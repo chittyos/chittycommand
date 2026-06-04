@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import { cors } from 'hono/cors';
 import { agentsMiddleware } from 'hono-agents';
-import { authMiddleware, bridgeAuthMiddleware, mcpAuthMiddleware } from './middleware/auth';
+import { authMiddleware, bridgeAuthMiddleware, mcpAuthMiddleware, requireTriageScope } from './middleware/auth';
 import type { AuthVariables } from './middleware/auth';
 import { getDb } from './lib/db';
 import { runCronSync } from './lib/cron';
@@ -143,6 +143,10 @@ app.route('/api/litigation', litigationRoutes);
 app.route('/api/tasks', taskRoutes);
 // ChittyTriage — pending-intent queue partitioned by Roux (privilege, space)
 // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+// fixes codex-p2 PR#104 P1 — triage routes require elevated scope
+// (chittytriage:write/admin, local-KV admin, or wildcard) on top of the
+// generic /api/* authMiddleware.
+app.use('/api/triage/*', requireTriageScope);
 app.route('/api/triage', triageRoutes);
 // Identity (authenticated)
 app.route('/api/v1', metaRoutes);
