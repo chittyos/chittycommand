@@ -245,7 +245,9 @@ workspaceStudioRoutes.post('/execute', workspaceAuth(), async (c) => {
   const ctx = c.executionCtx;
   if (ctx && typeof ctx.waitUntil === 'function' && !idempotentHitFromRace) {
     for (const attId of attachmentIds) {
-      ctx.waitUntil(ingestAttachment(c.env, intentId, attId, wsCtx.user_oauth_token));
+      ctx.waitUntil(
+        ingestAttachment(c.env, intentId, attId, messageId, wsCtx.user_oauth_token),
+      );
     }
     ctx.waitUntil(
       recordCustodyIfPrivileged(c.env, intentId, roux, {
@@ -284,10 +286,16 @@ async function ingestAttachment(
   env: Env,
   intentId: string,
   attachmentId: string,
+  gmailMessageId: string,
   userOAuthToken: string | null,
 ): Promise<void> {
   try {
     if (!env.SVC_STORAGE) return;
+    // Gmail attachments API: users.messages.attachments.get requires BOTH
+    // messageId and attachment id
+    // (https://developers.google.com/workspace/gmail/api/reference/rest/v1/users.messages.attachments/get).
+    // Forward gmail_message_id alongside attachment_id so chittystorage can
+    // hit the Gmail API path when the file isn't already in Drive.
     const res = await env.SVC_STORAGE.fetch('https://storage.internal/ingest', {
       method: 'POST',
       headers: {
@@ -298,6 +306,7 @@ async function ingestAttachment(
       body: JSON.stringify({
         source: 'gmail',
         attachment_id: attachmentId,
+        gmail_message_id: gmailMessageId,
         user_oauth_token: userOAuthToken,
         intent_id: intentId,
       }),
