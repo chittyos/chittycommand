@@ -120,40 +120,50 @@ export async function claimLeadership(
 
 /**
  * Extend the lease. Returns null if this node is no longer the holder
- * (another node took over).
+ * (another node took over) OR if the caller's sessionId does not match the
+ * session currently recorded on the lease — a restarted process with the same
+ * nodeId cannot heartbeat over a fresh leader.
+ *
+ * fixes codex-p2 PR#101 finding-5 — session ownership required on heartbeat.
  */
 export async function heartbeat(
   env: LeaderEnv,
   nodeId: string,
-  options: { role?: string; leaseSeconds?: number } = {},
+  options: { role?: string; leaseSeconds?: number; sessionId?: string | null } = {},
 ): Promise<NodeLease | null> {
   if (!nodeId) throw new Error('[daemon/leader] nodeId is required for heartbeat');
   const sql = getSql(env);
   const role = options.role ?? META_LEADER_ROLE;
   const leaseSeconds = normalizeLeaseSeconds(options.leaseSeconds);
+  const sessionId = options.sessionId ?? null;
 
   const rows = await sql`
     UPDATE cc_node_leases
     SET heartbeat_at = NOW(),
         lease_expires_at = NOW() + (${leaseSeconds} * INTERVAL '1 second'),
         updated_at = NOW()
-    WHERE role = ${role} AND node_id = ${nodeId}
+    WHERE role = ${role}
+      AND node_id = ${nodeId}
+      AND session_id IS NOT DISTINCT FROM ${sessionId}
     RETURNING *`;
   return rows[0] ? rowToLease(rows[0]) : null;
 }
 
 /**
- * Release leadership. Only this node can release — if a different node
- * holds the role, this is a no-op (returns false).
+ * Release leadership. Only this node + session can release — if a different
+ * node or a newer session of the same node holds the role, this is a no-op.
+ *
+ * fixes codex-p2 PR#101 finding-2 — session ownership required on release.
  */
 export async function releaseLeadership(
   env: LeaderEnv,
   nodeId: string,
-  options: { role?: string } = {},
+  options: { role?: string; sessionId?: string | null } = {},
 ): Promise<boolean> {
   if (!nodeId) throw new Error('[daemon/leader] nodeId is required for release');
   const sql = getSql(env);
   const role = options.role ?? META_LEADER_ROLE;
+  const sessionId = options.sessionId ?? null;
   const rows = await sql`
     UPDATE cc_node_leases
     SET node_id = NULL,
@@ -163,7 +173,9 @@ export async function releaseLeadership(
         heartbeat_at = NULL,
         lease_expires_at = NULL,
         updated_at = NOW()
-    WHERE role = ${role} AND node_id = ${nodeId}
+    WHERE role = ${role}
+      AND node_id = ${nodeId}
+      AND session_id IS NOT DISTINCT FROM ${sessionId}
     RETURNING role`;
   return rows.length > 0;
 }

@@ -22,6 +22,13 @@
       "when": 1780458101750,
       "tag": "0002_naive_mac_gargan",
       "breakpoints": true
+    },
+    {
+      "idx": 3,
+      "version": "7",
+      "when": 1780538575987,
+      "tag": "0003_foamy_king_cobra",
+      "breakpoints": true
     }
   ]
 }

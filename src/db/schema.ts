@@ -1,4 +1,4 @@
-import { pgTable, uuid, varchar, text, numeric, boolean, integer, date, timestamp, jsonb, index } from 'drizzle-orm/pg-core';
+import { pgTable, uuid, varchar, text, numeric, boolean, integer, date, timestamp, jsonb, index, unique, foreignKey } from 'drizzle-orm/pg-core';
 import { sql } from 'drizzle-orm';
 
 // ── Accounts ──────────────────────────────────────────────────
@@ -445,6 +445,8 @@ export const ccPlans = pgTable('cc_plans', {
 }, (table) => ({
   goalIdx: index('idx_cc_plans_goal').on(table.goalId),
   statusIdx: index('idx_cc_plans_status').on(table.status),
+  // fixes codex-p2 PR#101 finding-4 — backs composite FK from cc_intents
+  idGoalUnique: unique('cc_plans_id_goal_id_unique').on(table.id, table.goalId),
 }));
 
 // ── Intents (bottom of ladder — executable units) ────────────
@@ -452,7 +454,10 @@ export const ccPlans = pgTable('cc_plans', {
 // execution. Below this sits the existing task queue + ActionAgent.
 export const ccIntents = pgTable('cc_intents', {
   id: uuid('id').primaryKey().defaultRandom(),
-  planId: uuid('plan_id').references(() => ccPlans.id, { onDelete: 'cascade' }).notNull(),
+  // fixes codex-p2 PR#101 finding-4 — plan_id FK is now composite (plan_id,
+  // goal_id) -> cc_plans(id, goal_id) via the table-level foreignKey() below.
+  // goalId keeps its standalone FK to cc_goals so orphan goals still cascade.
+  planId: uuid('plan_id').notNull(),
   goalId: uuid('goal_id').references(() => ccGoals.id, { onDelete: 'cascade' }).notNull(),
   // What kind of intent: 'payment' | 'message' | 'status_update' | 'investigate' | etc.
   intentType: text('intent_type').notNull(),
@@ -475,6 +480,8 @@ export const ccIntents = pgTable('cc_intents', {
   completedAt: timestamp('completed_at', { withTimezone: true }),
   // Free-form error from the executor
   errorMessage: text('error_message'),
+  // fixes codex-p2 PR#101 finding-1 — bookkeeping for reclaimStuckIntents()
+  reclaimCount: integer('reclaim_count').notNull().default(0),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
@@ -484,6 +491,13 @@ export const ccIntents = pgTable('cc_intents', {
   statusIdx: index('idx_cc_intents_status').on(table.status),
   priorityIdx: index('idx_cc_intents_priority').on(table.priority),
   scheduledIdx: index('idx_cc_intents_scheduled').on(table.scheduledFor),
+  // fixes codex-p2 PR#101 finding-4 — composite FK so intent.goal_id MUST
+  // match its plan's goal_id. Backed by UNIQUE(id, goal_id) on cc_plans.
+  planGoalFk: foreignKey({
+    name: 'cc_intents_plan_goal_cc_plans_fk',
+    columns: [table.planId, table.goalId],
+    foreignColumns: [ccPlans.id, ccPlans.goalId],
+  }).onDelete('cascade'),
 }));
 
 // ─────────────────────────────────────────────────────────────

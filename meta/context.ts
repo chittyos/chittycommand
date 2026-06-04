@@ -13,11 +13,30 @@
 
 export interface ContextEnv {
   CHITTYCONNECT_URL?: string;
+  /**
+   * Canonical ChittyConnect bearer token binding used elsewhere in this
+   * worker (see src/lib/cron.ts, src/routes/bridge/*). Preferred name.
+   * fixes codex-p2 PR#101 finding-8
+   */
+  CHITTY_CONNECT_TOKEN?: string;
+  /** Legacy name kept for backwards compatibility with earlier ContextEnv shape. */
   CHITTYCONNECT_TOKEN?: string;
   /** Optional service binding for ChittyConnect, used when primary fails. */
   AGENT_CONNECT?: Fetcher;
   /** Caller identity; defaults to "chittycommand-meta". */
   SERVICE_NAME?: string;
+}
+
+/**
+ * Resolve the ChittyConnect bearer token, preferring the canonical
+ * CHITTY_CONNECT_TOKEN binding used by the rest of the worker
+ * (src/middleware/auth.ts, src/lib/cron.ts, src/routes/bridge/*) and
+ * falling back to the legacy CHITTYCONNECT_TOKEN name.
+ *
+ * fixes codex-p2 PR#101 finding-8
+ */
+function resolveConnectToken(env: ContextEnv): string | undefined {
+  return env.CHITTY_CONNECT_TOKEN ?? env.CHITTYCONNECT_TOKEN;
 }
 
 export type ContextPath = 'primary' | 'fallback';
@@ -59,8 +78,9 @@ async function request<T>(
   body?: unknown,
   timeoutMs = 8000,
 ): Promise<{ ok: boolean; data?: T; error?: string; status?: number }> {
-  if (!env.CHITTYCONNECT_URL || !env.CHITTYCONNECT_TOKEN) {
-    return { ok: false, error: 'CHITTYCONNECT_URL or CHITTYCONNECT_TOKEN not set' };
+  const token = resolveConnectToken(env);
+  if (!env.CHITTYCONNECT_URL || !token) {
+    return { ok: false, error: 'CHITTYCONNECT_URL or CHITTY_CONNECT_TOKEN not set' };
   }
   const url = `${env.CHITTYCONNECT_URL.replace(/\/$/, '')}${path}`;
   try {
@@ -68,7 +88,7 @@ async function request<T>(
       method,
       headers: {
         'Content-Type': 'application/json',
-        Authorization: `Bearer ${env.CHITTYCONNECT_TOKEN}`,
+        Authorization: `Bearer ${token}`,
         'X-ChittyOS-Caller': env.SERVICE_NAME ?? CALLER_DEFAULT,
       },
       body: body ? JSON.stringify(body) : undefined,
@@ -128,7 +148,21 @@ export async function getEcosystemAwareness(env: ContextEnv): Promise<EcosystemA
     5000,
   );
   if (primary.ok && primary.data) return primary.data;
-  return { success: false, error: primary.error ?? 'Awareness check failed' };
+
+  // fixes codex-p2 PR#101 finding-7 — when the HTTPS path has no URL/token or
+  // the upstream fetch failed, route the same request through the AGENT_CONNECT
+  // service binding if the worker has one. Matches the persist/recall pattern.
+  const fb = await fallback<EcosystemAwareness>(
+    env,
+    'GET',
+    '/api/intelligence/consciousness/awareness',
+  );
+  if (fb.ok && fb.data) return fb.data;
+
+  return {
+    success: false,
+    error: primary.error ?? fb.error ?? 'Awareness check failed',
+  };
 }
 
 // ── MemoryCloude: Persist ───────────────────────────────────

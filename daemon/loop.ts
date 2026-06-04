@@ -30,6 +30,7 @@ import {
   completeIntent,
   failIntent,
   markIntentDispatched,
+  reclaimStuckIntents,
   type Intent,
   type IntentEnv,
 } from '../meta/intent';
@@ -122,9 +123,10 @@ export async function runLeaderLoop(
     intentsProcessed = innerResult.intentsProcessed;
 
     if (innerResult.reason === 'aborted' || innerResult.reason === 'maxIntents') {
-      // Best-effort release on clean exit.
+      // Best-effort release on clean exit — pass sessionId so the release
+      // refuses to clear a newer leader's lease (fixes codex-p2 PR#101 finding-2).
       try {
-        await releaseLeadership(env, options.nodeId, { role });
+        await releaseLeadership(env, options.nodeId, { role, sessionId: options.sessionId });
       } catch (err) {
         log('release_error', { error: err instanceof Error ? err.message : String(err) });
       }
@@ -159,11 +161,22 @@ async function innerLoop(
   let intentsProcessed = startCount;
   let lastHeartbeat = Date.now();
 
+  // Heartbeat cadence inside executor.execute() — half the lease so a slow
+  // executor can't let the lease lapse mid-flight.
+  // fixes codex-p2 PR#101 finding-3
+  const innerHeartbeatMs = Math.max(1_000, Math.floor((leaseSeconds * 1000) / 2));
+
   while (!signal?.aborted) {
-    // Heartbeat if due.
+    // Heartbeat if due. Session-scoped so a restarted process can't extend
+    // a lease that already belongs to a newer leader.
+    // fixes codex-p2 PR#101 finding-5
     if (Date.now() - lastHeartbeat >= heartbeatMs) {
       try {
-        const renewed = await heartbeat(env, options.nodeId, { role, leaseSeconds });
+        const renewed = await heartbeat(env, options.nodeId, {
+          role,
+          leaseSeconds,
+          sessionId: options.sessionId,
+        });
         if (!renewed) {
           return { intentsProcessed, reason: 'leaseLost' };
         }
@@ -176,6 +189,17 @@ async function innerLoop(
           error: err instanceof Error ? err.message : String(err),
         };
       }
+    }
+
+    // Reclaim intents stuck in running/claimed past 2x the lease window before
+    // we ask for new work. Idempotent and cheap; if nothing is stuck this is
+    // a single UPDATE returning 0 rows.
+    // fixes codex-p2 PR#101 finding-1
+    try {
+      const reclaimed = await reclaimStuckIntents(env, leaseSeconds * 2);
+      if (reclaimed > 0) log('intents_reclaimed', { count: reclaimed });
+    } catch (err) {
+      log('reclaim_error', { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Claim and dispatch one intent.
@@ -199,18 +223,80 @@ async function innerLoop(
 
     log('intent_claimed', { intentId: intent.id, intentType: intent.intentType });
 
+    // Background heartbeat ticker covering the executor.execute() span.
+    // Uses the current session token so the heartbeat is rejected if a newer
+    // leader has taken over.
+    // fixes codex-p2 PR#101 finding-3, finding-5
+    const executorHeartbeat = setInterval(() => {
+      heartbeat(env, options.nodeId, {
+        role,
+        leaseSeconds,
+        sessionId: options.sessionId,
+      })
+        .then((renewed) => {
+          if (renewed) {
+            lastHeartbeat = Date.now();
+            log('exec_heartbeat_ok', { expiresAt: renewed.leaseExpiresAt });
+          } else {
+            log('exec_heartbeat_lost', { intentId: intent!.id });
+          }
+        })
+        .catch((err) => {
+          log('exec_heartbeat_error', {
+            error: err instanceof Error ? err.message : String(err),
+          });
+        });
+    }, innerHeartbeatMs);
+
+    // fixes codex-p2 PR#103 P1-B — capture the dispatched_task_id from
+    // markIntentDispatched as an execution token. completeIntent / failIntent
+    // gate on it so a stale leader returning from executor() after a fresher
+    // leader has reclaimed + redispatched the intent cannot mark the fresher
+    // execution done / failed. The token is set on dispatch and cleared by
+    // reclaimStuckIntents, so it's monotonic-per-execution.
+    let dispatchedTaskId: string | null = null;
     try {
       const result = await options.executor(intent);
-      await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
-      await completeIntent(env, intent.id);
-      intentsProcessed += 1;
-      log('intent_completed', { intentId: intent.id, dispatchedTaskId: result.dispatchedTaskId });
+      const dispatched = await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
+      if (!dispatched) {
+        // Status was no longer 'claimed' — another leader reclaimed and is
+        // (re)driving this intent. Do not touch completion.
+        log('intent_dispatch_lost', {
+          intentId: intent.id,
+          dispatchedTaskId: result.dispatchedTaskId,
+        });
+      } else {
+        dispatchedTaskId = result.dispatchedTaskId;
+        const completed = await completeIntent(env, intent.id, dispatchedTaskId);
+        if (!completed) {
+          log('intent_completion_ignored_stale', {
+            intentId: intent.id,
+            dispatchedTaskId,
+          });
+        } else {
+          intentsProcessed += 1;
+          log('intent_completed', {
+            intentId: intent.id,
+            dispatchedTaskId,
+          });
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await failIntent(env, intent.id, msg).catch(() => {
-        /* surface only the original error */
-      });
-      log('intent_failed', { intentId: intent.id, error: msg });
+      // If we already captured a dispatch token, gate failure on it so we
+      // can't fail a fresher leader's running execution. Otherwise we failed
+      // before dispatch (intent still 'claimed') and the legacy unguarded
+      // status-only WHERE applies.
+      const failed = dispatchedTaskId
+        ? await failIntent(env, intent.id, msg, dispatchedTaskId).catch(() => null)
+        : await failIntent(env, intent.id, msg).catch(() => null);
+      if (!failed) {
+        log('intent_failure_ignored_stale', { intentId: intent.id, error: msg });
+      } else {
+        log('intent_failed', { intentId: intent.id, error: msg });
+      }
+    } finally {
+      clearInterval(executorHeartbeat);
     }
 
     if (options.maxIntents && intentsProcessed >= options.maxIntents) {
