@@ -248,18 +248,53 @@ async function innerLoop(
         });
     }, innerHeartbeatMs);
 
+    // fixes codex-p2 PR#103 P1-B — capture the dispatched_task_id from
+    // markIntentDispatched as an execution token. completeIntent / failIntent
+    // gate on it so a stale leader returning from executor() after a fresher
+    // leader has reclaimed + redispatched the intent cannot mark the fresher
+    // execution done / failed. The token is set on dispatch and cleared by
+    // reclaimStuckIntents, so it's monotonic-per-execution.
+    let dispatchedTaskId: string | null = null;
     try {
       const result = await options.executor(intent);
-      await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
-      await completeIntent(env, intent.id);
-      intentsProcessed += 1;
-      log('intent_completed', { intentId: intent.id, dispatchedTaskId: result.dispatchedTaskId });
+      const dispatched = await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
+      if (!dispatched) {
+        // Status was no longer 'claimed' — another leader reclaimed and is
+        // (re)driving this intent. Do not touch completion.
+        log('intent_dispatch_lost', {
+          intentId: intent.id,
+          dispatchedTaskId: result.dispatchedTaskId,
+        });
+      } else {
+        dispatchedTaskId = result.dispatchedTaskId;
+        const completed = await completeIntent(env, intent.id, dispatchedTaskId);
+        if (!completed) {
+          log('intent_completion_ignored_stale', {
+            intentId: intent.id,
+            dispatchedTaskId,
+          });
+        } else {
+          intentsProcessed += 1;
+          log('intent_completed', {
+            intentId: intent.id,
+            dispatchedTaskId,
+          });
+        }
+      }
     } catch (err) {
       const msg = err instanceof Error ? err.message : String(err);
-      await failIntent(env, intent.id, msg).catch(() => {
-        /* surface only the original error */
-      });
-      log('intent_failed', { intentId: intent.id, error: msg });
+      // If we already captured a dispatch token, gate failure on it so we
+      // can't fail a fresher leader's running execution. Otherwise we failed
+      // before dispatch (intent still 'claimed') and the legacy unguarded
+      // status-only WHERE applies.
+      const failed = dispatchedTaskId
+        ? await failIntent(env, intent.id, msg, dispatchedTaskId).catch(() => null)
+        : await failIntent(env, intent.id, msg).catch(() => null);
+      if (!failed) {
+        log('intent_failure_ignored_stale', { intentId: intent.id, error: msg });
+      } else {
+        log('intent_failed', { intentId: intent.id, error: msg });
+      }
     } finally {
       clearInterval(executorHeartbeat);
     }

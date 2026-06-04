@@ -138,4 +138,41 @@ describe.skipIf(SKIP)('meta/intent lifecycle (real Neon)', () => {
     const secondPass = await reclaimStuckIntents(env, 60);
     expect(secondPass).toBe(0);
   });
+
+  // fixes codex-p2 PR#103 P1-B — stale executor's completion / failure must be
+  // rejected when the dispatched_task_id no longer matches the in-flight one.
+  it('completeIntent / failIntent reject stale execution tokens (P1-B)', async () => {
+    const goal = await createGoal(env, { ownerChittyId: OWNER, title: `${TEST_TAG}-g4` });
+    const plan = await createPlan(env, { goalId: goal.id, title: `${TEST_TAG}-p4` });
+    const intent = await createIntent(env, {
+      planId: plan.id,
+      goalId: goal.id,
+      intentType: 'race',
+      payload: { test: TEST_TAG },
+    });
+
+    const sql = neon(DATABASE_URL!);
+    // Simulate L2 currently running this intent under task token T2.
+    await sql`
+      UPDATE cc_intents
+      SET status = 'running', dispatched_task_id = 'token-T2'
+      WHERE id = ${intent.id}`;
+
+    // L1's stale executor returns with its old token T1 and tries to complete.
+    const staleComplete = await completeIntent(env, intent.id, 'token-T1');
+    expect(staleComplete).toBeNull();
+    const stillRunning = await getIntent(env, intent.id);
+    expect(stillRunning?.status).toBe('running');
+    expect(stillRunning?.dispatchedTaskId).toBe('token-T2');
+
+    // L1's stale executor also can't fail T2's run.
+    const staleFail = await failIntent(env, intent.id, 'stale error', 'token-T1');
+    expect(staleFail).toBeNull();
+    const stillRunning2 = await getIntent(env, intent.id);
+    expect(stillRunning2?.status).toBe('running');
+
+    // L2's real completion with the matching token succeeds.
+    const liveComplete = await completeIntent(env, intent.id, 'token-T2');
+    expect(liveComplete?.status).toBe('done');
+  });
 });

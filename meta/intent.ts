@@ -282,31 +282,69 @@ export async function markIntentDispatched(
 // fixes codex-p2 PR#101 finding-6 — only flip to 'done' if still running.
 // Without the guard, a parallel cancellation/failure path that set status to
 // 'failed' or 'blocked_human' would be silently overwritten here.
-export async function completeIntent(env: IntentEnv, intentId: string): Promise<Intent | null> {
+//
+// fixes codex-p2 PR#103 P1-B — also gate on the execution token (the
+// dispatched_task_id captured at dispatch time). If a stale leader's executor
+// returns after a fresher leader has reclaimed + redispatched the intent, the
+// stale dispatched_task_id will no longer match and the UPDATE will affect 0
+// rows. Pass `undefined` to skip the token check (legacy / non-leader paths).
+export async function completeIntent(
+  env: IntentEnv,
+  intentId: string,
+  expectedDispatchedTaskId?: string,
+): Promise<Intent | null> {
   const sql = getSql(env);
-  const rows = await sql`
-    UPDATE cc_intents
-    SET status = 'done', completed_at = NOW(), updated_at = NOW()
-    WHERE id = ${intentId} AND status = 'running'
-    RETURNING *`;
+  const rows =
+    expectedDispatchedTaskId === undefined
+      ? await sql`
+          UPDATE cc_intents
+          SET status = 'done', completed_at = NOW(), updated_at = NOW()
+          WHERE id = ${intentId} AND status = 'running'
+          RETURNING *`
+      : await sql`
+          UPDATE cc_intents
+          SET status = 'done', completed_at = NOW(), updated_at = NOW()
+          WHERE id = ${intentId}
+            AND status = 'running'
+            AND dispatched_task_id = ${expectedDispatchedTaskId}
+          RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
 
 // fixes codex-p2 PR#101 finding-6 — symmetric guard on the failure path.
 // Allow failing from 'claimed' or 'running' (executor can blow up before
 // markIntentDispatched lands), but never overwrite a terminal state.
+//
+// fixes codex-p2 PR#103 P1-B — optional execution-token gate. When the
+// executor threw AFTER a successful dispatch, callers should pass the
+// dispatched_task_id from markIntentDispatched so a stale leader's failure
+// path cannot mark a fresher leader's running execution as failed. When the
+// executor threw BEFORE dispatch (markIntentDispatched returned null or was
+// never called), callers omit the token and the legacy 'claimed' or 'running'
+// guard still applies.
 export async function failIntent(
   env: IntentEnv,
   intentId: string,
   errorMessage: string,
+  expectedDispatchedTaskId?: string,
 ): Promise<Intent | null> {
   const sql = getSql(env);
-  const rows = await sql`
-    UPDATE cc_intents
-    SET status = 'failed', error_message = ${errorMessage},
-        completed_at = NOW(), updated_at = NOW()
-    WHERE id = ${intentId} AND status IN ('claimed', 'running')
-    RETURNING *`;
+  const rows =
+    expectedDispatchedTaskId === undefined
+      ? await sql`
+          UPDATE cc_intents
+          SET status = 'failed', error_message = ${errorMessage},
+              completed_at = NOW(), updated_at = NOW()
+          WHERE id = ${intentId} AND status IN ('claimed', 'running')
+          RETURNING *`
+      : await sql`
+          UPDATE cc_intents
+          SET status = 'failed', error_message = ${errorMessage},
+              completed_at = NOW(), updated_at = NOW()
+          WHERE id = ${intentId}
+            AND status IN ('claimed', 'running')
+            AND dispatched_task_id = ${expectedDispatchedTaskId}
+          RETURNING *`;
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
 
