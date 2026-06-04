@@ -47,7 +47,7 @@
 
 import { z } from 'zod';
 import type { Env } from '../../src/index';
-import { mercuryClient } from '../../src/lib/integrations';
+import { mercuryClient, type FetchImpl } from '../../src/lib/integrations';
 import type { ExecutorContext, ExecutorRunOutput, IntentExecutor } from './types';
 import { registerExecutor } from './registry';
 
@@ -93,15 +93,31 @@ export interface MercuryPaymentRunResult {
   ok: boolean;
   transactionId?: string;
   mercuryStatus?: string;
+  /** Mapped cc_actions_log status — only set when the Mercury call returned
+   *  HTTP 2xx and a parseable body. Mirrors Mercury's status field through
+   *  our audit vocabulary. */
+  auditStatus?: 'completed' | 'in_progress' | 'pending_review' | 'failed';
   refusalReason?:
     | 'sovereignty_stale'
     | 'sovereignty_not_autonomous'
     | 'amount_cap_exceeded'
     | 'invalid_payload'
     | 'missing_token'
-    | 'mercury_api_failure';
+    | 'invalid_account_slug'
+    | 'mercury_api_failure'
+    | 'mercury_internal_failure'
+    | 'idempotency_collision';
   errorMessage?: string;
+  /** HTTP status from Mercury (success or failure) — for audit visibility. */
+  httpStatus?: number;
+  /** First 500 chars of Mercury's response body — never contains tokens. */
+  bodySnippet?: string;
+  /** Failure kind from the discriminated MercuryPostResult, when ok=false. */
+  failureKind?: 'network' | 'http' | 'parse' | 'idempotency_collision';
 }
+
+/** Allowed account_slug pattern: lowercase alnum + hyphens only. */
+const ACCOUNT_SLUG_RE = /^[a-z0-9-]+$/;
 
 /**
  * Pure runner — shared by ActionAgent chat tool (`execute_payment`) and the
@@ -121,9 +137,33 @@ export async function runMercuryPayment(args: {
   sovereignty: { decision: string; assessedAt: string };
   idempotencyKey: string;
   now?: number;
+  /** Test/DI hook: inject a custom fetch so integration tests can drive
+   *  network failures and Mercury 2xx-with-error-envelope without mocking
+   *  mercuryClient itself. Default is global fetch. */
+  fetchImpl?: FetchImpl;
 }): Promise<MercuryPaymentRunResult> {
-  const { env, payload, sovereignty, idempotencyKey } = args;
+  const { env, payload, sovereignty, idempotencyKey, fetchImpl } = args;
   const now = args.now ?? Date.now();
+
+  // Normalize the account_slug BEFORE any KV lookup. If normalization changes
+  // the value, the input was malformed — reject as `invalid_account_slug`
+  // rather than silently looking up a different token (which would have its
+  // own security implications: a slug "Aribia/../foo" must not silently
+  // collapse to "aribia-foo").
+  const normalizedSlug = payload.account_slug
+    .toLowerCase()
+    .replace(/[^a-z0-9-]/g, '');
+  if (
+    normalizedSlug !== payload.account_slug ||
+    normalizedSlug.length === 0 ||
+    !ACCOUNT_SLUG_RE.test(normalizedSlug)
+  ) {
+    return {
+      ok: false,
+      refusalReason: 'invalid_account_slug',
+      errorMessage: `account_slug='${payload.account_slug}' is malformed (must match ${ACCOUNT_SLUG_RE.source})`,
+    };
+  }
 
   if (sovereignty.decision !== 'autonomous') {
     return {
@@ -156,16 +196,16 @@ export async function runMercuryPayment(args: {
     };
   }
 
-  const token = await env.COMMAND_KV.get(`mercury:token:${payload.account_slug}`);
+  const token = await env.COMMAND_KV.get(`mercury:token:${normalizedSlug}`);
   if (!token) {
     return {
       ok: false,
       refusalReason: 'missing_token',
-      errorMessage: `no Mercury token in KV for account_slug='${payload.account_slug}'`,
+      errorMessage: `no Mercury token in KV for account_slug='${normalizedSlug}'`,
     };
   }
 
-  const mercury = mercuryClient(token);
+  const mercury = mercuryClient(token, fetchImpl);
   const amountUsd = payload.amount_cents / 100;
   const result = await mercury.createPayment(payload.mercury_account_id, {
     recipientId: payload.recipient_id,
@@ -175,19 +215,99 @@ export async function runMercuryPayment(args: {
     note: payload.memo,
   });
 
-  if (!result) {
+  // Branch on the discriminated union — every failure mode has a distinct
+  // refusal reason and lands in the audit row with httpStatus + bodySnippet so
+  // operators can diagnose without re-running Mercury.
+  if (!result.ok) {
+    if (result.kind === 'idempotency_collision') {
+      return {
+        ok: false,
+        refusalReason: 'idempotency_collision',
+        failureKind: 'idempotency_collision',
+        httpStatus: result.httpStatus,
+        bodySnippet: result.bodySnippet,
+        errorMessage:
+          'Mercury returned 409 idempotency collision — same idempotency key was previously used with a different payload (replay attempt or payload mutation)',
+      };
+    }
     return {
       ok: false,
       refusalReason: 'mercury_api_failure',
-      errorMessage: 'Mercury API returned null (HTTP error or network failure)',
+      failureKind: result.kind,
+      httpStatus: result.httpStatus,
+      bodySnippet: result.bodySnippet,
+      errorMessage: `Mercury API ${result.kind} failure${
+        result.httpStatus ? ` (HTTP ${result.httpStatus})` : ''
+      }: ${result.bodySnippet ?? 'no body'}`,
+    };
+  }
+
+  // Mercury can return 2xx with a body whose own `status` field indicates
+  // failure / pending / review. We MUST NOT blanket-stamp this as `completed`.
+  // Map Mercury's status into our audit vocabulary.
+  const rawStatus = (result.body.status ?? '').toLowerCase();
+  const { auditStatus, refusalReason, errorMessage } = mapMercuryStatus(rawStatus);
+
+  if (refusalReason) {
+    return {
+      ok: false,
+      refusalReason,
+      transactionId: result.body.id,
+      mercuryStatus: result.body.status,
+      auditStatus,
+      httpStatus: result.httpStatus,
+      bodySnippet: result.rawSnippet,
+      errorMessage,
     };
   }
 
   return {
     ok: true,
-    transactionId: result.id,
-    mercuryStatus: result.status,
+    transactionId: result.body.id,
+    mercuryStatus: result.body.status,
+    auditStatus,
+    httpStatus: result.httpStatus,
+    bodySnippet: result.rawSnippet,
   };
+}
+
+/**
+ * Translate Mercury's transaction `status` field into our cc_actions_log
+ * `status` vocabulary. Per Mercury docs the status field can be one of:
+ *   sent, posted, delivered  →  completed (money actually moved)
+ *   pending                  →  in_progress (queued, not yet sent)
+ *   failed                   →  failed (rejected by bank / Mercury)
+ *   requires_review          →  pending_review (manual approval gate)
+ * Unknown values fall through as `in_progress` with a refusal reason so the
+ * operator must triage rather than the executor silently treating it as done.
+ */
+function mapMercuryStatus(rawStatus: string): {
+  auditStatus: 'completed' | 'in_progress' | 'pending_review' | 'failed';
+  refusalReason?: 'mercury_internal_failure';
+  errorMessage?: string;
+} {
+  switch (rawStatus) {
+    case 'sent':
+    case 'posted':
+    case 'delivered':
+      return { auditStatus: 'completed' };
+    case 'pending':
+      return { auditStatus: 'in_progress' };
+    case 'failed':
+      return {
+        auditStatus: 'failed',
+        refusalReason: 'mercury_internal_failure',
+        errorMessage: 'Mercury returned 2xx with status="failed" — payment was not accepted',
+      };
+    case 'requires_review':
+      return { auditStatus: 'pending_review' };
+    default:
+      return {
+        auditStatus: 'in_progress',
+        refusalReason: 'mercury_internal_failure',
+        errorMessage: `Mercury returned 2xx with unrecognized status="${rawStatus}" — refusing to stamp completed`,
+      };
+  }
 }
 
 /**
@@ -208,6 +328,11 @@ function buildResponsePayload(
     transaction_id: run.transactionId ?? null,
     mercury_status: run.mercuryStatus ?? null,
     refusal_reason: run.refusalReason ?? null,
+    // Discriminated-error context — present on every Mercury-call failure so
+    // operators don't need to re-call Mercury to diagnose.
+    failure_kind: run.failureKind ?? null,
+    http_status: run.httpStatus ?? null,
+    body_snippet: run.bodySnippet ?? null,
   };
 }
 
@@ -254,26 +379,43 @@ const executor: IntentExecutor = {
       const reason = run.refusalReason ?? 'unknown';
       return {
         ok: false,
-        description: `mercury_payment refused: ${reason}`,
+        description: `mercury_payment refused: ${reason}${
+          run.httpStatus ? ` (HTTP ${run.httpStatus})` : ''
+        }`,
         actionType: 'payment_refusal',
         targetType: 'recipient',
         targetId,
+        // Mercury said `failed` outright → record as failed. Anything else
+        // refused at our gate is also `failed` (refusal = not executed).
         status: 'failed',
         errorMessage: run.errorMessage ?? reason,
         responsePayload,
-        metadata: { refusal_reason: reason },
+        metadata: {
+          refusal_reason: reason,
+          failure_kind: run.failureKind ?? null,
+          http_status: run.httpStatus ?? null,
+        },
       };
     }
 
+    // Mercury returned 2xx with a status we accept. Use the mapped auditStatus
+    // — NEVER blanket-stamp `completed`. `in_progress` (pending) and
+    // `pending_review` (requires_review) reach this branch with ok=true.
+    const auditStatus = run.auditStatus ?? 'in_progress';
     return {
       ok: true,
-      description: `mercury_payment: USD ${(payload.amount_cents / 100).toFixed(2)} to recipient ${payload.recipient_id} (tx ${run.transactionId})`,
+      description: `mercury_payment: USD ${(payload.amount_cents / 100).toFixed(
+        2,
+      )} to recipient ${payload.recipient_id} (tx ${run.transactionId}, mercury_status=${run.mercuryStatus})`,
       actionType: 'payment',
       targetType: 'recipient',
       targetId,
-      status: 'completed',
+      status: auditStatus,
       responsePayload,
-      metadata: { mercury_status: run.mercuryStatus },
+      metadata: {
+        mercury_status: run.mercuryStatus,
+        http_status: run.httpStatus ?? null,
+      },
     };
   },
 };

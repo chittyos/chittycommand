@@ -70,8 +70,17 @@ export interface ExecutorRunOutput {
   targetType: string;
   /** target_id for cc_actions_log (nullable). */
   targetId?: string | null;
-  /** status for cc_actions_log row. */
-  status: 'completed' | 'failed' | 'pending_approval';
+  /** status for cc_actions_log row. `in_progress` and `pending_review` are
+   *  used by the money-path executor when Mercury returns 2xx but the
+   *  transaction has not yet cleared (`pending`) or needs human review
+   *  (`requires_review`) — see meta/executors/mercury-payment.ts. */
+  status:
+    | 'completed'
+    | 'failed'
+    | 'pending_approval'
+    | 'in_progress'
+    | 'pending_review'
+    | 'in_flight';
   responsePayload?: Record<string, unknown>;
   errorMessage?: string;
   metadata?: Record<string, unknown>;
