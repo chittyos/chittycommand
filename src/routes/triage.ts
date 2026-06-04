@@ -127,8 +127,26 @@ triageRoutes.post('/:id/claim', async (c) => {
 // agents. Filters delegated to meta/intent.ts claimNextIntent().
 triageRoutes.post('/claim-next', async (c) => {
   const body = await c.req.json().catch(() => ({}));
-  const privilege = parsePrivilege((body as Record<string, unknown>).privilege);
-  const space = parseSpace((body as Record<string, unknown>).space);
+  const privilegeRaw = (body as Record<string, unknown>).privilege;
+  const spaceRaw = (body as Record<string, unknown>).space;
+  // If a filter is PROVIDED but doesn't parse, reject with 400 — otherwise the
+  // null fallthrough would silently claim from any bucket including
+  // privileged/legalink, which a caller filtering for e.g. "pii" definitely
+  // did not intend (e.g. typo "pi" → null → claim privileged work).
+  const privilege = parsePrivilege(privilegeRaw);
+  if (privilegeRaw !== undefined && privilegeRaw !== null && privilege === null) {
+    return c.json(
+      { error: `Invalid privilege; must be one of ${[...VALID_PRIVILEGE].join(',')}` },
+      400,
+    );
+  }
+  const space = parseSpace(spaceRaw);
+  if (spaceRaw !== undefined && spaceRaw !== null && space === null) {
+    return c.json(
+      { error: `Invalid space; must be one of ${[...VALID_SPACE].join(',')}` },
+      400,
+    );
+  }
   const priorityLteRaw = (body as Record<string, unknown>).priority_lte;
   let priorityLte: number | undefined;
   if (priorityLteRaw !== undefined && priorityLteRaw !== null) {
