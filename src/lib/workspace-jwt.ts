@@ -145,20 +145,28 @@ export interface WorkspaceTokenClaims {
 }
 
 /**
- * Verify Google's `systemIdToken`: the email claim MUST match the configured
- * marketplace service account.
+ * Verify Google's `systemIdToken`: per the Workspace HTTP add-on docs
+ * (https://developers.google.com/workspace/add-ons/guides/alternate-runtimes#validate_requests),
+ * the `aud` claim is the **full endpoint URL** Google invoked (not the OAuth
+ * client ID — that audience is used only for `userIdToken`). The `email`
+ * claim MUST match the configured marketplace service account.
+ *
+ * @param token       The systemIdToken from authorizationEventObject.
+ * @param env         Worker env with COMMAND_KV + SA pinning config.
+ * @param requestUrl  The canonical endpoint URL Google was configured to call
+ *                    (i.e. `c.req.url` or a manifest-derived equivalent).
  */
 export async function verifyWorkspaceSystemIdToken(
   token: string,
   env: WorkspaceEnv,
+  requestUrl: string,
 ): Promise<WorkspaceTokenClaims> {
-  const expectedAud = env.CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_ID;
   const expectedSa = env.CHITTYROUX_GCP_SA_EMAIL;
-  if (!expectedAud) throw new WorkspaceJWTError('CONFIG_MISSING', 'CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_ID not configured');
   if (!expectedSa) throw new WorkspaceJWTError('CONFIG_MISSING', 'CHITTYROUX_GCP_SA_EMAIL not configured');
+  if (!requestUrl) throw new WorkspaceJWTError('CONFIG_MISSING', 'requestUrl required for systemIdToken verification');
 
   const jwks = await getJWKS(env);
-  const payload = await verifyWithJWKS(token, jwks, expectedAud);
+  const payload = await verifyWithJWKS(token, jwks, requestUrl);
   requireIssuer(payload);
 
   const email = typeof payload.email === 'string' ? payload.email : '';

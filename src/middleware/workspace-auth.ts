@@ -78,7 +78,11 @@ export function workspaceAuth(): MiddlewareHandler<{
     }
 
     try {
-      const sysClaims = await verifyWorkspaceSystemIdToken(systemIdToken, c.env);
+      // systemIdToken's `aud` is the endpoint URL Google was configured to
+      // invoke (HTTP add-on contract). userIdToken's `aud` is the OAuth
+      // client ID. Pass c.req.url so the verifier can pin to the canonical
+      // endpoint Google called.
+      const sysClaims = await verifyWorkspaceSystemIdToken(systemIdToken, c.env, c.req.url);
       const userClaims = await verifyWorkspaceUserIdToken(userIdToken, c.env);
 
       c.set('workspaceContext', {

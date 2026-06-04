@@ -127,41 +127,58 @@ afterAll(async () => {
 
 // ── JWT verification (no DB needed) ────────────────────────────────────
 
+const ENDPOINT_URL = 'https://command.chitty.cc/workspace/studio/roux-ingest/execute';
+
 describe('workspace-jwt verification', () => {
-  it('verifies a well-formed systemIdToken with correct SA + audience', async () => {
+  it('verifies a well-formed systemIdToken with correct SA + endpoint URL audience', async () => {
+    // systemIdToken: aud is the endpoint URL Google called (HTTP add-on contract).
     const token = await signTestToken(signer, {
       sub: 'system-1',
       email: SA_EMAIL,
-      aud: CLIENT_ID,
+      aud: ENDPOINT_URL,
     });
-    const claims = await verifyWorkspaceSystemIdToken(token, baseEnv);
+    const claims = await verifyWorkspaceSystemIdToken(token, baseEnv, ENDPOINT_URL);
     expect(claims.email).toBe(SA_EMAIL);
-    expect(claims.aud).toBe(CLIENT_ID);
+    expect(claims.aud).toBe(ENDPOINT_URL);
   });
 
   it('rejects a systemIdToken with wrong SA email', async () => {
     const token = await signTestToken(signer, {
       sub: 'system-1',
       email: 'attacker@evil.iam.gserviceaccount.com',
-      aud: CLIENT_ID,
+      aud: ENDPOINT_URL,
     });
-    await expect(verifyWorkspaceSystemIdToken(token, baseEnv)).rejects.toBeInstanceOf(
-      WorkspaceJWTError,
-    );
+    await expect(
+      verifyWorkspaceSystemIdToken(token, baseEnv, ENDPOINT_URL),
+    ).rejects.toBeInstanceOf(WorkspaceJWTError);
   });
 
-  it('rejects a token with wrong audience', async () => {
+  it('rejects a systemIdToken whose aud is the OAuth client_id (wrong audience for system token)', async () => {
+    // Regression: prior implementation incorrectly pinned systemIdToken to
+    // CLIENT_ID. Real Google tokens pin to the endpoint URL.
     const token = await signTestToken(signer, {
       sub: 'system-1',
       email: SA_EMAIL,
-      aud: 'someone-elses-client-id',
+      aud: CLIENT_ID,
     });
-    await expect(verifyWorkspaceSystemIdToken(token, baseEnv)).rejects.toBeInstanceOf(
-      WorkspaceJWTError,
-    );
+    await expect(
+      verifyWorkspaceSystemIdToken(token, baseEnv, ENDPOINT_URL),
+    ).rejects.toBeInstanceOf(WorkspaceJWTError);
   });
 
-  it('verifies userIdToken and extracts user email', async () => {
+  it('rejects a systemIdToken whose aud is a different endpoint URL', async () => {
+    const token = await signTestToken(signer, {
+      sub: 'system-1',
+      email: SA_EMAIL,
+      aud: 'https://command.chitty.cc/somewhere-else',
+    });
+    await expect(
+      verifyWorkspaceSystemIdToken(token, baseEnv, ENDPOINT_URL),
+    ).rejects.toBeInstanceOf(WorkspaceJWTError);
+  });
+
+  it('verifies userIdToken with OAuth client_id audience and extracts user email', async () => {
+    // userIdToken: aud is the OAuth client_id (unchanged).
     const token = await signTestToken(signer, {
       sub: 'user-42',
       email: 'nick@nevershitty.com',
@@ -169,6 +186,17 @@ describe('workspace-jwt verification', () => {
     });
     const claims = await verifyWorkspaceUserIdToken(token, baseEnv);
     expect(claims.email).toBe('nick@nevershitty.com');
+  });
+
+  it('rejects a userIdToken whose aud is the endpoint URL (wrong audience for user token)', async () => {
+    const token = await signTestToken(signer, {
+      sub: 'user-42',
+      email: 'nick@nevershitty.com',
+      aud: ENDPOINT_URL,
+    });
+    await expect(verifyWorkspaceUserIdToken(token, baseEnv)).rejects.toBeInstanceOf(
+      WorkspaceJWTError,
+    );
   });
 });
 
@@ -193,10 +221,11 @@ describe.skipIf(SKIP_DB)('workspace-studio route (real Neon)', () => {
     classification?: string;
     flatShape?: boolean;
   }) {
+    // systemIdToken aud = endpoint URL Google calls; matches c.req.url in handler.
     const sysTok = await signTestToken(signer, {
       sub: 'sys-1',
       email: SA_EMAIL,
-      aud: CLIENT_ID,
+      aud: 'http://test/workspace/studio/roux-ingest/execute',
     });
     const userTok = await signTestToken(signer, {
       sub: 'user-1',
