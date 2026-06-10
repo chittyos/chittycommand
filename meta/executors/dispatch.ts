@@ -20,19 +20,15 @@
  */
 
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
-import type { Env } from '../../src/index';
 import type { Intent, SovereigntyAssessmentSnapshot } from '../intent';
 import { failIntent } from '../intent';
 import { assessSovereignty } from '../sovereignty';
 import { getExecutor } from './registry';
 import { SOVEREIGNTY_FRESHNESS_MS } from './types';
-import type { ExecutorContext, ExecutorResult, ExecutorRunOutput } from './types';
+import type { ExecutorContext, ExecutorEnv, ExecutorResult, ExecutorRunOutput } from './types';
 
-function getSql(env: Env): NeonQueryFunction<false, false> {
-  const conn =
-    (env as unknown as { DATABASE_URL?: string }).DATABASE_URL ||
-    (env as unknown as { HYPERDRIVE?: { connectionString: string } }).HYPERDRIVE
-      ?.connectionString;
+function getSql(env: ExecutorEnv): NeonQueryFunction<false, false> {
+  const conn = env.DATABASE_URL || env.HYPERDRIVE?.connectionString;
   if (!conn) {
     throw new Error('[meta/executors/dispatch] No DATABASE_URL or HYPERDRIVE binding');
   }
@@ -78,7 +74,7 @@ export interface DispatchOptions {
 
 export async function dispatch(
   intent: Intent,
-  env: Env,
+  env: ExecutorEnv,
   options: DispatchOptions = {},
 ): Promise<ExecutorResult> {
   const sql = getSql(env);

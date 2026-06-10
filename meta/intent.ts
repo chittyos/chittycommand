@@ -487,7 +487,7 @@ export async function executeIntent(
 ): Promise<import('./executors/types').ExecutorResult> {
   // Lazy import to avoid forcing the executor registry on every meta/intent
   // consumer (and to keep the existing module's surface stable).
-  const { dispatch } = await import('./executors');
+  const { dispatch } = await import('./executors/index.js');
 
   const sql = getSql(env);
 

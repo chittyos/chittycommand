@@ -14,7 +14,6 @@
 
 import { z } from 'zod';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
-import type { Env } from '../../src/index';
 import type { ExecutorContext, ExecutorRunOutput, IntentExecutor } from './types';
 import { registerExecutor } from './registry';
 

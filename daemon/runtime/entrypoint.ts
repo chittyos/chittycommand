@@ -90,28 +90,14 @@ async function main(): Promise<void> {
   process.on('SIGTERM', () => shutdown('SIGTERM'));
   process.on('SIGINT', () => shutdown('SIGINT'));
 
-  const executor = async (intent: { id: string; intentType: string }) => {
-    // Foundation entrypoint: no real executor wired yet — the ActionAgent
-    // bridge ships in PR #107 (feat/daemon-loop-executes-intents) per
-    // ADR-001 out-of-scope list. Until then, claimed intents must NOT be
-    // recorded as `done`. Throwing here routes the intent through the
-    // loop's failure path (failIntent), which records a clear refusal
-    // reason instead of inventing a successful dispatch.
-    //
-    // Codex P1 PR#105: previously returned a sentinel dispatchedTaskId,
-    // causing markIntentDispatched + completeIntent to record real work
-    // as `done` without execution. Refuse instead.
-    log('intent_executor_unwired', {
-      intentId: intent.id,
-      intentType: intent.intentType,
-      note: 'real executor lands in PR #107; refusing to record fake success',
-    });
-    throw new Error(
-      `daemon executor not wired on PR #105 (foundation only); ` +
-        `intent ${intent.id} routed to failed — real executor lands in PR #107`,
-    );
-  };
-
+  // No executor callback is passed: as of PR #106 the leader loop dispatches
+  // through the canonical executor registry (`meta/executors/*`) via
+  // `executeIntent`, not an injected callback. This foundation entrypoint
+  // imports no executor modules, so the registry is empty — every claimed
+  // intent hits dispatch's "no executor registered" path and is routed to
+  // `failed` (never silently `done`). That preserves the PR #105 Codex P1
+  // safety property without a stub callback. Real executors self-register
+  // once their modules are imported (mercury_payment lands in PR #108).
   try {
     const result = await runLeaderLoop(
       { DATABASE_URL: env.DATABASE_URL },
@@ -121,7 +107,6 @@ async function main(): Promise<void> {
         sessionId,
         signal: controller.signal,
         log,
-        executor,
       },
     );
     log('daemon_loop_returned', { ...result });
