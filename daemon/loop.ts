@@ -1,19 +1,31 @@
 /**
- * Cluster daemon — persistent leader loop skeleton.
+ * Cluster daemon — persistent leader loop.
  *
  * Lifecycle:
  *   1. Try to claim leadership (claimLeadership).
  *   2. On success: enter inner loop.
  *      a. Heartbeat the lease every `heartbeatMs`.
- *      b. Claim the next pending Intent (claimNextIntent) and dispatch it
- *         through the supplied executor.
- *      c. Mark intent done/failed.
+ *      b. Reclaim stuck intents (idempotent).
+ *      c. Claim the next pending Intent (claimNextIntent).
+ *      d. Drive it through `executeIntent`, which dispatches via the executor
+ *         registry, applies the second sovereignty gate, and atomically updates
+ *         `cc_intents.status` + writes `cc_actions_log`.
  *   3. On failure / lost lease: park `parkMs`, then retry.
- *   4. On AbortSignal: heartbeat is interrupted, lease is released, loop exits.
+ *   4. On AbortSignal: lease released, loop exits.
  *
- * The executor is injected so this PR introduces no coupling to the existing
- * ActionAgent — the wiring to ActionAgent comes in a follow-up PR per
- * ADR-001's out-of-scope list.
+ * The loop classifies four outcomes from `executeIntent`'s `ExecutorResult`:
+ *
+ *   | Outcome                         | ok    | replayed | Action                            |
+ *   |---------------------------------|-------|----------|-----------------------------------|
+ *   | Fresh successful execution      | true  | false    | Heartbeat, count, continue        |
+ *   | Replayed (terminal audit exists)| true  | true     | Log, continue, no count, no retry |
+ *   | Sovereignty refusal             | false | false    | Log refusal, continue, no backoff |
+ *   | Executor error                  | false | false    | Log error, bounded exp backoff    |
+ *
+ * Refusals are distinguished from generic executor errors by inspecting
+ * `result.error` for the canonical refusal prefixes emitted by
+ * `meta/executors/dispatch.ts` (`sovereignty re-reckon:` and
+ * `sovereignty snapshot stale ...`).
  *
  * @canonical-uri chittycanon://docs/architecture/chittycommand/ADR-001
  */
@@ -27,24 +39,14 @@ import {
 } from './leader';
 import {
   claimNextIntent,
-  completeIntent,
-  failIntent,
-  markIntentDispatched,
+  executeIntent,
   reclaimStuckIntents,
   type Intent,
   type IntentEnv,
 } from '../meta/intent';
+import type { ExecutorResult } from '../meta/executors/types';
 
-export type LoopEnv = LeaderEnv & IntentEnv;
-
-export interface IntentExecutor {
-  /**
-   * Execute one claimed Intent. Implementations should be idempotent and
-   * return a `dispatchedTaskId` (e.g. an ActionAgent task ID) so the loop
-   * can persist it. Throwing causes the loop to mark the intent failed.
-   */
-  (intent: Intent): Promise<{ dispatchedTaskId: string }>;
-}
+export type LoopEnv = LeaderEnv & IntentEnv & Record<string, unknown>;
 
 export interface RunLeaderLoopOptions {
   /** ChittyID of the running node (Location type — L). */
@@ -59,21 +61,37 @@ export interface RunLeaderLoopOptions {
   heartbeatMs?: number;
   /** Park-and-retry interval ms when not leader. Default 5000. */
   parkMs?: number;
+  /** Initial backoff ms for executor errors. Default 1000. */
+  errorBackoffMs?: number;
+  /** Max backoff ms cap for executor errors. Default 30000. */
+  errorBackoffMaxMs?: number;
   /** Optional cap on intent iterations — useful for tests. */
   maxIntents?: number;
+  /**
+   * Optional cap on loop iterations regardless of intents processed — useful
+   * for tests when the queue might drain to empty before reaching maxIntents.
+   */
+  maxIterations?: number;
   /** AbortSignal to terminate the loop cleanly. */
   signal?: AbortSignal;
   /** Role to claim. Defaults to META_LEADER_ROLE. */
   role?: string;
   /** Optional log sink. */
   log?: (msg: string, meta?: Record<string, unknown>) => void;
-  /** Executor for claimed intents. */
-  executor: IntentExecutor;
+  /**
+   * Optional override for actorChittyId passed to executeIntent. When omitted,
+   * the dispatcher reads it from `intent.metadata.actorChittyId` /
+   * `intent.metadata.ownerChittyId` if needed.
+   */
+  actorChittyId?: string;
 }
 
 export interface RunLeaderLoopResult {
   intentsProcessed: number;
-  reason: 'aborted' | 'maxIntents' | 'leaseLost' | 'error';
+  intentsReplayed: number;
+  intentsRefused: number;
+  intentsErrored: number;
+  reason: 'aborted' | 'maxIntents' | 'maxIterations' | 'leaseLost' | 'error';
   error?: string;
 }
 
@@ -90,7 +108,12 @@ export async function runLeaderLoop(
   const parkMs = options.parkMs ?? 5_000;
   const signal = options.signal;
 
-  let intentsProcessed = 0;
+  const counters = {
+    intentsProcessed: 0,
+    intentsReplayed: 0,
+    intentsRefused: 0,
+    intentsErrored: 0,
+  };
 
   while (!signal?.aborted) {
     // 1. Acquire leadership.
@@ -116,26 +139,35 @@ export async function runLeaderLoop(
       continue;
     }
 
-    log('leader_acquired', { role, nodeId: options.nodeId, expiresAt: lease.leaseExpiresAt });
+    log('leader_acquired', {
+      role,
+      nodeId: options.nodeId,
+      expiresAt: lease.leaseExpiresAt,
+    });
 
     // 2. Inner loop: heartbeat + drain intents until lease lost or aborted.
-    const innerResult = await innerLoop(env, options, role, leaseSeconds, heartbeatMs, intentsProcessed);
-    intentsProcessed = innerResult.intentsProcessed;
+    const innerResult = await innerLoop(env, options, role, leaseSeconds, heartbeatMs, counters);
 
-    if (innerResult.reason === 'aborted' || innerResult.reason === 'maxIntents') {
+    if (
+      innerResult.reason === 'aborted' ||
+      innerResult.reason === 'maxIntents' ||
+      innerResult.reason === 'maxIterations'
+    ) {
       // Best-effort release on clean exit — pass sessionId so the release
-      // refuses to clear a newer leader's lease (fixes codex-p2 PR#101 finding-2).
+      // refuses to clear a newer leader's lease.
       try {
-        await releaseLeadership(env, options.nodeId, { role, sessionId: options.sessionId });
+        await releaseLeadership(env, options.nodeId, {
+          role,
+          sessionId: options.sessionId,
+        });
       } catch (err) {
         log('release_error', { error: err instanceof Error ? err.message : String(err) });
       }
-      return { intentsProcessed, reason: innerResult.reason };
+      return { ...counters, reason: innerResult.reason };
     }
 
     if (innerResult.reason === 'error') {
       log('inner_loop_error', { error: innerResult.error });
-      // Park briefly, then attempt to reclaim.
       await sleep(parkMs, signal);
       continue;
     }
@@ -145,7 +177,14 @@ export async function runLeaderLoop(
     await sleep(parkMs, signal);
   }
 
-  return { intentsProcessed, reason: 'aborted' };
+  return { ...counters, reason: 'aborted' };
+}
+
+interface Counters {
+  intentsProcessed: number;
+  intentsReplayed: number;
+  intentsRefused: number;
+  intentsErrored: number;
 }
 
 async function innerLoop(
@@ -154,22 +193,28 @@ async function innerLoop(
   role: string,
   leaseSeconds: number,
   heartbeatMs: number,
-  startCount: number,
-): Promise<{ intentsProcessed: number; reason: 'aborted' | 'maxIntents' | 'leaseLost' | 'error'; error?: string }> {
+  counters: Counters,
+): Promise<{ reason: 'aborted' | 'maxIntents' | 'maxIterations' | 'leaseLost' | 'error'; error?: string }> {
   const log = options.log ?? noopLog;
   const signal = options.signal;
-  let intentsProcessed = startCount;
+  const errorBackoffStartMs = options.errorBackoffMs ?? 1_000;
+  const errorBackoffMaxMs = options.errorBackoffMaxMs ?? 30_000;
+  let currentErrorBackoffMs = errorBackoffStartMs;
   let lastHeartbeat = Date.now();
+  let iterations = 0;
 
-  // Heartbeat cadence inside executor.execute() — half the lease so a slow
-  // executor can't let the lease lapse mid-flight.
-  // fixes codex-p2 PR#101 finding-3
+  // Heartbeat cadence inside executeIntent() — half the lease so a slow
+  // dispatch can't let the lease lapse mid-flight.
   const innerHeartbeatMs = Math.max(1_000, Math.floor((leaseSeconds * 1000) / 2));
 
   while (!signal?.aborted) {
+    iterations += 1;
+    if (options.maxIterations && iterations > options.maxIterations) {
+      return { reason: 'maxIterations' };
+    }
+
     // Heartbeat if due. Session-scoped so a restarted process can't extend
     // a lease that already belongs to a newer leader.
-    // fixes codex-p2 PR#101 finding-5
     if (Date.now() - lastHeartbeat >= heartbeatMs) {
       try {
         const renewed = await heartbeat(env, options.nodeId, {
@@ -178,23 +223,19 @@ async function innerLoop(
           sessionId: options.sessionId,
         });
         if (!renewed) {
-          return { intentsProcessed, reason: 'leaseLost' };
+          return { reason: 'leaseLost' };
         }
         lastHeartbeat = Date.now();
         log('heartbeat_ok', { expiresAt: renewed.leaseExpiresAt });
       } catch (err) {
         return {
-          intentsProcessed,
           reason: 'error',
           error: err instanceof Error ? err.message : String(err),
         };
       }
     }
 
-    // Reclaim intents stuck in running/claimed past 2x the lease window before
-    // we ask for new work. Idempotent and cheap; if nothing is stuck this is
-    // a single UPDATE returning 0 rows.
-    // fixes codex-p2 PR#101 finding-1
+    // Reclaim intents stuck past 2x the lease window before claiming new work.
     try {
       const reclaimed = await reclaimStuckIntents(env, leaseSeconds * 2);
       if (reclaimed > 0) log('intents_reclaimed', { count: reclaimed });
@@ -202,13 +243,13 @@ async function innerLoop(
       log('reclaim_error', { error: err instanceof Error ? err.message : String(err) });
     }
 
-    // Claim and dispatch one intent.
+    // Claim one intent. The intent moves pending -> claimed atomically;
+    // executeIntent picks it up from there.
     let intent: Intent | null;
     try {
       intent = await claimNextIntent(env);
     } catch (err) {
       return {
-        intentsProcessed,
         reason: 'error',
         error: err instanceof Error ? err.message : String(err),
       };
@@ -221,13 +262,19 @@ async function innerLoop(
       continue;
     }
 
-    log('intent_claimed', { intentId: intent.id, intentType: intent.intentType });
+    log('intent_claimed', {
+      intentId: intent.id,
+      intentType: intent.intentType,
+    });
+    // Pre-execution heartbeat marker. The DB heartbeat is driven by
+    // `lastHeartbeat`; this log line marks the boundary for the operational
+    // record.
+    log('intent_heartbeat_before', { intentId: intent.id });
 
-    // Background heartbeat ticker covering the executor.execute() span.
-    // Uses the current session token so the heartbeat is rejected if a newer
-    // leader has taken over.
-    // fixes codex-p2 PR#101 finding-3, finding-5
-    const executorHeartbeat = setInterval(() => {
+    // Background heartbeat ticker covering the dispatch() span. Uses the
+    // current session token so the heartbeat is rejected if a newer leader
+    // has taken over.
+    const dispatchHeartbeat = setInterval(() => {
       heartbeat(env, options.nodeId, {
         role,
         leaseSeconds,
@@ -248,63 +295,106 @@ async function innerLoop(
         });
     }, innerHeartbeatMs);
 
-    // fixes codex-p2 PR#103 P1-B — capture the dispatched_task_id from
-    // markIntentDispatched as an execution token. completeIntent / failIntent
-    // gate on it so a stale leader returning from executor() after a fresher
-    // leader has reclaimed + redispatched the intent cannot mark the fresher
-    // execution done / failed. The token is set on dispatch and cleared by
-    // reclaimStuckIntents, so it's monotonic-per-execution.
-    let dispatchedTaskId: string | null = null;
+    let result: ExecutorResult;
     try {
-      const result = await options.executor(intent);
-      const dispatched = await markIntentDispatched(env, intent.id, result.dispatchedTaskId);
-      if (!dispatched) {
-        // Status was no longer 'claimed' — another leader reclaimed and is
-        // (re)driving this intent. Do not touch completion.
-        log('intent_dispatch_lost', {
-          intentId: intent.id,
-          dispatchedTaskId: result.dispatchedTaskId,
-        });
-      } else {
-        dispatchedTaskId = result.dispatchedTaskId;
-        const completed = await completeIntent(env, intent.id, dispatchedTaskId);
-        if (!completed) {
-          log('intent_completion_ignored_stale', {
-            intentId: intent.id,
-            dispatchedTaskId,
-          });
-        } else {
-          intentsProcessed += 1;
-          log('intent_completed', {
-            intentId: intent.id,
-            dispatchedTaskId,
-          });
-        }
-      }
+      result = await executeIntent(env, intent.id, {
+        actorChittyId: options.actorChittyId,
+      });
     } catch (err) {
+      // executeIntent / dispatch threw unhandled (e.g., DB connectivity, no
+      // executor registered — a wiring bug). cc_intents was NOT necessarily
+      // flipped to terminal; leave it as-is so reclaimStuckIntents recovers.
       const msg = err instanceof Error ? err.message : String(err);
-      // If we already captured a dispatch token, gate failure on it so we
-      // can't fail a fresher leader's running execution. Otherwise we failed
-      // before dispatch (intent still 'claimed') and the legacy unguarded
-      // status-only WHERE applies.
-      const failed = dispatchedTaskId
-        ? await failIntent(env, intent.id, msg, dispatchedTaskId).catch(() => null)
-        : await failIntent(env, intent.id, msg).catch(() => null);
-      if (!failed) {
-        log('intent_failure_ignored_stale', { intentId: intent.id, error: msg });
-      } else {
-        log('intent_failed', { intentId: intent.id, error: msg });
-      }
+      counters.intentsErrored += 1;
+      log('intent_dispatch_threw', { intentId: intent.id, error: msg });
+      clearInterval(dispatchHeartbeat);
+      log('intent_heartbeat_after', { intentId: intent.id, outcome: 'threw' });
+      await sleep(currentErrorBackoffMs, signal);
+      currentErrorBackoffMs = Math.min(currentErrorBackoffMs * 2, errorBackoffMaxMs);
+      continue;
     } finally {
-      clearInterval(executorHeartbeat);
+      clearInterval(dispatchHeartbeat);
     }
 
-    if (options.maxIntents && intentsProcessed >= options.maxIntents) {
-      return { intentsProcessed, reason: 'maxIntents' };
+    // Classify the outcome.
+    if (result.ok && result.replayed) {
+      // Replay short-circuit: prior terminal audit row exists. Not an error,
+      // not new work — just continue. Do NOT bump processed counter; do NOT
+      // trigger error backoff.
+      counters.intentsReplayed += 1;
+      log('intent_replayed', {
+        intentId: intent.id,
+        idempotencyKey: result.idempotencyKey,
+        actionLogId: result.actionLogId,
+      });
+      currentErrorBackoffMs = errorBackoffStartMs;
+    } else if (result.ok) {
+      // Fresh successful execution.
+      counters.intentsProcessed += 1;
+      log('intent_completed', {
+        intentId: intent.id,
+        idempotencyKey: result.idempotencyKey,
+        actionLogId: result.actionLogId,
+      });
+      currentErrorBackoffMs = errorBackoffStartMs;
+    } else if (isSovereigntyRefusal(result.error)) {
+      // executeIntent already flipped cc_intents to 'failed' via dispatch's
+      // refusal path. Log + continue, no backoff (refusals are a valid
+      // steady-state outcome, not a transient fault).
+      counters.intentsRefused += 1;
+      log('intent_refused', {
+        intentId: intent.id,
+        reason: result.error,
+        actionLogId: result.actionLogId,
+      });
+      currentErrorBackoffMs = errorBackoffStartMs;
+    } else {
+      // Executor error path (payload validation failure, downstream API
+      // failure, domain failure like "Obligation not found"). cc_intents was
+      // flipped to 'failed' inside executeIntent. Apply bounded exponential
+      // backoff so a stream of failing intents doesn't hot-loop the daemon.
+      counters.intentsErrored += 1;
+      log('intent_failed', {
+        intentId: intent.id,
+        error: result.error,
+        actionLogId: result.actionLogId,
+      });
+      await sleep(currentErrorBackoffMs, signal);
+      currentErrorBackoffMs = Math.min(currentErrorBackoffMs * 2, errorBackoffMaxMs);
+    }
+
+    log('intent_heartbeat_after', {
+      intentId: intent.id,
+      ok: result.ok,
+      replayed: !!result.replayed,
+    });
+
+    const totalTerminal =
+      counters.intentsProcessed +
+      counters.intentsReplayed +
+      counters.intentsRefused +
+      counters.intentsErrored;
+    if (options.maxIntents && totalTerminal >= options.maxIntents) {
+      return { reason: 'maxIntents' };
     }
   }
 
-  return { intentsProcessed, reason: 'aborted' };
+  return { reason: 'aborted' };
+}
+
+/**
+ * Identify sovereignty refusals emitted by meta/executors/dispatch.ts.
+ * Canonical refusal strings:
+ *   - "sovereignty snapshot stale and no actorChittyId available for re-reckon"
+ *   - "sovereignty re-reckon: requires_human (...)"
+ *   - "sovereignty re-reckon: blocked (...)"
+ */
+function isSovereigntyRefusal(error: string | undefined): boolean {
+  if (!error) return false;
+  return (
+    error.startsWith('sovereignty re-reckon:') ||
+    error.startsWith('sovereignty snapshot stale')
+  );
 }
 
 function sleep(ms: number, signal?: AbortSignal): Promise<void> {

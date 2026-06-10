@@ -114,8 +114,7 @@ CHITTYOS/chittycommand
   Tier-5 dashboard surface." The CHARTER.md needs a follow-up update to reflect
   this; that change is intentionally NOT in this foundation PR (charter update
   warrants its own review).
-- The existing ActionAgent in `src/agents/` becomes one of multiple execution
-  surfaces the meta-orchestrator can route to. No code change required this PR.
+- The existing ActionAgent in `src/agents/` is reclassified as one peer execution surface among several. Action-execution logic (`createActionTools` in `src/agents/tools/actions.ts`) is extracted into a canonical executor registry at `meta/executors/*`, addressable as `chittycanon://core/services/chittycommand/executors/{intent_type}`. ActionAgent (chat surface) and the meta-orchestrator daemon loop (autonomous surface) are siblings consuming this registry; neither dispatches the other. The sovereignty gate (`meta/sovereignty.ts`) is invoked at exactly two points: (1) at Intent creation, persisted into `cc_intents.sovereignty_assessment`; (2) at executor entry in `meta/executors/dispatch.ts`, where the score is re-reckoned if the snapshot is older than the configured freshness window. Execution audit lives in additive columns on `cc_actions_log` (NOT a new table), co-located with `cc_intents` and the existing per-tool audit trail.
 - The cluster-daemon runtime depends on Neon reachability for leader election;
   the "park the node" fallback is acceptable for MVP and will be revisited.
 
@@ -163,3 +162,9 @@ resolve as `explicit > deriveRouxFromType(dispute_type)`. `legal` ⇒
 `(privileged, legalink)`; `insurance` ⇒ `(pii, business)`; everything else
 defaults to `(public, business)`. This prevents privileged work-product and
 PII from being mirrored into the operations Notion workspace.
+
+---
+
+## ADR-001 amendments (chronological)
+
+- 2026-06-04 — Amended Consequences §2 per chittycanon-code-cardinal + chittyschema-overlord review. Recorded in PR-A.

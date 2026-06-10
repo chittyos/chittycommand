@@ -19,7 +19,8 @@ metaPublicRoutes.get('/canon', async (c) => {
     environment: env.ENVIRONMENT || 'production',
     canonicalUri,
     namespace: 'chittycanon://core/services',
-    tier: 5,
+    tier: 2,
+    tierSurface: 'Tier 2 (Platform) with Tier-5 dashboard surface',
     registered_with: env.CHITTYREGISTER_URL || null,
     registration: { service_id: serviceId || null, last_beacon_at: lastBeaconAt || null, last_status: lastBeaconStatus || null },
   });
@@ -113,6 +114,53 @@ metaPublicRoutes.get('/cert/:id', async (c) => {
   } catch (err) {
     console.error('[cert/:id] upstream request failed:', err);
     return c.json({ error: 'Certificate fetch failed' }, 500);
+  }
+});
+
+// Authenticated: execute a queued intent via the executor registry.
+// Per ADR-001 amendment (PR-A): mirrors existing meta auth surface; calls
+// real Neon via executeIntent → meta/executors/dispatch.
+metaRoutes.post('/intents/:id/execute', async (c) => {
+  const userId = c.get('userId') as string | undefined;
+  if (!userId) return c.json({ error: 'Unauthorized' }, 401);
+  const id = c.req.param('id');
+  if (!id) return c.json({ error: 'Missing intent id' }, 400);
+  const body = await c.req.json().catch(() => ({} as Record<string, unknown>));
+  const actorChittyId =
+    typeof body?.actor_chitty_id === 'string' ? body.actor_chitty_id : userId;
+
+  try {
+    const { executeIntent } = await import('../../meta/intent');
+    const result = await executeIntent(c.env as unknown as Record<string, unknown>, id, {
+      actorChittyId,
+    });
+    if (!result.ok) {
+      return c.json(
+        {
+          ok: false,
+          intent_id: id,
+          idempotency_key: result.idempotencyKey,
+          action_log_id: result.actionLogId,
+          replayed: Boolean(result.replayed),
+          error: result.error,
+        },
+        result.replayed ? 200 : 422,
+      );
+    }
+    return c.json({
+      ok: true,
+      intent_id: id,
+      idempotency_key: result.idempotencyKey,
+      action_log_id: result.actionLogId,
+      replayed: Boolean(result.replayed),
+      data: result.data ?? null,
+    });
+  } catch (err) {
+    console.error('[meta] executeIntent failed:', err);
+    return c.json(
+      { error: 'executeIntent failed', detail: err instanceof Error ? err.message : String(err) },
+      500,
+    );
   }
 });
 
