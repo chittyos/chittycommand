@@ -18,7 +18,8 @@ export type IntentStatus =
   | 'running'
   | 'done'
   | 'failed'
-  | 'blocked_human';
+  | 'blocked_human'
+  | 'expired';
 
 // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
 // ChittyRoux privilege class — orthogonal to sovereignty trust-tier sensitivity.
