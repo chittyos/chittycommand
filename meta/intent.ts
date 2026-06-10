@@ -279,6 +279,7 @@ export async function createRouxIngestIntentIdempotent(
     ON CONFLICT ((payload->'source'->>'message_id'))
       WHERE intent_type = 'roux_ingest'
         AND payload->'source'->>'message_id' IS NOT NULL
+        AND status <> 'expired'
       DO NOTHING
     RETURNING *`;
   if (inserted[0]) {
