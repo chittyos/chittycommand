@@ -343,6 +343,10 @@ export async function dispatch(
     actionLogId: auditId,
     data: runOutput.responsePayload,
     error: runOutput.errorMessage,
+    // Propagate indeterminate so executeIntent skips failIntent and leaves the
+    // intent claimable — the row stays `in_flight` for reconciliation rather
+    // than being buried as a terminal failure.
+    indeterminate: runOutput.indeterminate,
   };
 }
 

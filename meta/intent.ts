@@ -552,9 +552,13 @@ export async function executeIntent(
       SET status = 'running', updated_at = NOW()
       WHERE id = ${intentId} AND status = 'claimed'`;
     await completeIntent(env, intentId);
-  } else if (!result.replayed) {
-    // Only mark failed on a fresh failure; replays should not overwrite
-    // terminal state.
+  } else if (!result.replayed && !result.indeterminate) {
+    // Only mark failed on a fresh, DETERMINATE failure. Replays must not
+    // overwrite terminal state, and indeterminate outcomes (money may have
+    // moved — Mercury 409/network/5xx/unparseable-2xx) must NOT go terminal:
+    // the audit row is left `in_flight` so the next dispatch pass reaches the
+    // `in_flight_unknown` reconciliation branch instead of being buried as
+    // failed. See meta/executors/mercury-payment.ts + dispatch.ts.
     await failIntent(env, intentId, result.error ?? 'unknown error').catch(
       () => null,
     );

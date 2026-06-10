@@ -92,6 +92,8 @@ describe('mercury-payment — discriminated-error & body-status handling (real R
     expect(run.failureKind).toBe('http');
     expect(run.httpStatus).toBe(503);
     expect(run.bodySnippet).toContain('upstream timeout');
+    // 5xx → money may have moved → indeterminate (row left in_flight, not failed).
+    expect(run.indeterminate).toBe(true);
   });
 
   it('Mercury returns 409 → refusal with idempotency_collision (replay-attack tell)', async () => {
@@ -107,6 +109,8 @@ describe('mercury-payment — discriminated-error & body-status handling (real R
     expect(run.failureKind).toBe('idempotency_collision');
     expect(run.httpStatus).toBe(409);
     expect(run.bodySnippet).toContain('idempotency conflict');
+    // 409 → a payment under this key likely already went out → indeterminate.
+    expect(run.indeterminate).toBe(true);
   });
 
   it('Mercury returns 200 with {"status":"failed"} → refusal mercury_internal_failure, audit status=failed', async () => {
@@ -126,6 +130,9 @@ describe('mercury-payment — discriminated-error & body-status handling (real R
     expect(run.transactionId).toBe('tx_failed_001');
     expect(run.mercuryStatus).toBe('failed');
     expect(run.httpStatus).toBe(200);
+    // Explicit Mercury status:"failed" on a 2xx → definite, no money moved →
+    // NOT indeterminate (stays terminal failed, remediate via a new intent).
+    expect(run.indeterminate).toBeFalsy();
   });
 
   it('Mercury returns 200 with {"status":"pending"} → ok=true, audit status=in_progress (NOT completed)', async () => {
@@ -174,6 +181,9 @@ describe('mercury-payment — discriminated-error & body-status handling (real R
     expect(run.refusalReason).toBe('mercury_api_failure');
     expect(run.failureKind).toBe('network');
     expect(run.bodySnippet).toContain('ECONNREFUSED');
+    // network/lost-response → request may have committed before the response
+    // was lost → indeterminate (reconcile, do not bury as failed).
+    expect(run.indeterminate).toBe(true);
   });
 
   it('account_slug with mixed case or special chars → refusal invalid_account_slug (no KV lookup)', async () => {

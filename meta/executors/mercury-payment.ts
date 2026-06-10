@@ -20,13 +20,13 @@
  *      `cc_actions_log (intent_id, idempotency_key) WHERE intent_id IS NOT
  *      NULL AND idempotency_key IS NOT NULL` prevents double-execute. The
  *      dispatcher (meta/executors/dispatch.ts) computes the idempotency key
- *      as `sha256("{intent.id}:{attempt}:{intent_type}")` and passes it via
- *      `ctx.idempotencyKey`. Because `intent.id` is immutable and `attempt`
- *      is derived deterministically from prior `cc_actions_log` rows, a
- *      replay of the same intent reuses the same key — functionally
- *      equivalent to a payload-derived key for replay protection. The
- *      Mercury API call itself uses `ctx.idempotencyKey` as the Mercury
- *      `idempotencyKey`, so Mercury also de-dupes on the same value.
+ *      as `sha256("{intent.id}:{intent_type}")` — DETERMINISTIC on intent.id,
+ *      with NO `attempt` component. This is load-bearing: every retry of the
+ *      same intent MUST reuse the same key so Mercury de-dupes end-to-end and
+ *      a retry after a Neon blip cannot double-spend. Do NOT add `attempt` to
+ *      this formula — a per-attempt key defeats Mercury's dedup and is a
+ *      double-spend vector. The Mercury API call passes `ctx.idempotencyKey`
+ *      as the `Idempotency-Key` header.
  *   4. NEVER log raw API keys, account numbers, routing numbers, or PII.
  *      `responsePayload` carries `transaction_id`, `status`, `amount`,
  *      `recipient_id`, last-4 only when available. `requestPayload` (set by
@@ -114,6 +114,16 @@ export interface MercuryPaymentRunResult {
   bodySnippet?: string;
   /** Failure kind from the discriminated MercuryPostResult, when ok=false. */
   failureKind?: 'network' | 'http' | 'parse' | 'idempotency_collision';
+  /**
+   * True iff money MAY have moved but the outcome is unknown — Mercury 409
+   * collision (the original payment under this key likely already went out),
+   * network/lost-response, a 5xx, or an unparseable 2xx body. The dispatcher
+   * records the audit row as `in_flight` (NOT `failed`) so it triggers the
+   * `in_flight_unknown` operator reconciliation path. A definite 4xx rejection
+   * (≠409) and an explicit Mercury `status:"failed"` are NOT indeterminate —
+   * no money moved, so they stay terminal `failed`.
+   */
+  indeterminate?: boolean;
 }
 
 /** Allowed account_slug pattern: lowercase alnum + hyphens only. */
@@ -220,25 +230,38 @@ export async function runMercuryPayment(args: {
   // operators can diagnose without re-running Mercury.
   if (!result.ok) {
     if (result.kind === 'idempotency_collision') {
+      // 409 → a payment under this key was already accepted by Mercury; money
+      // very likely moved. Indeterminate → reconcile, do NOT bury as failed.
       return {
         ok: false,
         refusalReason: 'idempotency_collision',
         failureKind: 'idempotency_collision',
+        indeterminate: true,
         httpStatus: result.httpStatus,
         bodySnippet: result.bodySnippet,
         errorMessage:
-          'Mercury returned 409 idempotency collision — same idempotency key was previously used with a different payload (replay attempt or payload mutation)',
+          'Mercury returned 409 idempotency collision — a payment under this idempotency key was already accepted; money may have moved. Reconcile against Mercury before any terminal transition.',
       };
     }
+    // "money may have moved" set (chico ruling): network/lost-response, an
+    // unparseable 2xx body, and 5xx are all indeterminate — the request may
+    // have committed before the response was lost/unreadable. A definite 4xx
+    // rejection (≠409: 422 bad recipient, 400 bad amount, 401/403 auth) did
+    // NOT move money → terminal `failed`, remediate via a new intent.
+    const indeterminate =
+      result.kind === 'network' ||
+      result.kind === 'parse' ||
+      (result.kind === 'http' && (result.httpStatus ?? 0) >= 500);
     return {
       ok: false,
       refusalReason: 'mercury_api_failure',
       failureKind: result.kind,
+      indeterminate,
       httpStatus: result.httpStatus,
       bodySnippet: result.bodySnippet,
       errorMessage: `Mercury API ${result.kind} failure${
         result.httpStatus ? ` (HTTP ${result.httpStatus})` : ''
-      }: ${result.bodySnippet ?? 'no body'}`,
+      }${indeterminate ? ' — outcome unknown, money may have moved; reconcile' : ''}: ${result.bodySnippet ?? 'no body'}`,
     };
   }
 
@@ -377,23 +400,32 @@ const executor: IntentExecutor = {
 
     if (!run.ok) {
       const reason = run.refusalReason ?? 'unknown';
+      // Indeterminate (money may have moved): leave the row `in_flight` so the
+      // next dispatch pass hits `in_flight_unknown` and surfaces a
+      // reconciliation signal. Definite refusal / no-money-moved: terminal
+      // `failed`. See chico ruling + meta/executors/dispatch.ts in_flight path.
+      const indeterminate = run.indeterminate === true;
       return {
         ok: false,
-        description: `mercury_payment refused: ${reason}${
-          run.httpStatus ? ` (HTTP ${run.httpStatus})` : ''
-        }`,
-        actionType: 'payment_refusal',
+        indeterminate,
+        description: indeterminate
+          ? `mercury_payment INDETERMINATE: ${reason}${
+              run.httpStatus ? ` (HTTP ${run.httpStatus})` : ''
+            } — money may have moved; left in_flight for operator reconciliation`
+          : `mercury_payment refused: ${reason}${
+              run.httpStatus ? ` (HTTP ${run.httpStatus})` : ''
+            }`,
+        actionType: indeterminate ? 'payment_indeterminate' : 'payment_refusal',
         targetType: 'recipient',
         targetId,
-        // Mercury said `failed` outright → record as failed. Anything else
-        // refused at our gate is also `failed` (refusal = not executed).
-        status: 'failed',
+        status: indeterminate ? 'in_flight' : 'failed',
         errorMessage: run.errorMessage ?? reason,
         responsePayload,
         metadata: {
           refusal_reason: reason,
           failure_kind: run.failureKind ?? null,
           http_status: run.httpStatus ?? null,
+          indeterminate,
         },
       };
     }

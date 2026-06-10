@@ -98,8 +98,9 @@ describe.skipIf(SKIP)('PR #106 criticals — replay-by-key + single failIntent',
     });
 
     // Hand-insert a terminal cc_actions_log row for this intent with a key
-    // that we know will NOT match the key dispatch() will compute for
-    // attempt=1 (sha256("{id}:1:{type}")). Use a sentinel hex string.
+    // that we know will NOT match the key dispatch() will compute — the key is
+    // deterministic on intent.id (sha256("{id}:{type}"), NO attempt component).
+    // Use a sentinel hex string guaranteed to differ.
     const bogusKey = 'a'.repeat(64);
     await sql`
       INSERT INTO cc_actions_log
@@ -124,7 +125,11 @@ describe.skipIf(SKIP)('PR #106 criticals — replay-by-key + single failIntent',
     `) as unknown as Array<{ status: string }>;
     expect(oblStatus[0].status).toBe('paid');
 
-    // Two rows now: the bogus seed (attempt=0) + the real run (attempt=1).
+    // Two rows now: the bogus seed (attempt=0) + the real run. `attempt` is
+    // COUNT(*)+1 over prior rows for this intent — the seed makes COUNT=1 at
+    // pre-write time, so the real run is attempt=2. (`attempt` is audit-only
+    // metadata under the deterministic-key contract; the unique partial index
+    // dedupes, not the attempt number.)
     const auditRows = (await sql`
       SELECT attempt, idempotency_key FROM cc_actions_log
       WHERE intent_id = ${intent.id}::uuid ORDER BY attempt ASC
@@ -132,7 +137,7 @@ describe.skipIf(SKIP)('PR #106 criticals — replay-by-key + single failIntent',
     expect(auditRows.length).toBe(2);
     expect(auditRows[0].attempt).toBe(0);
     expect(auditRows[0].idempotency_key).toBe(bogusKey);
-    expect(auditRows[1].attempt).toBe(1);
+    expect(auditRows[1].attempt).toBe(2);
     expect(auditRows[1].idempotency_key).toBe(result.idempotencyKey);
   });
 
@@ -190,9 +195,14 @@ describe.skipIf(SKIP)('PR #106 criticals — replay-by-key + single failIntent',
       freshnessMs: 1, // force stale-snapshot branch even if clock skews
     });
     expect(result.ok).toBe(false);
-    // FIX 2: dispatch returned replayed:true so executeIntent did not
-    // re-call failIntent.
-    expect(result.replayed).toBe(true);
+    // FIX 2 (deterministic-key contract): a sovereignty refusal is a fresh,
+    // DEFINITE failure — not a replay and not indeterminate. dispatch fails the
+    // intent via safeFailIntent and returns WITHOUT `replayed`. executeIntent's
+    // `!replayed && !indeterminate` guard then calls failIntent again, but
+    // failIntent's status guard (claimed/running) makes that second call a
+    // no-op — so still exactly ONE failed-transition. The canonical signal is
+    // the single audit row + terminal intent state asserted below.
+    expect(result.replayed).toBeFalsy();
 
     // Exactly one sovereignty_refusal audit row was written by dispatch.
     const auditRows = (await sql`

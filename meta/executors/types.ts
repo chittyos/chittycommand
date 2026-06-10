@@ -43,6 +43,14 @@ export interface ExecutorResult {
   error?: string;
   /** True iff the result was replayed from a prior cc_actions_log row. */
   replayed?: boolean;
+  /**
+   * True iff the outcome is indeterminate — money MAY have moved but the
+   * result is unknown (Mercury 409 collision, network/lost-response, 5xx, or an
+   * unparseable 2xx). The audit row is left `in_flight` and `executeIntent`
+   * MUST NOT mark the intent `failed`, so the next dispatch pass reaches the
+   * `in_flight_unknown` reconciliation branch instead of burying it as failed.
+   */
+  indeterminate?: boolean;
 }
 
 export interface IntentExecutor {
@@ -84,4 +92,11 @@ export interface ExecutorRunOutput {
   responsePayload?: Record<string, unknown>;
   errorMessage?: string;
   metadata?: Record<string, unknown>;
+  /**
+   * Set by money-path executors when `ok: false` AND money may have moved
+   * (status === 'in_flight'). The dispatcher propagates this onto
+   * ExecutorResult so executeIntent skips failIntent and the row stays
+   * `in_flight` for operator reconciliation. See mercury-payment.ts.
+   */
+  indeterminate?: boolean;
 }
