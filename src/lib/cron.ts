@@ -8,6 +8,7 @@ import { discoverRevenueSources } from './revenue';
 import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
+import { decayStaleRouxIntents } from './intent-decay';
 
 /**
  * Cron sync orchestrator.
@@ -147,6 +148,17 @@ export async function runCronSync(
         }
       } catch (err) {
         console.error('[cron:governance] failed:', err);
+      }
+
+      // Phase 12: Roux intent decay (Phase 2.5)
+      try {
+        const decayResult = await decayStaleRouxIntents(sql);
+        if (decayResult.expired > 0 || decayResult.scanned > 0) {
+          console.log(`[cron:roux_decay] scanned=${decayResult.scanned} expired=${decayResult.expired}`);
+          recordsSynced += decayResult.expired;
+        }
+      } catch (err) {
+        console.error('[cron:roux_decay] failed:', err);
       }
     }
 
