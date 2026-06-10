@@ -9,6 +9,7 @@ export default defineConfig({
     testTimeout: 15000,
     pool: 'threads',
     maxWorkers: 1,
+    globalSetup: ['./tests/setup/global-setup.ts'],
   },
   resolve: {
     alias: {
