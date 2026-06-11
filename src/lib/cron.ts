@@ -9,6 +9,7 @@ import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
+import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
 
 /**
  * Cron sync orchestrator.
@@ -191,6 +192,18 @@ export async function runCronSync(
       } catch (err) {
         console.error('[cron:email_bills] failed:', err);
       }
+
+      // Vendor spend risk sweep — recompute risk_score for active vendors so the
+      // spend-control view stays fresh without an external billing feed.
+      try {
+        const vr = await sweepVendorRisk(sql);
+        if (vr.scanned > 0) {
+          recordsSynced += vr.updated;
+          console.log(`[cron:vendor_risk] scanned=${vr.scanned} updated=${vr.updated} at_risk=${vr.at_risk}`);
+        }
+      } catch (err) {
+        console.error('[cron:vendor_risk] failed:', err);
+      }
     }
 
     if (source === 'court_docket') {
@@ -230,6 +243,38 @@ export async function runCronSync(
       `.catch((dbErr) => console.error('[cron] Failed to update sync_log with error status:', dbErr));
     }
   }
+}
+
+/**
+ * Recompute spend-risk for every non-cancelled vendor. Deterministic; pulls
+ * rows, scores them via computeVendorRisk, and bulk-writes risk_score. Runs in
+ * the weekly cadence so the dashboard's vendor-risk view stays fresh without an
+ * external billing feed.
+ */
+async function sweepVendorRisk(
+  sql: NeonQueryFunction<false, false>,
+): Promise<{ scanned: number; updated: number; at_risk: number }> {
+  const rows = await sql`
+    SELECT id, payment_status, auto_pay, next_bill_date, mtd_spend, budget_limit, spending_limit, status
+    FROM cc_vendors WHERE status != 'cancelled'
+  `;
+  if (rows.length === 0) return { scanned: 0, updated: 0, at_risk: 0 };
+
+  let atRisk = 0;
+  const ids: string[] = [];
+  const scores: number[] = [];
+  for (const r of rows as Record<string, unknown>[]) {
+    const { score } = computeVendorRisk(vendorRiskInputFromRow(r));
+    ids.push(r.id as string);
+    scores.push(score);
+    if (score >= 50) atRisk++;
+  }
+  await sql`
+    UPDATE cc_vendors SET risk_score = bulk.score, updated_at = NOW()
+    FROM (SELECT unnest(${ids}::uuid[]) AS id, unnest(${scores}::int[]) AS score) AS bulk
+    WHERE cc_vendors.id = bulk.id
+  `;
+  return { scanned: rows.length, updated: ids.length, at_risk: atRisk };
 }
 
 /**
