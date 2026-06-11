@@ -6,6 +6,10 @@
 -- Additive + idempotent. Applied after the journaled drizzle schema (cc_accounts
 -- must already exist for the optional account_id FK). Mirrors the 0017/0018
 -- hand-rolled additive pattern and is registered in tests/setup/global-setup.ts.
+--
+-- Prod apply (same path as 0006–0018; the drizzle journal ends at
+-- 0005_sour_dreadnoughts, so `npm run db:migrate` does NOT apply this file):
+--   psql "$DATABASE_URL" < migrations/0019_vendors.sql
 -- The shared cc_update_timestamp() trigger function is (re)defined here so this
 -- migration is self-sufficient on branches where only the journaled drizzle
 -- history (which does not manage triggers) has been applied.

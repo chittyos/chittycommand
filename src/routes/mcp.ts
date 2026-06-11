@@ -1150,20 +1150,23 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       const status = args.status || null;
       const atRisk = args.at_risk === true;
       const limit = Math.min(Number(args.limit) || 20, 50);
+      // Fetch matching rows (vendor table is small) then recompute risk live —
+      // the stored risk_score may be stale — before filtering/limiting, so
+      // at_risk never drops a high-risk vendor that would sort past a page edge.
       const rows = await sql`
         SELECT id, vendor_name, category, billing_cycle, expected_amount, currency, next_bill_date, auto_pay, payment_status, payment_method, spending_limit, mtd_spend, budget_limit, status, risk_score
         FROM cc_vendors
         WHERE (${category}::text IS NULL OR category = ${category})
           AND (${status}::text IS NULL OR status = ${status})
-        ORDER BY risk_score DESC NULLS LAST, next_bill_date ASC NULLS LAST
-        LIMIT ${limit}
       `;
-      const vendors = (rows as Record<string, unknown>[]).map((r) => {
+      let vendors = (rows as Record<string, unknown>[]).map((r) => {
         const risk = computeVendorRisk(vendorRiskInputFromRow(r));
         return { ...r, risk_score: risk.score, risk_level: risk.level, risk_reasons: risk.reasons };
       });
-      const filtered = atRisk ? vendors.filter((v) => (v.risk_score as number) >= 50) : vendors;
-      return { count: filtered.length, vendors: filtered };
+      if (atRisk) vendors = vendors.filter((v) => (v.risk_score as number) >= 50);
+      vendors.sort((a, b) => (b.risk_score as number) - (a.risk_score as number));
+      const limited = vendors.slice(0, limit);
+      return { count: limited.length, vendors: limited };
     }
 
     case 'get_vendor_risk': {

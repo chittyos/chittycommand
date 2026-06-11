@@ -185,6 +185,7 @@ vendorRoutes.patch('/:id', async (c) => {
       status = COALESCE(${body.status ?? null}, status),
       owner = COALESCE(${body.owner ?? null}, owner),
       account_id = COALESCE(${body.account_id ?? null}, account_id),
+      metadata = COALESCE(${body.metadata !== undefined ? JSON.stringify(body.metadata) : null}::jsonb, metadata),
       risk_score = ${riskScore},
       updated_at = NOW()
     WHERE id = ${id} RETURNING *
