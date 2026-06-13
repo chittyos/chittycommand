@@ -17,6 +17,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import type { AuthVariables } from '../middleware/auth';
 import { getDb } from '../lib/db';
+import { ingestContextual } from '../lib/contextual-ingest';
 import {
   claimNextIntent,
   completeIntent,
@@ -218,4 +219,28 @@ triageRoutes.post('/:id/complete', async (c) => {
     );
   }
   return c.json({ intent: updated });
+});
+
+/**
+ * POST /api/triage/contextual/ingest — run the contextual (digested comms)
+ * intake on demand. Pulls digested signal from the contextual store, classifies
+ * via chittyrouter, and writes candidate cc_intents / cc_obligations /
+ * cc_recommendations with full provenance. Conflicts raise chittyagent-tasks.
+ *
+ * Body (optional): { "limit": number }
+ *
+ * @canon: chittycanon://core/services/chittycommand/contextual-ingest
+ */
+triageRoutes.post('/contextual/ingest', async (c) => {
+  if (!c.env.CONTEXTUAL_DATABASE_URL) {
+    return c.json({ error: 'CONTEXTUAL_DATABASE_URL not configured' }, 503);
+  }
+  let limit = 50;
+  try {
+    const body = (await c.req.json().catch(() => ({}))) as { limit?: number };
+    if (typeof body.limit === 'number' && body.limit > 0 && body.limit <= 500) limit = body.limit;
+  } catch { /* default */ }
+  const sql = getDb(c.env);
+  const result = await ingestContextual(c.env, sql, { limit });
+  return c.json({ ok: true, result });
 });
