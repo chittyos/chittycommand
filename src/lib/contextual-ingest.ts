@@ -40,7 +40,7 @@
 import { neon, type NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
 import { typedRows } from './db';
-import { createGoal, createPlan, createRouxIngestIntentIdempotent } from '../../meta/intent';
+import { createGoal, createPlan, createContextualIngestIntentIdempotent } from '../../meta/intent';
 import { tasksClient } from './integrations';
 
 // Llama model chittyrouter's intelligentRoute runs (from its /health report).
@@ -103,9 +103,14 @@ export async function fetchContextualCandidates(
   ctxSql: NeonQueryFunction<false, false>,
   limit: number,
 ): Promise<ContextualCandidate[]> {
-  // One row per (message, amount-entity). Amount is the obligation primitive.
+  // ONE candidate per message (the obligation primitive is the message, not
+  // each amount mention). A message can mention several amounts
+  // ($1,000 / $2,845 / $3,845) — we deterministically take the MAX amount as
+  // the headline obligation (largest = most material; deterministic so the
+  // dedup'd obligation is reproducible regardless of row order). DISTINCT ON
+  // (message_id) ordered by amount DESC.
   const rows = await ctxSql`
-    SELECT
+    SELECT DISTINCT ON (m.message_id)
       m.message_id,
       m.source::text                                   AS source,
       m.sent_at                                         AS sent_at,
@@ -136,9 +141,14 @@ export async function fetchContextualCandidates(
       AND ea.normalized_value ~ '^[0-9]+(\\.[0-9]+)?$'
       AND (ea.normalized_value)::numeric >= 100
       AND m.deleted_at IS NULL
-    ORDER BY m.sent_at DESC
-    LIMIT ${limit}
+    -- DISTINCT ON requires the distinct key to lead ORDER BY; pick MAX amount
+    -- per message. Outer query re-orders the collapsed set by recency + caps it.
+    ORDER BY m.message_id, (ea.normalized_value)::numeric DESC
   `;
+  // Re-order by recency and cap (the DISTINCT ON forced message_id-led order).
+  const candidatesRaw = [...(rows as Record<string, unknown>[])]
+    .sort((a, b) => new Date(String(b.sent_at)).getTime() - new Date(String(a.sent_at)).getTime())
+    .slice(0, limit);
 
   return typedRows<{
     message_id: number;
@@ -151,7 +161,7 @@ export async function fetchContextualCandidates(
     payee: string | null;
     due_date_norm: string | null;
     has_legal_doc: boolean;
-  }>(rows).map((r) => ({
+  }>(candidatesRaw).map((r) => ({
     message_id: Number(r.message_id),
     source: r.source,
     sent_at: r.sent_at,
@@ -324,7 +334,7 @@ export async function ingestContextual(
           title: `Ingest contextual message ${cand.message_id}`,
           authoredBy: 'contextual-ingest',
         });
-        const { created } = await createRouxIngestIntentIdempotent(env, {
+        const { created } = await createContextualIngestIntentIdempotent(env, {
           planId: plan.id,
           goalId: goal.id,
           intentType: 'contextual_ingest',
