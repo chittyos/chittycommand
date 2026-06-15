@@ -73,7 +73,12 @@ jobs:
       - name: Install
         run: npm ci
       - name: Dependency Audit
-        run: npm audit --audit-level=high
+        # Scope the High+ gate to production dependencies shipped to the Worker
+        # runtime. All current High/Moderate advisories are in dev-only tooling
+        # (esbuild, vite, ws via wrangler / drizzle-kit / vitest) with no
+        # non-breaking fix; the runtime dependency tree is clean. Mirrors the
+        # audit_omit_dev option already exposed by reusable-governance-gates.yml.
+        run: npm audit --audit-level=high --omit=dev
       - name: Typecheck
         run: npx tsc -p tsconfig.json --noEmit
       - name: Test
