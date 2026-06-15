@@ -2,7 +2,7 @@
 
 Operator-facing runbook for submitting `chittycommand` to `register.chitty.cc` as a Tier-2 platform service. The payload draft lives alongside this file at `chittycommand-registration-payload.json`.
 
-This runbook does NOT submit. Submission is a separate, gated operator action routed through ChittyConnect (the Chico concierge).
+This runbook does NOT submit. Submission is a separate, gated operator action routed through ChittyConnect (the sensitive-intent concierge broker).
 
 ## Pre-requisites
 
@@ -22,7 +22,7 @@ This runbook does NOT submit. Submission is a separate, gated operator action ro
 
    Must return the real-dependency probe JSON shape — fields for `db`, `chittyconnect`, and `daemon` heartbeat must reflect actual probed state. A static `{"status":"ok"}` response is a regression and blocks submission per the global "no fake/non-working endpoints" rule.
 
-3. **New P-Synthetic ChittyID minted** via the canonical Chico path:
+3. **New P-Synthetic ChittyID minted** via the canonical ChittyConnect path:
 
    - Route: `ch1tty → ChittyConnect → chittyid`
    - The previous ID `03-1-USA-3846-T-2602-0-57` is deprecated because the 5th field encoded `T` (Thing). `chittycommand` is a sovereign actor and must be `P` (Person, Synthetic characterization).
@@ -34,7 +34,7 @@ The committed payload contains two placeholder strings. Both must be substituted
 
 | Placeholder | Substitution Source | Routing |
 |---|---|---|
-| `<<CHITTY_REGISTER_TOKEN>>` | 1Password (cold source) → Cloudflare Secrets (runtime) | ChittyConnect via Chico — operator never handles the bearer directly |
+| `<<CHITTY_REGISTER_TOKEN>>` | 1Password (cold source) → Cloudflare Secrets (runtime) | ChittyConnect broker — operator never handles the bearer directly |
 | `<<PENDING_P_SYNTHETIC_CHITTYID>>` | Newly minted via ChittyID service | Operator confirms `P` in 5th field, then injects |
 
 Per `/home/ubuntu/.ch1tty/canon/system-wide-sensitive-intent-contract-v1.md`, the operator does not paste secrets — the request must route through ChittyConnect. If the broker path is unavailable, fail closed with `POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE`.
@@ -82,7 +82,7 @@ If `register.chitty.cc` rejects the submission:
 ## What This Runbook Does NOT Do
 
 - Does not submit the registration.
-- Does not handle the bearer token directly — Chico/ChittyConnect owns that.
+- Does not handle the bearer token directly — ChittyConnect owns that.
 - Does not modify CHARTER/CHITTY/CLAUDE (PR #110's lane).
 - Does not deploy any worker.
 - Does not enable auto-merge on this PR.
