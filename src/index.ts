@@ -61,6 +61,13 @@ export type Env = {
   CHITTYGOV_URL?: string;
   CHITTYGOV_TOKEN?: string;
   CHITTYAGENT_SCRAPE_URL?: string;
+  // chittyagent-tasks (canonical distributed task queue) — conflict escalation
+  CHITTYAGENT_TASKS_URL?: string;
+  CHITTYAGENT_TASKS_TOKEN?: string;
+  // Contextual (digested cross-channel comms) read connection.
+  // Separate Neon project (ChittyLedger-Messaging) — NOT the command DB.
+  // @canon: contextual-store-neon-location
+  CONTEXTUAL_DATABASE_URL?: string;
   CHITTYREGISTER_URL?: string;
   CHITTYCHAT_DATA_API?: string;
   CHITTYSCHEMA_URL?: string;
