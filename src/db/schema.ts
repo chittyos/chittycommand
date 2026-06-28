@@ -564,3 +564,39 @@ export const ccNodeLeases = pgTable('cc_node_leases', {
   nodeIdx: index('idx_cc_node_leases_node').on(table.nodeId),
   expiresIdx: index('idx_cc_node_leases_expires').on(table.leaseExpiresAt),
 }));
+
+// ─────────────────────────────────────────────────────────────
+// Vendor spend control (migration 0019)
+// Recurring org/operational vendors (GitHub, Cloudflare, Anthropic, OpenAI,
+// Neon, 1Password, …). Risk scoring lives in src/lib/vendor-risk.ts; the
+// payment_status='failed'|'limited' signal is the autopay-bounce alarm.
+// ─────────────────────────────────────────────────────────────
+export const ccVendors = pgTable('cc_vendors', {
+  id: uuid('id').primaryKey().defaultRandom(),
+  vendorName: text('vendor_name').notNull().unique(),
+  category: text('category').default('other'),
+  billingCycle: text('billing_cycle'),
+  expectedAmount: numeric('expected_amount', { precision: 12, scale: 2 }),
+  currency: text('currency').default('USD'),
+  nextBillDate: date('next_bill_date'),
+  autoPay: boolean('auto_pay').default(false),
+  paymentStatus: text('payment_status').default('unknown'),
+  paymentMethod: text('payment_method'),
+  spendingLimit: numeric('spending_limit', { precision: 12, scale: 2 }),
+  mtdSpend: numeric('mtd_spend', { precision: 12, scale: 2 }).default('0'),
+  budgetLimit: numeric('budget_limit', { precision: 12, scale: 2 }),
+  status: text('status').default('active'),
+  owner: text('owner'),
+  accountId: uuid('account_id').references(() => ccAccounts.id),
+  riskScore: integer('risk_score'),
+  lastChargeAt: timestamp('last_charge_at', { withTimezone: true }),
+  lastSyncedAt: timestamp('last_synced_at', { withTimezone: true }),
+  metadata: jsonb('metadata').default({}),
+  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
+  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
+}, (table) => ({
+  categoryIdx: index('idx_cc_vendors_category').on(table.category),
+  statusIdx: index('idx_cc_vendors_status').on(table.status),
+  nextBillIdx: index('idx_cc_vendors_next_bill').on(table.nextBillDate),
+  riskIdx: index('idx_cc_vendors_risk').on(table.riskScore),
+}));

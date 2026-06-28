@@ -1,4 +1,5 @@
 import type { Env } from '../index';
+import { getDb } from './db';
 
 /**
  * Service integration clients for the ChittyOS ecosystem.
@@ -1110,6 +1111,70 @@ export function tasksClient(env: Env) {
       }
     },
   };
+}
+
+// ── Contextual task fallback ───────────────────────────────────
+// Lightweight task writer for contextual ingest conflict reconciliation.
+
+export interface ContextualTaskCreatePayload {
+  title: string;
+  description?: string;
+  task_type: string;
+  assigned_agent?: string;
+  priority?: number;
+  urgency?: 'now' | 'today' | 'this_week' | 'later';
+  needs_nick?: boolean;
+  payload?: Record<string, unknown>;
+}
+
+export function contextualTasksClient(env: Env) {
+  try {
+    const sql = getDb(env);
+    return {
+      createTask: async (payload: ContextualTaskCreatePayload): Promise<Record<string, unknown> | null> => {
+        try {
+          const externalId =
+            typeof payload.payload?.source_ref === 'string' && payload.payload.source_ref
+              ? `task:${payload.task_type}:${payload.payload.source_ref}`
+              : `task:${payload.task_type}:${crypto.randomUUID()}`;
+          const rows = await sql`
+            INSERT INTO cc_tasks (
+              external_id, title, description, task_type, source, priority, backend_status, metadata
+            )
+            VALUES (
+              ${externalId},
+              ${payload.title},
+              ${payload.description ?? null},
+              ${payload.task_type},
+              'contextual',
+              ${payload.priority ?? 5},
+              'queued',
+              ${JSON.stringify({
+                assigned_agent: payload.assigned_agent ?? null,
+                urgency: payload.urgency ?? null,
+                needs_nick: payload.needs_nick ?? false,
+                ...payload.payload,
+              })}::jsonb
+            )
+            ON CONFLICT (external_id) DO UPDATE SET
+              title = EXCLUDED.title,
+              description = EXCLUDED.description,
+              task_type = EXCLUDED.task_type,
+              priority = EXCLUDED.priority,
+              metadata = EXCLUDED.metadata,
+              updated_at = NOW()
+            RETURNING id, external_id, title, description, task_type, source, priority, backend_status, metadata`;
+          return rows[0] ?? null;
+        } catch (err) {
+          console.error('[contextual-tasks] createTask error:', err);
+          return null;
+        }
+      },
+    };
+  } catch (err) {
+    console.error('[contextual-tasks] client unavailable:', err);
+    return null;
+  }
 }
 
 // ── ChittyGov ─────────────────────────────────────────────

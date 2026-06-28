@@ -35,6 +35,7 @@ import { transactionRoutes } from './routes/transactions';
 import { timelineRoutes } from './routes/timeline';
 import { triageRoutes } from './routes/triage';
 import { workspaceStudioRoutes } from './routes/workspace-studio';
+import { vendorRoutes } from './routes/vendors';
 import { runHealthProbes } from './routes/health';
 
 // Re-export ActionAgent DO class so the runtime can find it
@@ -159,6 +160,7 @@ app.route('/api/cashflow', cashflowRoutes);
 app.route('/api/queue', swipeQueueRoutes);
 app.route('/api/payment-plan', paymentPlanRoutes);
 app.route('/api/revenue', revenueRoutes);
+app.route('/api/vendors', vendorRoutes);
 app.route('/api/email-connections', emailConnectionRoutes);
 app.route('/api/chat', chatRoutes);
 app.route('/api/litigation', litigationRoutes);

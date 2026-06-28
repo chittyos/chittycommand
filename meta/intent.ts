@@ -310,6 +310,7 @@ export async function createRouxIngestIntentIdempotent(
  * with the 0019 index present, raise a unique violation).
  *
  * @canon: chittycanon://core/services/chittycommand/contextual-ingest
+ * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
  */
 export async function createContextualIngestIntentIdempotent(
   env: IntentEnv,
