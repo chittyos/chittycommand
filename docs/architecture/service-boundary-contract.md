@@ -1,8 +1,8 @@
 ---
-uri: chittycanon://docs/architecture/chittycommand/service-boundary-contract
-namespace: chittycanon://docs/architecture
-type: contract
-version: 0.1.0
+uri: chittycanon://docs/ops/policy/chittycommand-service-boundary-contract
+namespace: chittycanon://docs/ops
+type: policy
+version: 0.2.0
 status: DRAFT
 registered_with: chittycanon://core/services/canon
 title: "ChittyOS Canonical Service-Boundary Contract (Implementation-Gated)"
@@ -16,7 +16,21 @@ discovery_refs:
 provenance:
   derived_from: adversarial canon-vs-code review, 2026-06-12
   authored: 2026-06-14
+  live_verification: 2026-06-28 (canon URI validator + ChittyOS service registry)
+modified: 2026-06-28
 ---
+
+<!--
+  URI/type note: v0.1.0 carried uri `chittycanon://docs/architecture/chittycommand/
+  service-boundary-contract` and `type: contract`. Both fail live canon validation:
+  `architecture` is not a valid docs domain (tech|legal|ops|exec|gov) and `contract`
+  is not in the frontmatter type enum (policy|spec|procedure|registry|architecture|
+  catalog|summary). v0.2.0 corrects to a validated `docs/ops/policy/...` URI and
+  `type: policy`. The file path stays under docs/architecture/ (URI ≠ file path, per
+  CHARTER.md precedent). ADR-001 still carries the same non-canonical `docs/architecture`
+  domain — logged below, not changed here.
+-->
+
 
 # ChittyOS Canonical Service-Boundary Contract (Implementation-Gated)
 
@@ -64,7 +78,8 @@ canonical docs?) and a **code axis** (does live repository evidence support it?)
 |-----|------|---------|
 | `canon_confirmed` | canon | Explicitly stated in canonical ChittyCanon documentation. |
 | `canon_directional` | canon | Implied by canonical references (e.g. tier/placement) but not spelled out as an ownership rule. |
-| `code_confirmed` | code | Verified against current, service-specific repository implementation. |
+| `registry_confirmed` | live | The live ChittyOS service registry (`helper_registry_lookup`) records this ownership scope + canonical `doc_ref`. Authoritative for *ownership intent*, independent of repo-file identity. |
+| `code_confirmed` | code | Verified against current, service-specific repository implementation (the repo's own `CHARTER.md` / `package.json`). |
 | `code_drift` | code | Canon says one thing; the repo's current code/identity does not yet match. |
 | `repo_identity_drift` | code | The repo carries another service's identity (e.g. a copied ChittyCanon `CHARTER.md` / `package.json`) instead of its own. A special case of `code_drift`. |
 | `design_proposed` | both | Architecturally sound but no canonical evidence **and** no installed repo found. Must not be enforced. |
@@ -107,26 +122,75 @@ ChittyCanon               = ontology / canonical rules
 
 ## Boundary evidence table
 
-Status reflects the 2026-06-12 adversarial review. Code-side findings for **other**
-repos were reported by that review and are **not independently re-verified in this
-repository** — treat them as `code_drift` flags to confirm, not as settled fact.
+Status reflects the 2026-06-12 adversarial review **overlaid with a 2026-06-28 live
+registry verification** (see the Live Verification section below). The registry layer
+now confirms *ownership intent* for connect/auth/id/canon and confirms ChittyRouter's
+`hold`. The **repo-file** identity drift (stale `CHARTER.md` / `package.json`) reported
+in 2026-06-12 remains **unverified** — that check needs read access to the other repos,
+which this session did not have. Treat repo-file `code_drift` as still-to-confirm.
 
 | Boundary claim | Status | Finding |
 |---|---|---|
-| ChittyCanon owns ontology / canonical model | `canon_confirmed` | Charter governs P/L/T/E/A ontology, URI namespace, code-pattern governance, canonical data model. Does **not** own ChittyID minting or ChittyAuth authentication. |
+| ChittyCanon owns ontology / canonical model | `canon_confirmed`, `registry_confirmed` | Charter governs P/L/T/E/A ontology, URI namespace, code-pattern governance, canonical data model. Does **not** own ChittyID minting or ChittyAuth authentication. Registry: `chittycanon` → "canonical definitions, architectural specifications" (`core/services/canon`). |
 | `Person (P, Synthetic)` is the actor class for AI/context | `canon_confirmed`, `code_confirmed` (local) | Canon defines `P` as actor-with-agency; AI contexts are `P`-Synthetic, never `Thing`; `Entity` is not a type. ChittyCommand's own T→P re-mint is the local instance. |
 | Context persistent; session ephemeral viewport/worker | `canon_confirmed` | Context has ChittyID, ledger, DNA, trust; session runs under a context's ChittyID as working memory. |
-| ChittyConnect owns connectivity / context binding | `canon_confirmed`, `code_drift` | Governance maps Connectivity (VY) and context binding to ChittyConnect. But `chittyos/chittyconnect`'s `CHARTER.md` / `package.json` reportedly identify as **ChittyCanon** → `repo_identity_drift`. |
-| ChittyAuth owns auth / access | `canon_confirmed`, `code_drift` | Governance maps Authority (RY) access to ChittyAuth. But `chittyfoundation/chittyauth` reportedly carries a ChittyCanon charter/package identity → `repo_identity_drift`. |
-| ChittyID owns identity minting | `canon_confirmed`, `code_drift` | Context spec: ChittyID mints IDs for synthetic contexts. But `chittyfoundation/chittyid` reportedly carries a ChittyCanon charter/package identity → `repo_identity_drift`. |
-| ChittyRouter owns routing | `canon_directional`, `code_drift` / `hold` | Ecosystem reference places ChittyRouter in Tier-2 platform infrastructure. Earlier repo checks suggested `chittyos/chittyrouter` also looked copied/stale as ChittyCanon → `hold` until a real ChittyRouter pentad/code surface is verified. |
-| ChittyTasks owns credential-origination task routing | `design_proposed` / `hold_blocked` | No installed repo named `chittytasks`/`chittytask` found. Concept is sound, but the capability-governor rule forbids inventing a boundary without canonical evidence → `hold`. |
+| ChittyConnect owns connectivity / context binding | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyconnect` → "service connections, credential proxying, API access" (`core/services/connect`, connect.chitty.cc) — confirms ownership. The 2026-06-12 report that `chittyos/chittyconnect`'s `CHARTER.md`/`package.json` identify as **ChittyCanon** (`repo_identity_drift`) is **not re-verified** this session. |
+| ChittyAuth owns auth / access | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyauth` → "authorization, access control, permissions" (`core/services/auth`, auth.chitty.cc) — confirms ownership. Reported `repo_identity_drift` on `chittyfoundation/chittyauth` **not re-verified** this session. |
+| ChittyID owns identity minting | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyid` → "identity management, user authentication, DID resolution" (`core/services/identity`, id.chitty.cc) — confirms ownership. Reported `repo_identity_drift` on `chittyfoundation/chittyid` **not re-verified** this session. |
+| ChittyRouter owns routing | `canon_directional`, `hold_blocked` (registry-confirmed) | Live registry returns **"System not found: chittyrouter"** — no registered ownership scope or `doc_ref`. This *confirms* the contract's hold: routing has no canonical registry surface to enforce against. |
+| ChittyTasks owns credential-origination task routing | `design_proposed` / `hold_blocked` | No installed repo named `chittytasks`/`chittytask` found, and no registry entry probed. Concept is sound, but the capability-governor rule forbids inventing a boundary without canonical evidence → `hold`. |
 
 > **Note on local naming:** within ChittyCommand, "tasks" capability is satisfied
 > by the `chittyagent-tasks` durable-queue pattern reused for intent dispatch and
 > `node_leases` (see `CHARTER.md` → Dependencies, and `daemon/leader.ts`). That is
 > **not** the same thing as a canonical `ChittyTasks` service owning
 > credential-origination routing; the latter remains `design_proposed`.
+
+## Live verification (2026-06-28)
+
+A live status sweep of the canon validator and the ChittyOS service registry was
+run on 2026-06-28. Results are recorded here as dated evidence; re-run before
+relying on them.
+
+### Service-registry ownership (`helper_registry_lookup`)
+
+| System | Ownership scope (registry) | `doc_ref` | Interface | `last_verified` |
+|---|---|---|---|---|
+| `chittyid` | identity management, user authentication, DID resolution | `chittycanon://core/services/identity` | id.chitty.cc | 2026-01-06 |
+| `chittyconnect` | service connections, credential proxying, API access | `chittycanon://core/services/connect` | connect.chitty.cc | 2026-01-06 |
+| `chittyauth` | authorization, access control, permissions | `chittycanon://core/services/auth` | auth.chitty.cc | 2026-01-06 |
+| `chittycanon` | canonical definitions, architectural specifications | `chittycanon://core/services/canon` | canon.chitty.cc | 2026-01-06 |
+| `chittyrouter` | **not found** | — | — | — |
+
+The registry confirms ownership intent for the four registered services and the
+**absence** of a routing service — exactly matching the target model's `hold` on
+ChittyRouter. Registry `last_verified` stamps are themselves stale (2026-01-06),
+so this is ownership-of-record, not a liveness guarantee.
+
+### Canon URI / frontmatter validation
+
+- This document's v0.1.0 URI (`chittycanon://docs/architecture/...`) and
+  `type: contract` **both failed** live canon validation. Corrected in v0.2.0 to
+  `chittycanon://docs/ops/policy/chittycommand-service-boundary-contract`
+  (validated clean) and `type: policy` (in the frontmatter enum).
+- **Discovered drift:** [ADR-001](ADR-001-meta-orchestrator-extension.md) carries
+  the same non-canonical `chittycanon://docs/architecture/chittycommand/ADR-001`
+  URI. Left unchanged here (changing a referenced canonical URI is out of scope for
+  this doc), but logged as a `canonical_drift_blocked` candidate for a follow-up.
+- **Registered:** this contract was registered with the canonical registry
+  (`canon_register_document`) on 2026-06-28T07:08:14Z → `registered: true`,
+  status `DRAFT` (authority: none, as expected for a draft).
+
+### Availability (not identity)
+
+- `canon` service `/health` was **down** (canon.chitty.cc non-200 on all probes) and
+  the MCP aggregator `mcp.chitty.cc` returned 404 — yet the canon **MCP surface**
+  (URI validation, frontmatter schema) responded normally. Availability drift is
+  orthogonal to the ownership boundaries above; recorded so a future reader does not
+  mistake a health blip for a boundary change.
+- The health probe covers the `chittyagent-*` MCP federation only; `id` / `connect` /
+  `router` are platform infrastructure and are not in it (consistent with them not
+  being MCP agents).
 
 ## Enforcement rule
 
@@ -149,12 +213,16 @@ The model is **canonically consistent** as a *target* contract. Current code and
 capability evidence says:
 
 ```text
-doc_code_aligned:        partially
-repo_identity_drift:     present (chittyconnect, chittyauth, chittyid; chittyrouter on hold)
+canon_alignment:         confirmed (this doc's own URI/type now validate clean)
+registry_ownership:      confirmed for chittyid / chittyconnect / chittyauth / chittycanon
+chittyrouter:            hold_blocked — not found in the live registry
+repo_identity_drift:     reported 2026-06-12, NOT re-verified (no repo read access this session)
 implementation_maturity: not enough to claim deployed
 chittytasks:             design-proposed unless found elsewhere
 ```
 
 This preserves the intended ChittyOS architecture without pretending the current
-repos fully implement it. Update this contract as repos shed `repo_identity_drift`
-and earn `code_confirmed` status, boundary by boundary.
+repos fully implement it. The 2026-06-28 sweep moved ownership intent from *reported*
+to *registry-confirmed*; the remaining gap is repo-file `code_confirmed` (reading each
+service's own `CHARTER.md` / `package.json`). Update this contract as that evidence
+lands, boundary by boundary.
