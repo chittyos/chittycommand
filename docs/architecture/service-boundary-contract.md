@@ -124,8 +124,9 @@ ChittyCanon               = ontology / canonical rules
 
 Status reflects the 2026-06-12 adversarial review **overlaid with a 2026-06-28 live
 registry verification** (see the Live Verification section below). The registry layer
-now confirms *ownership intent* for connect/auth/id/canon and confirms ChittyRouter's
-`hold`. The **repo-file** identity drift (stale `CHARTER.md` / `package.json`) reported
+now confirms *ownership intent* for connect/auth/id/canon and records a **registry miss**
+for ChittyRouter (which scopes — but does not prove — its `hold`; see the ChittyRouter
+row). The **repo-file** identity drift (stale `CHARTER.md` / `package.json`) reported
 in 2026-06-12 remains **unverified** — that check needs read access to the other repos,
 which this session did not have. Treat repo-file `code_drift` as still-to-confirm.
 
@@ -137,7 +138,7 @@ which this session did not have. Treat repo-file `code_drift` as still-to-confir
 | ChittyConnect owns connectivity / context binding | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyconnect` → "service connections, credential proxying, API access" (`core/services/connect`, connect.chitty.cc) — confirms ownership. The 2026-06-12 report that `chittyos/chittyconnect`'s `CHARTER.md`/`package.json` identify as **ChittyCanon** (`repo_identity_drift`) is **not re-verified** this session. |
 | ChittyAuth owns auth / access | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyauth` → "authorization, access control, permissions" (`core/services/auth`, auth.chitty.cc) — confirms ownership. Reported `repo_identity_drift` on `chittyfoundation/chittyauth` **not re-verified** this session. |
 | ChittyID owns identity minting | `canon_confirmed`, `registry_confirmed`; repo-file `code_drift` *unverified* | Registry: `chittyid` → "identity management, user authentication, DID resolution" (`core/services/identity`, id.chitty.cc) — confirms ownership. Reported `repo_identity_drift` on `chittyfoundation/chittyid` **not re-verified** this session. |
-| ChittyRouter owns routing | `canon_directional`, `hold_blocked` (registry-confirmed) | Live registry returns **"System not found: chittyrouter"** — no registered ownership scope or `doc_ref`. This *confirms* the contract's hold: routing has no canonical registry surface to enforce against. |
+| ChittyRouter owns routing | `canon_directional`, `hold` (registry miss only) | Live registry returns **"System not found: chittyrouter"** — so there is no registry *ownership* scope/`doc_ref` to enforce against. This is a **registry-lookup miss, NOT evidence the service is absent**: ChittyRouter is integrated in this repo (`wrangler.jsonc` → `CHITTYROUTER_URL=https://router.chitty.cc`) and declared an upstream "unified ingestion gateway" in `CHARTER.md`. The hold is scoped to *canonical routing-ownership evidence* (which the registry does not currently carry) — do **not** read it as routing being ownerless. |
 | ChittyTasks owns credential-origination task routing | `design_proposed` / `hold_blocked` | No installed repo named `chittytasks`/`chittytask` found, and no registry entry probed. Concept is sound, but the capability-governor rule forbids inventing a boundary without canonical evidence → `hold`. |
 
 > **Note on local naming:** within ChittyCommand, "tasks" capability is satisfied
@@ -162,10 +163,13 @@ relying on them.
 | `chittycanon` | canonical definitions, architectural specifications | `chittycanon://core/services/canon` | canon.chitty.cc | 2026-01-06 |
 | `chittyrouter` | **not found** | — | — | — |
 
-The registry confirms ownership intent for the four registered services and the
-**absence** of a routing service — exactly matching the target model's `hold` on
-ChittyRouter. Registry `last_verified` stamps are themselves stale (2026-01-06),
-so this is ownership-of-record, not a liveness guarantee.
+The registry confirms ownership intent for the four registered services. The
+`chittyrouter` row is a **registry-lookup miss, not a statement that routing is absent** —
+ChittyRouter is integrated in this repo (`wrangler.jsonc` `CHITTYROUTER_URL`, and a
+`CHARTER.md` upstream dependency). It means only that the registry carries no canonical
+*routing-ownership* record to enforce against, which is what scopes the `hold`. Registry
+`last_verified` stamps are themselves stale (2026-01-06), so this is ownership-of-record,
+not a liveness guarantee.
 
 ### Canon URI / frontmatter validation
 
@@ -215,7 +219,7 @@ capability evidence says:
 ```text
 canon_alignment:         confirmed (this doc's own URI/type now validate clean)
 registry_ownership:      confirmed for chittyid / chittyconnect / chittyauth / chittycanon
-chittyrouter:            hold_blocked — not found in the live registry
+chittyrouter:            hold — registry miss only (still integrated via wrangler.jsonc / CHARTER)
 repo_identity_drift:     reported 2026-06-12, NOT re-verified (no repo read access this session)
 implementation_maturity: not enough to claim deployed
 chittytasks:             design-proposed unless found elsewhere
