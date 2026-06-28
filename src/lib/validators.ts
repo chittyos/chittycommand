@@ -362,3 +362,55 @@ export const notionWebhookPayloadSchema = z.object({
   verification_type: verificationTypeSchema.optional(),
   metadata: z.record(z.string(), z.unknown()).optional(),
 });
+
+// ── Vendors (spend control) ──────────────────────────────────
+
+export const vendorCategorySchema = z.enum([
+  'infra', 'ai_inference', 'dev_tooling', 'data', 'communication', 'subscription', 'other',
+]);
+export const vendorBillingCycleSchema = z.enum(['monthly', 'quarterly', 'annual', 'usage', 'one_time']);
+export const vendorPaymentStatusSchema = z.enum(['active', 'failed', 'limited', 'unknown']);
+export const vendorStatusSchema = z.enum(['active', 'paused', 'cancelled', 'zombie']);
+
+export const createVendorSchema = z.object({
+  vendor_name: z.string().min(1).max(255),
+  category: vendorCategorySchema.optional(),
+  billing_cycle: vendorBillingCycleSchema.optional(),
+  expected_amount: z.number().min(0).optional(),
+  currency: z.string().length(3).optional(),
+  next_bill_date: dateString.optional(),
+  auto_pay: z.boolean().optional(),
+  payment_status: vendorPaymentStatusSchema.optional(),
+  payment_method: z.string().max(255).optional(),
+  spending_limit: z.number().min(0).optional(),
+  mtd_spend: z.number().min(0).optional(),
+  budget_limit: z.number().min(0).optional(),
+  status: vendorStatusSchema.optional(),
+  owner: z.string().max(100).optional(),
+  account_id: z.string().uuid().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const updateVendorSchema = z.object({
+  category: vendorCategorySchema.optional(),
+  billing_cycle: vendorBillingCycleSchema.optional(),
+  expected_amount: z.number().min(0).optional(),
+  currency: z.string().length(3).optional(),
+  next_bill_date: dateString.optional(),
+  auto_pay: z.boolean().optional(),
+  payment_status: vendorPaymentStatusSchema.optional(),
+  payment_method: z.string().max(255).optional(),
+  spending_limit: z.number().min(0).optional(),
+  mtd_spend: z.number().min(0).optional(),
+  budget_limit: z.number().min(0).optional(),
+  status: vendorStatusSchema.optional(),
+  owner: z.string().max(100).optional(),
+  account_id: z.string().uuid().optional(),
+  metadata: z.record(z.string(), z.unknown()).optional(),
+});
+
+export const vendorQuerySchema = z.object({
+  category: vendorCategorySchema.optional(),
+  status: vendorStatusSchema.optional(),
+  at_risk: z.enum(['true', 'false']).optional(),
+});

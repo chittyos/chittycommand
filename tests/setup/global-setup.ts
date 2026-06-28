@@ -31,7 +31,7 @@ const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
 
 // Post-consolidation, additive hand-rolled migrations that complement the
 // journaled drizzle schema (not part of the alternative-history set).
-const ADDITIVE_PREFIXES = ['0017_', '0018_'];
+const ADDITIVE_PREFIXES = ['0017_', '0018_', '0019_'];
 
 // Postgres SQLSTATE codes for "this object already exists" — safe to skip
 // when re-applying overlapping migration sets across branches.

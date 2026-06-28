@@ -141,7 +141,7 @@ describe('MCP — tools/list', () => {
     expect(tools.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('exposes 50 tools to unscoped callers (triage tools hidden)', async () => {
+  it('exposes 52 tools to unscoped callers (triage tools hidden)', async () => {
     // PR #104 round-3 fix: tools/list filters triage_* tools when caller
     // lacks chittytriage:write (or admin / chittytriage:admin / *).
     // The dev bypass in mcpAuthMiddleware grants scope `['mcp']` only, so
@@ -152,7 +152,7 @@ describe('MCP — tools/list', () => {
     const json = await res.json() as Record<string, unknown>;
     const result = json.result as Record<string, unknown>;
     const tools = result.tools as Array<{ name: string }>;
-    expect(tools.length).toBe(50);
+    expect(tools.length).toBe(52);
     // None of the triage_* tools should be advertised.
     const triageNames = [
       'triage_list_intents',
@@ -165,9 +165,9 @@ describe('MCP — tools/list', () => {
     }
   });
 
-  it('exposes all 54 tools to callers with triage scope', async () => {
+  it('exposes all 56 tools to callers with triage scope', async () => {
     // When the caller's scope includes `chittytriage:write` (or admin /
-    // chittytriage:admin / *), all 4 triage tools become visible — total 54.
+    // chittytriage:admin / *), all 4 triage tools become visible — total 56.
     // We bypass mcpAuthMiddleware here and inject scopes directly to
     // exercise the scoped tools/list branch deterministically (the dev
     // bypass in mcpAuthMiddleware only grants ['mcp']).
@@ -188,7 +188,7 @@ describe('MCP — tools/list', () => {
     const json = await res.json() as Record<string, unknown>;
     const result = json.result as Record<string, unknown>;
     const tools = result.tools as Array<{ name: string }>;
-    expect(tools.length).toBe(54);
+    expect(tools.length).toBe(56);
     expect(tools.find((t) => t.name === 'triage_list_intents')).toBeDefined();
     expect(tools.find((t) => t.name === 'triage_complete_intent')).toBeDefined();
   });

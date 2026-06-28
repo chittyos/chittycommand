@@ -14,6 +14,7 @@ const TRIAGE_TOOL_NAMES = new Set([
 ]);
 import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
+import { computeVendorRisk, vendorRiskInputFromRow, numOrNull } from '../lib/vendor-risk';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
@@ -38,7 +39,7 @@ const TRIAGE_VALID_SPACE: ReadonlySet<IntentSpace> = new Set<IntentSpace>(['busi
  * MCP (Model Context Protocol) server for ChittyCommand.
  *
  * Implements JSON-RPC 2.0 over HTTP (Streamable HTTP transport).
- * Provides 48 tools across 12 domains for Claude Code sessions.
+ * Provides 56 tools across 13 domains for Claude Code sessions.
  */
 
 export const mcpRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
@@ -468,6 +469,26 @@ const TOOLS = [
       required: [] as string[],
     },
   },
+  // ── Vendors (spend control) ────────────────────────────────
+  {
+    name: 'query_vendors',
+    description: 'List recurring spend vendors (infra, AI inference, dev tooling, subscriptions) with live spend-risk. Filter by category, status, or at_risk to surface vendors about to bounce a charge or blow a budget.',
+    inputSchema: {
+      type: 'object' as const,
+      properties: {
+        category: { type: 'string', description: 'Filter: infra, ai_inference, dev_tooling, data, communication, subscription, other' },
+        status: { type: 'string', description: 'Filter: active, paused, cancelled, zombie', enum: ['active', 'paused', 'cancelled', 'zombie'] },
+        at_risk: { type: 'boolean', description: 'Only vendors with risk score >= 50 (high/critical)' },
+        limit: { type: 'number', description: 'Max results (default 20)' },
+      },
+      required: [] as string[],
+    },
+  },
+  {
+    name: 'get_vendor_risk',
+    description: 'Portfolio spend-risk summary across all vendors: counts by risk level, total MTD spend, monthly committed spend, and the top at-risk vendors with reasons (failed autopay, spend-limit/budget breach, imminent manual bill).',
+    inputSchema: { type: 'object' as const, properties: {}, required: [] as string[] },
+  },
   // ChittyTriage / Roux — @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
   {
     name: 'triage_list_intents',
@@ -658,7 +679,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         endpoints: [
           '/api/dashboard', '/api/accounts', '/api/obligations', '/api/disputes',
           '/api/recommendations', '/api/cashflow', '/api/legal', '/api/documents',
-          '/api/sync', '/api/queue', '/api/payment-plan', '/api/revenue',
+          '/api/sync', '/api/queue', '/api/payment-plan', '/api/revenue', '/api/vendors',
           '/api/email-connections', '/api/chat', '/api/tasks',
           '/api/bridge/plaid', '/api/bridge/finance', '/api/bridge/ledger',
           '/api/bridge/scrape', '/api/bridge/disputes', '/api/bridge/mercury',
@@ -671,7 +692,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
           'cc_legal_deadlines', 'cc_disputes', 'cc_dispute_correspondence',
           'cc_documents', 'cc_recommendations', 'cc_actions_log',
           'cc_cashflow_projections', 'cc_decision_feedback', 'cc_revenue_sources',
-          'cc_payment_plans', 'cc_sync_log', 'cc_tasks',
+          'cc_payment_plans', 'cc_sync_log', 'cc_tasks', 'cc_vendors',
         ],
       };
     }
@@ -1122,6 +1143,56 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
       `;
       const total = rows.reduce((s, r) => s + parseFloat((r as Record<string, unknown>).amount as string || '0'), 0);
       return { count: rows.length, total_monthly: Math.round(total * 100) / 100, sources: rows };
+    }
+
+    case 'query_vendors': {
+      const category = args.category || null;
+      const status = args.status || null;
+      const atRisk = args.at_risk === true;
+      const limit = Math.min(Number(args.limit) || 20, 50);
+      // Fetch matching rows (vendor table is small) then recompute risk live —
+      // the stored risk_score may be stale — before filtering/limiting, so
+      // at_risk never drops a high-risk vendor that would sort past a page edge.
+      const rows = await sql`
+        SELECT id, vendor_name, category, billing_cycle, expected_amount, currency, next_bill_date, auto_pay, payment_status, payment_method, spending_limit, mtd_spend, budget_limit, status, risk_score
+        FROM cc_vendors
+        WHERE (${category}::text IS NULL OR category = ${category})
+          AND (${status}::text IS NULL OR status = ${status})
+      `;
+      let vendors = (rows as Record<string, unknown>[]).map((r) => {
+        const risk = computeVendorRisk(vendorRiskInputFromRow(r));
+        return { ...r, risk_score: risk.score, risk_level: risk.level, risk_reasons: risk.reasons };
+      });
+      if (atRisk) vendors = vendors.filter((v) => (v.risk_score as number) >= 50);
+      vendors.sort((a, b) => (b.risk_score as number) - (a.risk_score as number));
+      const limited = vendors.slice(0, limit);
+      return { count: limited.length, vendors: limited };
+    }
+
+    case 'get_vendor_risk': {
+      const rows = await sql`
+        SELECT id, vendor_name, category, billing_cycle, expected_amount, next_bill_date, auto_pay, payment_status, spending_limit, mtd_spend, budget_limit, status
+        FROM cc_vendors WHERE status != 'cancelled'
+      `;
+      const byLevel: Record<string, number> = { critical: 0, high: 0, medium: 0, low: 0 };
+      const atRisk: Array<{ vendor_name: unknown; category: unknown; score: number; level: string; reasons: string[] }> = [];
+      let totalMtd = 0;
+      let monthlyCommitted = 0;
+      for (const r of rows as Record<string, unknown>[]) {
+        totalMtd += numOrNull(r.mtd_spend) ?? 0;
+        if (r.billing_cycle === 'monthly') monthlyCommitted += numOrNull(r.expected_amount) ?? 0;
+        const risk = computeVendorRisk(vendorRiskInputFromRow(r));
+        byLevel[risk.level] = (byLevel[risk.level] || 0) + 1;
+        if (risk.score >= 50) atRisk.push({ vendor_name: r.vendor_name, category: r.category, score: risk.score, level: risk.level, reasons: risk.reasons });
+      }
+      atRisk.sort((a, b) => b.score - a.score);
+      return {
+        vendor_count: rows.length,
+        by_level: byLevel,
+        total_mtd_spend: Math.round(totalMtd * 100) / 100,
+        monthly_committed: Math.round(monthlyCommitted * 100) / 100,
+        at_risk: atRisk.slice(0, 20),
+      };
     }
 
     case 'get_sync_status': {
