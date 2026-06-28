@@ -52,8 +52,20 @@ the re-mint.
 2. Payload placeholder substituted at submission time (never committed in plaintext).
 3. `register.chitty.cc` returns 2xx; registry search shows `tier: 2` + the new ID.
 4. `CHARTER.md` Compliance checkbox flipped, with redacted registration evidence recorded.
-5. Service-Boundary Contract row for `Person (P, Synthetic)` updated from
-   `code_confirmed (local, re-mint pending)` to `code_confirmed`.
+5. Service-Boundary Contract row for `Person (P, Synthetic)` reaches `code_confirmed`.
+   (It currently carries the local note "re-mint pending"; drop that qualifier once
+   the new ID is live so the canonical status tag stands alone.)
+
+## Authorization
+
+Advancing any step is a **sensitive intent** (minting service identity), so it is
+**`requires_human`** under the sovereignty model — never an autonomous action. The
+authorized actor is the **ChittyCommand service owner / operator** (ADR-001: "nb
+(operator)"; `CHARTER.md` → Ownership), acting through the
+`ch1tty → ChittyConnect → chittyid` sensitive-intent broker per
+[`SUBMISSION_RUNBOOK.md`](SUBMISSION_RUNBOOK.md). No service token or autonomous
+executor may self-advance the re-mint; if the broker path is unavailable, fail
+closed (`POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE`).
 
 > This file does not mint, submit, or handle tokens. It is a tracker. Operator action
 > via the runbook is required to advance any step above.
