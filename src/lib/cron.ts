@@ -10,6 +10,7 @@ import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
 import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
+import { ingestContextual } from './contextual-ingest';
 
 /**
  * Cron sync orchestrator.
@@ -99,6 +100,29 @@ export async function runCronSync(
         recordsSynced += emailSynced;
       } catch (err) {
         console.error('[cron:email_bills] failed:', err);
+      }
+
+      // Phase 6.5: Contextual comms ingest
+      // Reads the separate contextual Neon project, classifies candidate
+      // messages, and writes cc_intents / cc_obligations / cc_recommendations.
+      try {
+        const contextualResult = await ingestContextual(env, sql, { limit: 50 });
+        const created =
+          contextualResult.intents_created +
+          contextualResult.obligations_created +
+          contextualResult.recommendations_created +
+          contextualResult.conflicts_raised;
+        if (created > 0) {
+          recordsSynced += created;
+          console.log(
+            `[cron:contextual] scanned=${contextualResult.candidates_scanned} ` +
+            `intents=${contextualResult.intents_created} obligations=${contextualResult.obligations_created} ` +
+            `recs=${contextualResult.recommendations_created} conflicts=${contextualResult.conflicts_raised} ` +
+            `gated=${contextualResult.legalink_gated}`,
+          );
+        }
+      } catch (err) {
+        console.error('[cron:contextual] failed:', err);
       }
 
       // Phase 7: Revenue source discovery refresh
