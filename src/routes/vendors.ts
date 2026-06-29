@@ -1,7 +1,7 @@
 import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
-import { computeVendorRisk, vendorRiskInputFromRow, numOrNull } from '../lib/vendor-risk';
+import { computeVendorRisk, vendorRiskInputFromRow, numOrNull, AT_RISK_THRESHOLD } from '../lib/vendor-risk';
 import { createVendorSchema, updateVendorSchema, vendorQuerySchema } from '../lib/validators';
 
 export const vendorRoutes = new Hono<{ Bindings: Env }>();
@@ -27,8 +27,11 @@ vendorRoutes.get('/', async (c) => {
       AND (${status}::text IS NULL OR status = ${status})
     ORDER BY risk_score DESC NULLS LAST, next_bill_date ASC NULLS LAST, vendor_name ASC
   `;
-  const vendors = rows.map((r) => ({ ...r, risk: computeVendorRisk(vendorRiskInputFromRow(r)) }));
-  const filtered = atRisk ? vendors.filter((v) => v.risk.score >= 50) : vendors;
+  const vendors = rows
+    .map((r) => ({ ...r, risk: computeVendorRisk(vendorRiskInputFromRow(r)) }))
+    // Sort by *live* risk, not the stored (possibly stale) risk_score column.
+    .sort((a, b) => b.risk.score - a.risk.score);
+  const filtered = atRisk ? vendors.filter((v) => v.risk.score >= AT_RISK_THRESHOLD) : vendors;
   return c.json({ count: filtered.length, vendors: filtered });
 });
 
@@ -62,7 +65,7 @@ vendorRoutes.get('/summary', async (c) => {
 
     const risk = computeVendorRisk(vendorRiskInputFromRow(r));
     byLevel[risk.level] = (byLevel[risk.level] || 0) + 1;
-    if (risk.score >= 50) {
+    if (risk.score >= AT_RISK_THRESHOLD) {
       atRisk.push({ id: r.id, vendor_name: r.vendor_name, category: cat, payment_status: r.payment_status, score: risk.score, level: risk.level, reasons: risk.reasons });
     }
     if (r.status === 'zombie') {
@@ -104,7 +107,10 @@ vendorRoutes.get('/:id', async (c) => {
   return c.json({ ...row, risk: computeVendorRisk(vendorRiskInputFromRow(row)) });
 });
 
-// Create or upsert a vendor (keyed on vendor_name). POST is a full representation.
+// Create or upsert a vendor (keyed on vendor_name). POST is a FULL representation:
+// on conflict every column is overwritten from this payload, and omitted fields
+// fall back to their defaults (e.g. mtd_spend→0, payment_status→'unknown'). Use
+// PATCH for partial updates so existing spend/status data isn't clobbered.
 vendorRoutes.post('/', async (c) => {
   const raw = await c.req.json();
   const result = createVendorSchema.safeParse(raw);

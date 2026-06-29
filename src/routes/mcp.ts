@@ -14,7 +14,7 @@ const TRIAGE_TOOL_NAMES = new Set([
 ]);
 import { getDb, typedRows } from '../lib/db';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
-import { computeVendorRisk, vendorRiskInputFromRow, numOrNull } from '../lib/vendor-risk';
+import { computeVendorRisk, vendorRiskInputFromRow, numOrNull, AT_RISK_THRESHOLD } from '../lib/vendor-risk';
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
@@ -1163,7 +1163,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         const risk = computeVendorRisk(vendorRiskInputFromRow(r));
         return { ...r, risk_score: risk.score, risk_level: risk.level, risk_reasons: risk.reasons };
       });
-      if (atRisk) vendors = vendors.filter((v) => (v.risk_score as number) >= 50);
+      if (atRisk) vendors = vendors.filter((v) => (v.risk_score as number) >= AT_RISK_THRESHOLD);
       vendors.sort((a, b) => (b.risk_score as number) - (a.risk_score as number));
       const limited = vendors.slice(0, limit);
       return { count: limited.length, vendors: limited };
@@ -1183,7 +1183,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
         if (r.billing_cycle === 'monthly') monthlyCommitted += numOrNull(r.expected_amount) ?? 0;
         const risk = computeVendorRisk(vendorRiskInputFromRow(r));
         byLevel[risk.level] = (byLevel[risk.level] || 0) + 1;
-        if (risk.score >= 50) atRisk.push({ vendor_name: r.vendor_name, category: r.category, score: risk.score, level: risk.level, reasons: risk.reasons });
+        if (risk.score >= AT_RISK_THRESHOLD) atRisk.push({ vendor_name: r.vendor_name, category: r.category, score: risk.score, level: risk.level, reasons: risk.reasons });
       }
       atRisk.sort((a, b) => b.score - a.score);
       return {
