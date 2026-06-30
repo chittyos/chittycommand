@@ -146,6 +146,7 @@ vendorRoutes.post('/', async (c) => {
       status = EXCLUDED.status,
       owner = EXCLUDED.owner,
       account_id = EXCLUDED.account_id,
+      metadata = EXCLUDED.metadata,
       risk_score = EXCLUDED.risk_score,
       updated_at = NOW()
     RETURNING *

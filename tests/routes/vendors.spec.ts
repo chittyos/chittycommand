@@ -102,16 +102,20 @@ describe.skipIf(SKIP)('/api/vendors (real Neon)', () => {
       category: 'infra',
       payment_status: 'failed',
       mtd_spend: 200,
+      metadata: { note: 'first' },
     });
     expect(first.status).toBe(201);
     expect(parseFloat(first.json.mtd_spend)).toBe(200);
+    expect(first.json.metadata).toEqual({ note: 'first' });
 
-    // Re-POST with only name+category — documented behaviour resets the rest.
+    // Re-POST with only name+category — documented behaviour resets the rest,
+    // including metadata (ON CONFLICT now assigns metadata = EXCLUDED.metadata).
     const second = await api('POST', '/', { vendor_name: name, category: 'data' });
     expect(second.status).toBe(201);
     expect(second.json.category).toBe('data');
     expect(parseFloat(second.json.mtd_spend)).toBe(0); // clobbered to default
     expect(second.json.payment_status).toBe('unknown'); // clobbered to default
+    expect(second.json.metadata).toEqual({}); // clobbered to default (was {note:'first'})
   });
 
   it('GET /summary returns spend rollups', async () => {
