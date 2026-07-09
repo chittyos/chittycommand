@@ -107,7 +107,7 @@ Access auth context in handlers via `c.get('userId')` and `c.get('scopes')`.
 - All secrets go through `wrangler secret put` — never in `[vars]` in `wrangler.jsonc`.
 - KV service tokens: `bridge:service_token`, `mcp:service_token`, `scrape:service_token`.
 - CORS is restricted to approved origins: `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`.
-- Credentials use 1Password (`op run`) in local development — never expose in terminal output or logs.
+- Credentials use chittysecrets (`chittysecrets run`) in local development — never expose in terminal output or logs.
 - Error responses must **not** leak internal error messages, stack traces, or sensitive data.
 - All user input must be validated with Zod before use.
 - Use `X-Source-Service: chittycommand` header on all outbound service calls.

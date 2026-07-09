@@ -53,7 +53,7 @@ Data Sources → Service Apps (Finance, Ledger, Scrape)
 - Callers pass `Authorization: Bearer <token>`
 
 ### Credentials
-- Mr. Cooper login: 1Password → ChittyScrape KV (`mrcooper:username`, `mrcooper:password`)
+- Mr. Cooper login: chittysecrets → ChittyScrape KV (`mrcooper:username`, `mrcooper:password`)
 - Court docket and Cook County tax: public pages, no login
 
 ### Scrape Targets

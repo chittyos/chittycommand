@@ -37,7 +37,7 @@ pnpm install
 
 ```bash
 cp .env.example .env
-# Fill in DATABASE_URL from 1Password: op read "op://Private/ChittyFinance Neon/connection_string"
+# Fill in DATABASE_URL from chittysecrets: op read "op://Private/ChittyFinance Neon/connection_string"
 ```
 
 **Step 4: Start dev server and test endpoints**
@@ -894,7 +894,7 @@ npx wrangler kv namespace create SCRAPE_KV
 **Step 2: Deploy**
 
 ```bash
-npx wrangler deploy
+npx cf deploy
 ```
 
 **Step 3: Seed service token**
@@ -908,7 +908,7 @@ npx wrangler kv key put --binding SCRAPE_KV --remote "scrape:service_token" "${t
 **Step 4: Seed Mr. Cooper credentials**
 
 ```bash
-# Get Mr. Cooper creds from 1Password
+# Get Mr. Cooper creds from chittysecrets
 mrcooper_user=$(op read "op://Private/Mr Cooper/username")
 mrcooper_pass=$(op read "op://Private/Mr Cooper/password")
 npx wrangler kv key put --binding SCRAPE_KV --remote "mrcooper:username" "${mrcooper_user}"
@@ -1365,7 +1365,7 @@ git commit -m "feat: add missing properties (Surf 211, Clarendon) with PINs and 
 **Step 1: Seed ChittyScrape service token in ChittyCommand KV**
 
 ```bash
-# Get the token from 1Password (stored in Task 10)
+# Get the token from chittysecrets (stored in Task 10)
 token=$(op read "op://Private/Mercury API Keys/ChittyScrape/service_token")
 npx wrangler kv key put --binding COMMAND_KV --remote "scrape:service_token" "${token}"
 ```
@@ -1373,7 +1373,7 @@ npx wrangler kv key put --binding COMMAND_KV --remote "scrape:service_token" "${
 **Step 2: Deploy**
 
 ```bash
-npx wrangler deploy
+npx cf deploy
 ```
 
 **Step 3: Test scrape triggers**

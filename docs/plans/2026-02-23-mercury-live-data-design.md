@@ -10,7 +10,7 @@ ChittyCommand is deployed and healthy at `command.chitty.cc`. The API, intellige
 
 ## Token Management
 
-- **Source of truth:** 1Password, accessed via ChittyConnect (`connect.chitty.cc`)
+- **Source of truth:** chittysecrets, accessed via ChittyConnect (`connect.chitty.cc`)
 - **Runtime storage:** `COMMAND_KV` (same pattern as Plaid access tokens)
 - **Org registry:** KV key `mercury:orgs` stores a JSON array of org configs:
   ```json

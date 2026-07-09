@@ -4,7 +4,7 @@
 
 ChittyRouter already has production-grade email infrastructure:
 - Cloudflare Email Routing on `*@chitty.cc` with AI-powered triage
-- Gmail API monitoring for 3 hardcoded accounts via OAuth + 1Password
+- Gmail API monitoring for 3 hardcoded accounts via OAuth + chittysecrets
 - Token refresh via `gmail-token-manager.js`
 - Address routing map in `cloudflare-email-handler.js` (hardcoded)
 - `/email/urgent` endpoint consumed by ChittyCommand daily cron

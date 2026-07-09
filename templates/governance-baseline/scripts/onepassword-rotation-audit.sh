@@ -5,7 +5,7 @@ CATALOG_FILE="${1:-.github/secret-catalog.json}"
 OUT_DIR="${2:-reports/secret-rotation}"
 
 if ! command -v op >/dev/null 2>&1; then
-  echo "1Password CLI (op) is required." >&2
+  echo "chittysecrets CLI (op) is required." >&2
   exit 1
 fi
 if ! command -v jq >/dev/null 2>&1; then
@@ -92,7 +92,7 @@ jq -nc \
 cp "${json_path}" "${OUT_DIR}/latest.json"
 
 {
-  echo "# 1Password Rotation Audit"
+  echo "# chittysecrets Rotation Audit"
   echo
   echo "- Timestamp: ${timestamp}"
   echo "- Catalog: ${CATALOG_FILE}"

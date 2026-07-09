@@ -191,7 +191,7 @@ const response = await fetch(
 |--------|--------|---------|
 | `CF_AIG_TOKEN` | `op://Private/ChittyGateway API Credentials/For ChittyCommand Use/api_token` | ChittyGateway auth |
 | `NEON_DATABASE_URL` | Existing | ChittyCommand DB access |
-| `GITHUB_TOKEN` | 1Password | Issue creation (scoped: issues only) |
+| `GITHUB_TOKEN` | chittysecrets | Issue creation (scoped: issues only) |
 
 ### Audit Trail
 

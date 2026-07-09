@@ -13,7 +13,7 @@ Expand ChittyCommand's data ingestion pipeline to scrape login-based bill portal
 | **ChittyCommand** | Orchestrator — cron triggers, stores results, urgency scoring, dashboard |
 | **ChittyRouter** | Unified ingestion gateway — routes scrape requests, classifies inbound emails, dispatches to backends, handles retries |
 | **ChittyScrape** | Browser automation — login-based portal scraping, court system searches, screenshot/PDF capture |
-| **ChittyConnect** | Credential management — portal credentials via 1Password, service token issuance, ephemeral credential delivery |
+| **ChittyConnect** | Credential management — portal credentials via chittysecrets, service token issuance, ephemeral credential delivery |
 | **ChittyGov** | Governance data source — compliance dates, registered agents, entity filings, process server tracking |
 | **ChittyLedger** | Evidence pipeline — any scraped artifact can be elevated to evidence with chain of custody (not everything is evidence, but anything could be) |
 
@@ -28,7 +28,7 @@ TRIGGERS
 CREDENTIAL FLOW (zero-trust, ephemeral)
   ChittyRouter receives scrape request
     → fetches credentials from ChittyConnect /api/credentials/{portalRef}
-    → ChittyConnect retrieves from 1Password (op run)
+    → ChittyConnect retrieves from chittysecrets (chittysecrets run)
     → credentials passed in-memory to ChittyScrape (never persisted)
     → ChittyScrape uses credentials for browser session
     → credentials discarded after scrape completes
@@ -153,9 +153,9 @@ interface ScrapeResult {
 
 All scrape triggers go through ChittyRouter, not ChittyScrape directly.
 
-### Credential Storage (ChittyConnect + 1Password)
+### Credential Storage (ChittyConnect + chittysecrets)
 
-Portal credentials stored in 1Password under vault `ChittyOS-Portals`:
+Portal credentials stored in chittysecrets under vault `ChittyOS-Portals`:
 - `portal:peoples_gas` → { username, password }
 - `portal:comed` → { username, password }
 - `portal:xfinity` → { username, password }
@@ -338,7 +338,7 @@ No changes needed. Existing `ledger/sync-documents` and `ledger/record-action` b
 
 ## Build Sequence
 
-1. **Phase 1a**: ChittyConnect portal credential endpoints + 1Password vault setup
+1. **Phase 1a**: ChittyConnect portal credential endpoints + chittysecrets vault setup
 2. **Phase 1b**: ChittyScrape portal adapters (Peoples Gas, ComEd first)
 3. **Phase 1c**: ChittyRouter /route/scrape + scrape-dispatch-agent
 4. **Phase 1d**: ChittyCommand cron wiring + cc_obligations upsert from scrape results

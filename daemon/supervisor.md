@@ -35,7 +35,7 @@ Every node:
 - `CHITTYCONNECT_URL` and `CHITTYCONNECT_TOKEN` for `meta/context.ts`.
 
 Secrets are delivered via the operator manifest's standard path:
-1Password (cold source of truth) → Cloudflare Secrets / launchd env / systemd
+chittysecrets (cold source of truth) → Cloudflare Secrets / launchd env / systemd
 `EnvironmentFile=` (runtime delivery). The daemon never reads secrets from
 local disk except via the supervisor-injected environment.
 
@@ -54,7 +54,7 @@ StandardOutPath = /var/log/chittycommand-daemon.out.log
 StandardErrorPath = /var/log/chittycommand-daemon.err.log
 EnvironmentVariables = { CHITTYCOMMAND_NODE_ID = ...,
                          CHITTYCOMMAND_NODE_DESCRIPTOR = ...,
-                         DATABASE_URL = ... }   # injected by 1Password CLI at boot
+                         DATABASE_URL = ... }   # injected by chittysecrets CLI at boot
 ```
 
 Notes:
@@ -91,7 +91,7 @@ WantedBy=multi-user.target
 ```
 
 Notes:
-- `EnvironmentFile` is rendered at boot from 1Password via the operator's
+- `EnvironmentFile` is rendered at boot from chittysecrets via the operator's
   bootstrap script — never checked in.
 - `Restart=on-failure` + `RestartSec=10` matches the launchd throttle behavior.
 - `TimeoutStopSec=30` gives the loop time to release the lease cleanly on

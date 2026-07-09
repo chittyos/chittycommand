@@ -34,14 +34,14 @@ The committed payload contains two placeholder strings. Both must be substituted
 
 | Placeholder | Substitution Source | Routing |
 |---|---|---|
-| `<<CHITTY_REGISTER_TOKEN>>` | 1Password (cold source) → Cloudflare Secrets (runtime) | ChittyConnect broker — operator never handles the bearer directly |
+| `<<CHITTY_REGISTER_TOKEN>>` | chittysecrets (cold source) → Cloudflare Secrets (runtime) | ChittyConnect broker — operator never handles the bearer directly |
 | `<<PENDING_P_SYNTHETIC_CHITTYID>>` | Newly minted via ChittyID service | Operator confirms `P` in 5th field, then injects |
 
 Per `/home/ubuntu/.ch1tty/canon/system-wide-sensitive-intent-contract-v1.md`, the operator does not paste secrets — the request must route through ChittyConnect. If the broker path is unavailable, fail closed with `POLICY_BLOCKED_CHITTYCONNECT_UNAVAILABLE`.
 
 ## Submission Command (shape only)
 
-The actual injection uses `op run` per the operator manifest. The template below shows the request shape — do NOT run it verbatim with raw env vars.
+The actual injection uses `chittysecrets run` per the operator manifest. The template below shows the request shape — do NOT run it verbatim with raw env vars.
 
 ```bash
 jq '.registrationToken="$CHITTY_REGISTER_TOKEN" | .service.chittyId="$NEW_CHITTYID"' \
@@ -52,7 +52,7 @@ jq '.registrationToken="$CHITTY_REGISTER_TOKEN" | .service.chittyId="$NEW_CHITTY
      --data @-
 ```
 
-Production invocation wraps the above under `op run --env-file=... --` with the token resolved by ChittyConnect at request time.
+Production invocation wraps the above under `chittysecrets run --env-file=... --` with the token resolved by ChittyConnect at request time.
 
 ## Verification
 

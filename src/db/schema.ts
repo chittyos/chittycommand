@@ -568,7 +568,7 @@ export const ccNodeLeases = pgTable('cc_node_leases', {
 // ─────────────────────────────────────────────────────────────
 // Vendor spend control (migration 0019)
 // Recurring org/operational vendors (GitHub, Cloudflare, Anthropic, OpenAI,
-// Neon, 1Password, …). Risk scoring lives in src/lib/vendor-risk.ts; the
+// Neon, chittysecrets, …). Risk scoring lives in src/lib/vendor-risk.ts; the
 // payment_status='failed'|'limited' signal is the autopay-bounce alarm.
 // ─────────────────────────────────────────────────────────────
 export const ccVendors = pgTable('cc_vendors', {

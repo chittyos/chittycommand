@@ -183,7 +183,7 @@ git commit -m "feat: add /api/chat route with ChittyGateway streaming proxy"
 The route reads `chat:cf_aig_token` from `COMMAND_KV`. Store the token via wrangler:
 
 ```bash
-# Read token from 1Password, pipe to KV — never expose in terminal
+# Read token from chittysecrets, pipe to KV — never expose in terminal
 op read "op://Private/ChittyGateway API Credentials/For ChittyCommand Use/api_token" \
   | xargs -I{} npx wrangler kv key put "chat:cf_aig_token" "{}" \
     --namespace-id=$(npx wrangler kv list | jq -r '.[] | select(.title=="chittycommand-kv") | .id') \

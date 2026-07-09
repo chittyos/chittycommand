@@ -96,7 +96,7 @@ For dynamic accounts with `connect_ref` instead of `opPath`, add a branch in `re
         // Dynamic account — fetch credentials via ChittyConnect connect_ref
         creds = await this.getCredentialsFromConnectRef(account.connect_ref);
       } else if (account.opPath) {
-        // Legacy account — fetch from 1Password
+        // Legacy account — fetch from chittysecrets
         creds = await this.getCredentialsFromOP(account.opPath);
       }
 ```
@@ -694,7 +694,7 @@ git commit -m "feat: add Gmail OAuth, namespace sync, email sync, per-user filte
 
 ```bash
 cd /Users/nb/Desktop/Projects/github.com/CHITTYOS/chittyrouter
-npx wrangler deploy --env production
+npx cf deploy --env production
 ```
 
 Note: `GOOGLE_CLIENT_SECRET` must be set as a wrangler secret:

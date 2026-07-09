@@ -207,7 +207,7 @@ interface MercuryOrg {
   opRef: string;
 }
 
-/** Refresh Mercury tokens from ChittyConnect/1Password into KV */
+/** Refresh Mercury tokens from ChittyConnect/chittysecrets into KV */
 bridgeRoutes.post('/mercury/refresh-tokens', async (c) => {
   const connect = connectClient(c.env);
   const orgsJson = await c.env.COMMAND_KV.get('mercury:orgs');
@@ -221,7 +221,7 @@ bridgeRoutes.post('/mercury/refresh-tokens', async (c) => {
     try {
       let token: string | null = null;
       if (connect) {
-        // Try fetching from ChittyConnect (1Password proxy)
+        // Try fetching from ChittyConnect (chittysecrets proxy)
         const res = await fetch(`${c.env.CHITTYCONNECT_URL}/api/credentials/${encodeURIComponent(org.opRef)}`, {
           headers: { 'X-Source-Service': 'chittycommand' },
           signal: AbortSignal.timeout(5000),
@@ -645,7 +645,7 @@ git commit -m "feat: wire Mercury multi-org sync into daily cron pipeline"
 
 **Step 1: Deploy to Cloudflare Workers**
 
-Run: `npx wrangler deploy`
+Run: `npx cf deploy`
 Expected: Successful deploy with updated bindings showing `CHITTYBOOKS_URL`
 
 **Step 2: Verify health**
@@ -677,7 +677,7 @@ This is a manual step. The user needs to populate the `mercury:orgs` KV key with
 npx wrangler kv key put --binding COMMAND_KV "mercury:orgs" '[{"slug":"aribia-mgmt","opRef":"op://ChittyVault/mercury-aribia-mgmt/token"},{"slug":"personal","opRef":"op://ChittyVault/mercury-personal/token"}]'
 ```
 
-The exact slugs and 1Password references depend on the user's setup.
+The exact slugs and chittysecrets references depend on the user's setup.
 
 **Step 2: Manually seed a test token (optional)**
 
@@ -920,7 +920,7 @@ git commit -m "feat: add ChittyAssets bridge routes (sync-properties, submit-evi
 
 **Step 1: Deploy to Cloudflare Workers**
 
-Run: `npx wrangler deploy`
+Run: `npx cf deploy`
 Expected: Successful deploy with `CHITTYBOOKS_URL` and `CHITTYASSETS_URL` in bindings
 
 **Step 2: Verify health**

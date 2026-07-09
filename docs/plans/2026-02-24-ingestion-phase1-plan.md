@@ -4,9 +4,9 @@
 
 **Goal:** Expand ChittyCommand to scrape login-based bill portals (Peoples Gas, ComEd, HOA, Xfinity, Citi, Home Depot, Lowe's) via ChittyRouter gateway, with credentials from ChittyConnect.
 
-**Architecture:** ChittyCommand cron triggers scrape requests through ChittyRouter (unified gateway), which fetches portal credentials from ChittyConnect (1Password-backed), dispatches to ChittyScrape (Puppeteer browser automation), and returns structured results that ChittyCommand stores in cc_obligations + cc_documents + R2.
+**Architecture:** ChittyCommand cron triggers scrape requests through ChittyRouter (unified gateway), which fetches portal credentials from ChittyConnect (chittysecrets-backed), dispatches to ChittyScrape (Puppeteer browser automation), and returns structured results that ChittyCommand stores in cc_obligations + cc_documents + R2.
 
-**Tech Stack:** Hono TypeScript (Cloudflare Workers), Puppeteer (@cloudflare/puppeteer), Neon PostgreSQL (Drizzle), R2 storage, 1Password via `op run`
+**Tech Stack:** Hono TypeScript (Cloudflare Workers), Puppeteer (@cloudflare/puppeteer), Neon PostgreSQL (Drizzle), R2 storage, chittysecrets via `chittysecrets run`
 
 **Repos touched:**
 - `CHITTYOS/chittycommand` — orchestration, cron, storage
@@ -124,7 +124,7 @@ const portalCredentials = new Hono();
 /**
  * GET /api/credentials/portal/:target
  *
- * Returns ephemeral portal credentials from KV (populated by 1Password sync).
+ * Returns ephemeral portal credentials from KV (populated by chittysecrets sync).
  * Credentials are never cached or logged — read from KV, return, done.
  *
  * Target format: "peoples_gas", "comed", "xfinity", "hoa:14-21-111-008-1006"
@@ -961,6 +961,6 @@ After all tasks are complete:
 2. Deploy ChittyScrape second (portal scrapers)
 3. Deploy ChittyRouter third (gateway routes)
 4. Deploy ChittyCommand last (cron wiring + UI)
-5. Populate portal credentials in 1Password vault, sync to ChittyConnect KV
+5. Populate portal credentials in chittysecrets vault, sync to ChittyConnect KV
 6. Test manually via Settings UI sync buttons
 7. Verify cron triggers work on next scheduled run

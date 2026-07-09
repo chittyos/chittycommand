@@ -1,4 +1,4 @@
-# Access Broker and 1Password Runbook
+# Access Broker and chittysecrets Runbook
 
 ## Principle
 No agent (Claude/Codex/Copilot/CodeRabbit/custom) uses permanent shared keys.
@@ -22,7 +22,7 @@ All sensitive access is brokered by ChittyConnect using contextual signals and l
 4. Human reviews policy/scope only if required.
 5. After policy fix, rerun workflow. No manual shared token injection.
 
-## 1Password Provisioning Model
+## chittysecrets Provisioning Model
 - Source of truth: `op://` references in `.github/secret-catalog.json`.
 - CI uses `OP_SERVICE_ACCOUNT_TOKEN` with least privilege.
 - Secrets are rotated on schedule and audited by:

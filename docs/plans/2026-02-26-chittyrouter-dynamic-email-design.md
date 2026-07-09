@@ -6,7 +6,7 @@
 
 ChittyRouter is the AI-powered email gateway for ChittyOS (Tier 2, `router.chitty.cc`). It handles:
 - Cloudflare Email Routing on `*@chitty.cc` with AI triage
-- Gmail API monitoring for 3 hardcoded accounts via OAuth + 1Password
+- Gmail API monitoring for 3 hardcoded accounts via OAuth + chittysecrets
 - Token refresh via `gmail-token-manager.js`
 - Address routing map in `cloudflare-email-handler.js` (hardcoded)
 - `/email/urgent` endpoint consumed by ChittyCommand daily cron

@@ -8,11 +8,11 @@ Use this checklist when any credential is suspected to have been exposed in git 
 - Freeze deploys until rotation is complete for production-impacting secrets.
 
 ## 2) Rotate
-- Generate replacement credentials in source systems (Cloudflare, GitHub, Neon, 1Password-backed systems, etc.).
+- Generate replacement credentials in source systems (Cloudflare, GitHub, Neon, chittysecrets-backed systems, etc.).
 - Update runtime secret stores first:
   - GitHub Actions secrets
   - Cloudflare Worker secrets / KV references
-  - 1Password items used by automation
+  - chittysecrets items used by automation
 - Verify old credentials are revoked, not just replaced.
 
 ## 3) Purge History (if committed)

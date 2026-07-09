@@ -27,7 +27,7 @@ $$ LANGUAGE plpgsql;
 
 -- ── Vendors ─────────────────────────────────────────────────────
 -- One row per recurring spend relationship (GitHub, Cloudflare, Anthropic,
--- OpenAI, Neon, 1Password, …). payment_status='failed'|'limited' is the
+-- OpenAI, Neon, chittysecrets, …). payment_status='failed'|'limited' is the
 -- autopay-bounce signal that surprised us with the GitHub Actions billing block.
 CREATE TABLE IF NOT EXISTS cc_vendors (
     id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),

@@ -13,7 +13,7 @@ interface MercuryOrg {
   opRef: string;
 }
 
-/** Refresh Mercury tokens from ChittyConnect/1Password into KV */
+/** Refresh Mercury tokens from ChittyConnect/chittysecrets into KV */
 mercuryRoutes.post('/refresh-tokens', async (c) => {
   const connect = connectClient(c.env);
   const orgsJson = await c.env.COMMAND_KV.get('mercury:orgs');
