@@ -6,7 +6,7 @@
 
 **Architecture:** ChittyCommand cron triggers scrape requests through ChittyRouter (unified gateway), which fetches portal credentials from ChittyConnect (chittysecrets-backed), dispatches to ChittyScrape (Puppeteer browser automation), and returns structured results that ChittyCommand stores in cc_obligations + cc_documents + R2.
 
-**Tech Stack:** Hono TypeScript (Cloudflare Workers), Puppeteer (@cloudflare/puppeteer), Neon PostgreSQL (Drizzle), R2 storage, chittysecrets via `chittysecrets run`
+**Tech Stack:** Hono TypeScript (Cloudflare Workers), Puppeteer (@cloudflare/puppeteer), Neon PostgreSQL (Drizzle), R2 storage, chittysecrets via `op run`
 
 **Repos touched:**
 - `CHITTYOS/chittycommand` — orchestration, cron, storage

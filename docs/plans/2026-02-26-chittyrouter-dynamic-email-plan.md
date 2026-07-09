@@ -694,7 +694,7 @@ git commit -m "feat: add Gmail OAuth, namespace sync, email sync, per-user filte
 
 ```bash
 cd /Users/nb/Desktop/Projects/github.com/CHITTYOS/chittyrouter
-npx cf deploy --env production
+npx wrangler deploy --env production
 ```
 
 Note: `GOOGLE_CLIENT_SECRET` must be set as a wrangler secret:

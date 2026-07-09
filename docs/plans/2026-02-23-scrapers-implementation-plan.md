@@ -894,7 +894,7 @@ npx wrangler kv namespace create SCRAPE_KV
 **Step 2: Deploy**
 
 ```bash
-npx cf deploy
+npx wrangler deploy
 ```
 
 **Step 3: Seed service token**
@@ -1373,7 +1373,7 @@ npx wrangler kv key put --binding COMMAND_KV --remote "scrape:service_token" "${
 **Step 2: Deploy**
 
 ```bash
-npx cf deploy
+npx wrangler deploy
 ```
 
 **Step 3: Test scrape triggers**

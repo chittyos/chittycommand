@@ -41,7 +41,7 @@ Per `/home/ubuntu/.ch1tty/canon/system-wide-sensitive-intent-contract-v1.md`, th
 
 ## Submission Command (shape only)
 
-The actual injection uses `chittysecrets run` per the operator manifest. The template below shows the request shape — do NOT run it verbatim with raw env vars.
+The actual injection uses `op run` per the operator manifest. The template below shows the request shape — do NOT run it verbatim with raw env vars.
 
 ```bash
 jq '.registrationToken="$CHITTY_REGISTER_TOKEN" | .service.chittyId="$NEW_CHITTYID"' \
@@ -52,7 +52,7 @@ jq '.registrationToken="$CHITTY_REGISTER_TOKEN" | .service.chittyId="$NEW_CHITTY
      --data @-
 ```
 
-Production invocation wraps the above under `chittysecrets run --env-file=... --` with the token resolved by ChittyConnect at request time.
+Production invocation wraps the above under `op run --env-file=... --` with the token resolved by ChittyConnect at request time.
 
 ## Verification
 

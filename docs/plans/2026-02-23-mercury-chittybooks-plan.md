@@ -645,7 +645,7 @@ git commit -m "feat: wire Mercury multi-org sync into daily cron pipeline"
 
 **Step 1: Deploy to Cloudflare Workers**
 
-Run: `npx cf deploy`
+Run: `npx wrangler deploy`
 Expected: Successful deploy with updated bindings showing `CHITTYBOOKS_URL`
 
 **Step 2: Verify health**
@@ -920,7 +920,7 @@ git commit -m "feat: add ChittyAssets bridge routes (sync-properties, submit-evi
 
 **Step 1: Deploy to Cloudflare Workers**
 
-Run: `npx cf deploy`
+Run: `npx wrangler deploy`
 Expected: Successful deploy with `CHITTYBOOKS_URL` and `CHITTYASSETS_URL` in bindings
 
 **Step 2: Verify health**

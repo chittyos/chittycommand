@@ -28,7 +28,7 @@ TRIGGERS
 CREDENTIAL FLOW (zero-trust, ephemeral)
   ChittyRouter receives scrape request
     → fetches credentials from ChittyConnect /api/credentials/{portalRef}
-    → ChittyConnect retrieves from chittysecrets (chittysecrets run)
+    → ChittyConnect retrieves from chittysecrets (op run)
     → credentials passed in-memory to ChittyScrape (never persisted)
     → ChittyScrape uses credentials for browser session
     → credentials discarded after scrape completes

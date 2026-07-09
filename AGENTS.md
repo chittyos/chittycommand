@@ -89,7 +89,7 @@ Three modes:
 
 ## Security
 
-- Credentials via chittysecrets (`chittysecrets run`) — never expose in terminal output
+- Credentials via chittysecrets (`op run`) — never expose in terminal output
 - Secrets via `wrangler secret put` — never in `[vars]`
 - R2 for document storage (zero egress)
 - CORS restricted to `app.command.chitty.cc`, `command.mychitty.com`, `chittycommand-ui.pages.dev`, `localhost:5173`

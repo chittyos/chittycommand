@@ -9,7 +9,7 @@
     "typecheck": "tsc --noEmit",
     "backend:typecheck": "tsc --noEmit",
     "backend:build": "npm run backend:typecheck",
-    "deploy": "cf deploy",
+    "deploy": "wrangler deploy",
     "predeploy": "npm run typecheck",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
