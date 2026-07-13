@@ -35,7 +35,7 @@ export type UpdateObligationStatusArgs = z.infer<typeof updateObligationStatusSc
  */
 export async function runUpdateObligationStatus(
   args: UpdateObligationStatusArgs,
-  sql: NeonQueryFunction<false, false>,
+  sql: NeonQueryFunction<any, any>,
 ): Promise<{
   success: boolean;
   payee?: string;
@@ -44,10 +44,10 @@ export async function runUpdateObligationStatus(
   error?: string;
 }> {
   const { obligation_id, status, notes } = args;
-  const [existing] = await sql`
+  const [existing] = (await sql`
     SELECT id, payee, status as old_status
     FROM cc_obligations
-    WHERE id = ${obligation_id}::uuid`;
+    WHERE id = ${obligation_id}::uuid`) as any[];
   if (!existing) return { success: false, error: 'Obligation not found' };
 
   await sql`

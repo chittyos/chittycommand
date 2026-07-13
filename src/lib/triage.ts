@@ -61,7 +61,7 @@ interface Deadline {
   status: string;
 }
 
-export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<TriageResult> {
+export async function runTriage(sql: NeonQueryFunction<any, any>): Promise<TriageResult> {
   const now = new Date();
   const in30d = new Date(now.getTime() + 30 * 86400000);
 
@@ -109,17 +109,17 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
   }
 
   // ── 2. Compute cash position ─────────────────────────────
-  const [cashRow] = await sql`
+  const [cashRow] = (await sql`
     SELECT COALESCE(SUM(current_balance), 0) as total
     FROM cc_accounts WHERE account_type IN ('checking', 'savings')
-  `;
+  `) as any[];
   const totalCash = parseFloat(cashRow?.total || '0');
 
-  const [dueRow] = await sql`
+  const [dueRow] = (await sql`
     SELECT COALESCE(SUM(COALESCE(amount_due, amount_minimum, 0)), 0) as total
     FROM cc_obligations
     WHERE status IN ('pending', 'overdue') AND due_date <= ${in30d.toISOString().slice(0, 10)}
-  `;
+  `) as any[];
   const totalDue30d = parseFloat(dueRow?.total || '0');
   const surplus = totalCash - totalDue30d;
 
@@ -292,9 +292,9 @@ export async function runTriage(sql: NeonQueryFunction<false, false>): Promise<T
   let created = 0;
   for (const rec of recs) {
     // Skip if an active recommendation with the same title already exists
-    const [existing] = await sql`
+    const [existing] = (await sql`
       SELECT id FROM cc_recommendations WHERE title = ${rec.title} AND status = 'active'
-    `;
+    `) as any[];
     if (existing) continue;
 
     // Compute confidence from learning engine

@@ -17,7 +17,7 @@ import {
  * These tools perform WRITE operations — paying bills, sending emails,
  * updating obligation statuses. Every action is logged to cc_actions_log.
  */
-export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>) {
+export function createActionTools(env: Env, sql: NeonQueryFunction<any, any>) {
   return {
     execute_payment: tool({
       description: 'Execute a payment via Mercury Banking. Requires explicit user approval. Creates an ACH transfer from a Mercury account to a saved recipient. The payment is logged and the linked obligation is updated.',
@@ -131,11 +131,11 @@ export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>
       }),
       execute: async ({ dispute_id, to_email, subject, body, correspondence_type }) => {
         // Verify dispute exists
-        const [dispute] = await sql`SELECT id, title, counterparty FROM cc_disputes WHERE id = ${dispute_id}::uuid`;
+        const [dispute] = (await sql`SELECT id, title, counterparty FROM cc_disputes WHERE id = ${dispute_id}::uuid`) as any[];
         if (!dispute) return { success: false, error: 'Dispute not found' };
 
         // Save to correspondence log as draft
-        const [correspondence] = await sql`
+        const [correspondence] = (await sql`
           INSERT INTO cc_dispute_correspondence
             (dispute_id, direction, channel, subject, content, metadata)
           VALUES (
@@ -143,7 +143,7 @@ export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>
             ${JSON.stringify({ to_email, correspondence_type, drafted_by: 'action_agent', status: 'draft' })}::jsonb
           )
           RETURNING id
-        `;
+        `) as any[];
 
         await sql`
           INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status)
@@ -176,14 +176,14 @@ export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>
             WHERE action_type = ${action_type}
             ORDER BY executed_at DESC LIMIT ${n}
           `;
-          return { actions: rows, count: rows.length };
+          return { actions: rows, count: (rows as any[]).length };
         }
         const rows = await sql`
           SELECT id, action_type, target_type, target_id, description, status, executed_at
           FROM cc_actions_log
           ORDER BY executed_at DESC LIMIT ${n}
         `;
-        return { actions: rows, count: rows.length };
+        return { actions: rows, count: (rows as any[]).length };
       },
     }),
   };

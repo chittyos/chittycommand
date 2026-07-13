@@ -251,7 +251,8 @@ triageRoutes.post('/contextual/ingest', async (c) => {
 // POST /api/triage/intents — create a new triage intent dynamically (e.g. for manual reviews)
 triageRoutes.post('/intents', async (c) => {
   // Authorization check
-  const scopes = c.get('scopes') || [];
+  const scopes = c.get("scopes") || [];
+  const userId = c.get("userId") || "system";
   const hasAuth = scopes.some((s) => s === 'chittytriage:write' || s === 'admin' || s === '*');
   if (!hasAuth) {
     return c.json({ error: 'Insufficient scope' }, 403);
@@ -294,24 +295,57 @@ triageRoutes.post('/intents', async (c) => {
     reason_codes,
   };
 
+  const idempotencyKey = c.req.header('Idempotency-Key');
+
   // Atomic CTE to prevent orphaned goals/plans if intent insertion fails.
   const sql = getDb(c.env);
-  const rows = await sql`
-    WITH new_goal AS (
-      INSERT INTO cc_goals (owner_chitty_id, title, description, priority, status, metadata)
-      VALUES ('system', ${'Triage: ' + intent_type}, 'Triage queue intent for review', ${finalPriority}, 'open', '{}'::jsonb)
-      RETURNING id, title
-    ), new_plan AS (
-      INSERT INTO cc_plans (goal_id, title, status, authored_by, metadata)
-      SELECT id, 'Plan for ' || title, 'draft', 'system', '{}'::jsonb
-      FROM new_goal
-      RETURNING id, goal_id
-    )
-    INSERT INTO cc_intents (plan_id, goal_id, intent_type, payload, status, priority, privilege, space, metadata)
-    SELECT id, goal_id, ${intent_type}, ${JSON.stringify(payload)}::jsonb, 'pending', ${finalPriority}, ${parsedPrivilege ?? 'public'}, ${parsedSpace ?? 'business'}, '{}'::jsonb
-    FROM new_plan
-    RETURNING id, plan_id, goal_id, intent_type, target_channel, payload, status, priority, sovereignty_assessment, human_gate_reason, dispatched_task_id, scheduled_for, completed_at, error_message, privilege, space, metadata, created_at, updated_at
-  `;
+  let rows;
+  if (idempotencyKey) {
+    rows = await sql`
+      WITH existing_intent AS (
+        SELECT id, plan_id, goal_id, intent_type, target_channel, payload, status, priority, sovereignty_assessment, human_gate_reason, dispatched_task_id, scheduled_for, completed_at, error_message, privilege, space, metadata, created_at, updated_at
+        FROM cc_intents 
+        WHERE intent_type = ${intent_type} 
+          AND metadata->>'idempotency_key' = ${idempotencyKey}
+        LIMIT 1
+      ), new_goal AS (
+        INSERT INTO cc_goals (owner_chitty_id, title, description, priority, status, metadata)
+        SELECT ${userId}, ${'Triage: ' + intent_type}, 'Triage queue intent for review', ${finalPriority}, 'open', '{}'::jsonb
+        WHERE NOT EXISTS (SELECT 1 FROM existing_intent)
+        RETURNING id, title
+      ), new_plan AS (
+        INSERT INTO cc_plans (goal_id, title, status, authored_by, metadata)
+        SELECT id, 'Plan for ' || title, 'draft', ${userId}, '{}'::jsonb
+        FROM new_goal
+        RETURNING id, goal_id
+      ), inserted_intent AS (
+        INSERT INTO cc_intents (plan_id, goal_id, intent_type, payload, status, priority, privilege, space, metadata)
+        SELECT id, goal_id, ${intent_type}, ${JSON.stringify(payload)}::jsonb, 'pending', ${finalPriority}, ${parsedPrivilege ?? 'public'}, ${parsedSpace ?? 'business'}, ${JSON.stringify({idempotency_key: idempotencyKey})}::jsonb
+        FROM new_plan
+        RETURNING id, plan_id, goal_id, intent_type, target_channel, payload, status, priority, sovereignty_assessment, human_gate_reason, dispatched_task_id, scheduled_for, completed_at, error_message, privilege, space, metadata, created_at, updated_at
+      )
+      SELECT *, false as is_existing FROM inserted_intent
+      UNION ALL
+      SELECT *, true as is_existing FROM existing_intent;
+    `;
+  } else {
+    rows = await sql`
+      WITH new_goal AS (
+        INSERT INTO cc_goals (owner_chitty_id, title, description, priority, status, metadata)
+        VALUES (${userId}, ${'Triage: ' + intent_type}, 'Triage queue intent for review', ${finalPriority}, 'open', '{}'::jsonb)
+        RETURNING id, title
+      ), new_plan AS (
+        INSERT INTO cc_plans (goal_id, title, status, authored_by, metadata)
+        SELECT id, 'Plan for ' || title, 'draft', ${userId}, '{}'::jsonb
+        FROM new_goal
+        RETURNING id, goal_id
+      )
+      INSERT INTO cc_intents (plan_id, goal_id, intent_type, payload, status, priority, privilege, space, metadata)
+      SELECT id, goal_id, ${intent_type}, ${JSON.stringify(payload)}::jsonb, 'pending', ${finalPriority}, ${parsedPrivilege ?? 'public'}, ${parsedSpace ?? 'business'}, '{}'::jsonb
+      FROM new_plan
+      RETURNING id, plan_id, goal_id, intent_type, target_channel, payload, status, priority, sovereignty_assessment, human_gate_reason, dispatched_task_id, scheduled_for, completed_at, error_message, privilege, space, metadata, created_at, updated_at
+    `;
+  }
 
   if (rows.length === 0) {
     return c.json({ error: 'Failed to create intent atomically' }, 500);

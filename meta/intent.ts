@@ -116,8 +116,8 @@ export interface CreateGoalInput {
   metadata?: Record<string, unknown>;
 }
 
-export async function createGoal(env: IntentEnv, input: CreateGoalInput): Promise<Goal> {
-  const sql = getSql(env);
+export async function createGoal(env: IntentEnv, input: CreateGoalInput, tx?: NeonQueryFunction<false, false>): Promise<Goal> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`
     INSERT INTO cc_goals
       (owner_chitty_id, title, description, priority, target_date, metadata, status)
@@ -129,8 +129,8 @@ export async function createGoal(env: IntentEnv, input: CreateGoalInput): Promis
   return rowToGoal(rows[0]);
 }
 
-export async function getGoal(env: IntentEnv, id: string): Promise<Goal | null> {
-  const sql = getSql(env);
+export async function getGoal(env: IntentEnv, id: string, tx?: NeonQueryFunction<false, false>): Promise<Goal | null> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`SELECT * FROM cc_goals WHERE id = ${id} LIMIT 1`;
   return rows[0] ? rowToGoal(rows[0]) : null;
 }
@@ -139,8 +139,9 @@ export async function listGoalsForOwner(
   env: IntentEnv,
   ownerChittyId: string,
   status?: GoalStatus,
+  tx?: NeonQueryFunction<false, false>
 ): Promise<Goal[]> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const rows = status
     ? await sql`
         SELECT * FROM cc_goals
@@ -165,8 +166,8 @@ export interface CreatePlanInput {
   metadata?: Record<string, unknown>;
 }
 
-export async function createPlan(env: IntentEnv, input: CreatePlanInput): Promise<Plan> {
-  const sql = getSql(env);
+export async function createPlan(env: IntentEnv, input: CreatePlanInput, tx?: NeonQueryFunction<false, false>): Promise<Plan> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`
     INSERT INTO cc_plans
       (goal_id, title, rationale, status, supersedes_plan_id, authored_by,
@@ -180,14 +181,14 @@ export async function createPlan(env: IntentEnv, input: CreatePlanInput): Promis
   return rowToPlan(rows[0]);
 }
 
-export async function getPlan(env: IntentEnv, id: string): Promise<Plan | null> {
-  const sql = getSql(env);
+export async function getPlan(env: IntentEnv, id: string, tx?: NeonQueryFunction<false, false>): Promise<Plan | null> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`SELECT * FROM cc_plans WHERE id = ${id} LIMIT 1`;
   return rows[0] ? rowToPlan(rows[0]) : null;
 }
 
-export async function listPlansForGoal(env: IntentEnv, goalId: string): Promise<Plan[]> {
-  const sql = getSql(env);
+export async function listPlansForGoal(env: IntentEnv, goalId: string, tx?: NeonQueryFunction<false, false>): Promise<Plan[]> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`
     SELECT * FROM cc_plans WHERE goal_id = ${goalId} ORDER BY created_at DESC`;
   return rows.map(rowToPlan);
@@ -212,8 +213,8 @@ export interface CreateIntentInput {
   metadata?: Record<string, unknown>;
 }
 
-export async function createIntent(env: IntentEnv, input: CreateIntentInput): Promise<Intent> {
-  const sql = getSql(env);
+export async function createIntent(env: IntentEnv, input: CreateIntentInput, tx?: NeonQueryFunction<false, false>): Promise<Intent> {
+  const sql = tx ?? getSql(env);
   // If the sovereignty gate says requires_human or blocked, persist that as the
   // initial status so the executor never picks it up.
   const initialStatus: IntentStatus =
@@ -255,8 +256,9 @@ export async function createIntent(env: IntentEnv, input: CreateIntentInput): Pr
 export async function createRouxIngestIntentIdempotent(
   env: IntentEnv,
   input: CreateIntentInput & { messageId: string },
+  tx?: NeonQueryFunction<false, false>
 ): Promise<{ intent: Intent; created: boolean }> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const initialStatus: IntentStatus =
     input.sovereigntyAssessment?.decision === 'requires_human'
       ? 'blocked_human'
@@ -315,8 +317,9 @@ export async function createRouxIngestIntentIdempotent(
 export async function createContextualIngestIntentIdempotent(
   env: IntentEnv,
   input: CreateIntentInput & { messageId: string },
+  tx?: NeonQueryFunction<false, false>
 ): Promise<{ intent: Intent; created: boolean }> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const initialStatus: IntentStatus =
     input.sovereigntyAssessment?.decision === 'requires_human'
       ? 'blocked_human'
@@ -355,8 +358,8 @@ export async function createContextualIngestIntentIdempotent(
   return { intent: rowToIntent(winner[0]), created: false };
 }
 
-export async function getIntent(env: IntentEnv, id: string): Promise<Intent | null> {
-  const sql = getSql(env);
+export async function getIntent(env: IntentEnv, id: string, tx?: NeonQueryFunction<false, false>): Promise<Intent | null> {
+  const sql = tx ?? getSql(env);
   const rows = await sql`SELECT * FROM cc_intents WHERE id = ${id} LIMIT 1`;
   return rows[0] ? rowToIntent(rows[0]) : null;
 }
@@ -376,8 +379,9 @@ export async function claimNextIntent(
     space?: IntentSpace;
     priorityLte?: number;
   } = {},
+  tx?: NeonQueryFunction<false, false>
 ): Promise<Intent | null> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const channel = options.channel ?? null;
   const privilege = options.privilege ?? null;
   const space = options.space ?? null;
@@ -405,8 +409,9 @@ export async function markIntentDispatched(
   env: IntentEnv,
   intentId: string,
   dispatchedTaskId: string,
+  tx?: NeonQueryFunction<false, false>
 ): Promise<Intent | null> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const rows = await sql`
     UPDATE cc_intents
     SET status = 'running', dispatched_task_id = ${dispatchedTaskId}, updated_at = NOW()
@@ -433,8 +438,9 @@ export async function completeIntent(
   env: IntentEnv,
   intentId: string,
   expectedDispatchedTaskId?: string,
+  tx?: NeonQueryFunction<false, false>
 ): Promise<Intent | null> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const rows =
     expectedDispatchedTaskId === undefined
       ? await sql`
@@ -468,8 +474,9 @@ export async function failIntent(
   intentId: string,
   errorMessage: string,
   expectedDispatchedTaskId?: string,
+  tx?: NeonQueryFunction<false, false>
 ): Promise<Intent | null> {
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const rows =
     expectedDispatchedTaskId === undefined
       ? await sql`
@@ -505,11 +512,12 @@ export async function failIntent(
 export async function reclaimStuckIntents(
   env: IntentEnv,
   maxRunningSeconds: number,
+  tx?: NeonQueryFunction<false, false>
 ): Promise<number> {
   if (!Number.isFinite(maxRunningSeconds) || maxRunningSeconds <= 0) {
     throw new Error('[meta/intent] reclaimStuckIntents requires maxRunningSeconds > 0');
   }
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
   const rows = await sql`
     UPDATE cc_intents
     SET status = 'pending',
@@ -542,12 +550,13 @@ export async function executeIntent(
   env: IntentEnv & Record<string, unknown>,
   intentId: string,
   options: { actorChittyId?: string; freshnessMs?: number } = {},
+  tx?: NeonQueryFunction<false, false>
 ): Promise<import('./executors/types').ExecutorResult> {
   // Lazy import to avoid forcing the executor registry on every meta/intent
   // consumer (and to keep the existing module's surface stable).
   const { dispatch } = await import('./executors');
 
-  const sql = getSql(env);
+  const sql = tx ?? getSql(env);
 
   // First, see if the intent is already terminal — if so, replay via dispatch.
   const current = await getIntent(env, intentId);

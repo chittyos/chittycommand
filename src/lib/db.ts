@@ -20,6 +20,6 @@ export function getDb(env: Env): NeonQueryFunction<false, false> {
  * to a declared interface. Column mismatches will show as undefined at runtime
  * rather than compile-time, which is an accepted trade-off for raw SQL queries.
  */
-export function typedRows<T>(rows: readonly Record<string, unknown>[]): T[] {
+export function typedRows<T>(rows: any): T[] {
   return rows as unknown as T[];
 }
