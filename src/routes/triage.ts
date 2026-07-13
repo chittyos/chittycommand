@@ -22,6 +22,9 @@ import {
   claimNextIntent,
   completeIntent,
   failIntent,
+  createGoal,
+  createPlan,
+  createIntent,
   type IntentPrivilege,
   type IntentSpace,
 } from '../../meta/intent';
@@ -243,4 +246,76 @@ triageRoutes.post('/contextual/ingest', async (c) => {
   const sql = getDb(c.env);
   const result = await ingestContextual(c.env, sql, { limit });
   return c.json({ ok: true, result });
+});
+
+// POST /api/triage/intents — create a new triage intent dynamically (e.g. for manual reviews)
+triageRoutes.post('/intents', async (c) => {
+  // Authorization check
+  const scopes = c.get('scopes') || [];
+  const hasAuth = scopes.some((s) => s === 'chittycommand:triage:write' || s === 'admin' || s === '*');
+  if (!hasAuth) {
+    return c.json({ error: 'Insufficient scope' }, 403);
+  }
+
+  const body = await c.req.json().catch(() => ({}));
+  const {
+    intent_type,
+    privilege,
+    space,
+    priority,
+    source_reference,
+    document_chitty_id,
+    classification_scores,
+    reason_codes,
+  } = body as Record<string, any>;
+
+  if (!intent_type) {
+    return c.json({ error: 'intent_type is required' }, 400);
+  }
+
+  // Validate privilege and space
+  const parsedPrivilege = parsePrivilege(privilege);
+  if (privilege !== undefined && privilege !== null && parsedPrivilege === null) {
+    return c.json({ error: `Invalid privilege; must be one of ${[...VALID_PRIVILEGE].join(',')}` }, 400);
+  }
+  
+  const parsedSpace = parseSpace(space);
+  if (space !== undefined && space !== null && parsedSpace === null) {
+    return c.json({ error: `Invalid space; must be one of ${[...VALID_SPACE].join(',')}` }, 400);
+  }
+
+  const p = Number(priority);
+  const finalPriority = Number.isFinite(p) ? Math.floor(p) : 5;
+
+  const payload = {
+    source_reference,
+    document_chitty_id,
+    classification_scores,
+    reason_codes,
+  };
+
+  const goal = await createGoal(c.env, {
+    ownerChittyId: 'system',
+    title: `Triage: ${intent_type}`,
+    description: 'Triage queue intent for review',
+    priority: finalPriority,
+  });
+
+  const plan = await createPlan(c.env, {
+    goalId: goal.id,
+    title: `Plan for ${goal.title}`,
+    authoredBy: 'system',
+  });
+
+  const intent = await createIntent(c.env, {
+    planId: plan.id,
+    goalId: goal.id,
+    intentType: intent_type,
+    payload,
+    privilege: parsedPrivilege ?? undefined,
+    space: parsedSpace ?? undefined,
+    priority: finalPriority,
+  });
+
+  return c.json({ intent });
 });

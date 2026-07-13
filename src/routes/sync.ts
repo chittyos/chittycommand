@@ -3,8 +3,9 @@ import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
 import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal, syncGovernanceCompliance } from '../lib/cron';
+import type { AuthVariables } from '../middleware/auth';
 
-export const syncRoutes = new Hono<{ Bindings: Env }>();
+export const syncRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // Get sync status for all sources
 syncRoutes.get('/status', async (c) => {
@@ -16,10 +17,58 @@ syncRoutes.get('/status', async (c) => {
   return c.json(statuses);
 });
 
+// Get sync status for a specific execution ID
+syncRoutes.get('/status/:sync_id', async (c) => {
+  const syncId = c.req.param('sync_id');
+  const sql = getDb(c.env);
+
+  const [log] = await sql`
+    SELECT id, source, sync_type, status, records_synced, error_message, started_at, completed_at
+    FROM cc_sync_log WHERE id = ${syncId}
+  `;
+  
+  if (!log) return c.json({ error: 'Sync log not found' }, 404);
+
+  // Authorization check
+  const scopes = c.get('scopes') || [];
+  const requiredScope = `chittycommand:sync:${log.source}`;
+  if (!scopes.includes(requiredScope) && !scopes.includes('chittycommand:sync:*')) {
+    return c.json({ error: `Insufficient scope to view status for source ${log.source}` }, 403);
+  }
+
+  // Determine if it's a terminal state
+  const isTerminal = ['completed', 'error', 'skipped'].includes(log.status);
+
+  // Bounded polling info for the client
+  const response = {
+    ...log,
+    is_terminal: isTerminal,
+    poll_interval_ms: isTerminal ? null : 2000,
+  };
+
+  return c.json(response);
+});
+
 // Trigger manual sync for a source
 syncRoutes.post('/trigger/:source', async (c) => {
   const source = c.req.param('source');
   const sql = getDb(c.env);
+
+  // Scope validation
+  const scopes = c.get('scopes') || [];
+  const requiredScope = `chittycommand:sync:${source}`;
+  
+  // Financial sources like Mercury are highly restricted; no general admin bypass.
+  let isAuthorized = false;
+  if (['mercury', 'plaid', 'chittyfinance'].includes(source)) {
+    isAuthorized = scopes.includes(requiredScope);
+  } else {
+    isAuthorized = scopes.includes(requiredScope) || scopes.includes('chittycommand:sync:*') || scopes.includes('admin') || scopes.includes('*');
+  }
+
+  if (!isAuthorized) {
+    return c.json({ error: `Insufficient scope: ${requiredScope} required explicitly for this source` }, 403);
+  }
 
   const validSources = [
     'mercury', 'plaid', 'chittyfinance',
