@@ -252,7 +252,7 @@ triageRoutes.post('/contextual/ingest', async (c) => {
 triageRoutes.post('/intents', async (c) => {
   // Authorization check
   const scopes = c.get('scopes') || [];
-  const hasAuth = scopes.some((s) => s === 'chittycommand:triage:write' || s === 'admin' || s === '*');
+  const hasAuth = scopes.some((s) => s === 'chittytriage:write' || s === 'admin' || s === '*');
   if (!hasAuth) {
     return c.json({ error: 'Insufficient scope' }, 403);
   }
@@ -294,28 +294,52 @@ triageRoutes.post('/intents', async (c) => {
     reason_codes,
   };
 
-  const goal = await createGoal(c.env, {
-    ownerChittyId: 'system',
-    title: `Triage: ${intent_type}`,
-    description: 'Triage queue intent for review',
-    priority: finalPriority,
-  });
+  // Atomic CTE to prevent orphaned goals/plans if intent insertion fails.
+  const sql = getDb(c.env);
+  const rows = await sql`
+    WITH new_goal AS (
+      INSERT INTO cc_goals (owner_chitty_id, title, description, priority, status, metadata)
+      VALUES ('system', ${'Triage: ' + intent_type}, 'Triage queue intent for review', ${finalPriority}, 'open', '{}'::jsonb)
+      RETURNING id, title
+    ), new_plan AS (
+      INSERT INTO cc_plans (goal_id, title, status, authored_by, metadata)
+      SELECT id, 'Plan for ' || title, 'draft', 'system', '{}'::jsonb
+      FROM new_goal
+      RETURNING id, goal_id
+    )
+    INSERT INTO cc_intents (plan_id, goal_id, intent_type, payload, status, priority, privilege, space, metadata)
+    SELECT id, goal_id, ${intent_type}, ${JSON.stringify(payload)}::jsonb, 'pending', ${finalPriority}, ${parsedPrivilege ?? 'public'}, ${parsedSpace ?? 'business'}, '{}'::jsonb
+    FROM new_plan
+    RETURNING id, plan_id, goal_id, intent_type, target_channel, payload, status, priority, sovereignty_assessment, human_gate_reason, dispatched_task_id, scheduled_for, completed_at, error_message, privilege, space, metadata, created_at, updated_at
+  `;
 
-  const plan = await createPlan(c.env, {
-    goalId: goal.id,
-    title: `Plan for ${goal.title}`,
-    authoredBy: 'system',
-  });
+  if (rows.length === 0) {
+    return c.json({ error: 'Failed to create intent atomically' }, 500);
+  }
 
-  const intent = await createIntent(c.env, {
-    planId: plan.id,
-    goalId: goal.id,
-    intentType: intent_type,
-    payload,
-    privilege: parsedPrivilege ?? undefined,
-    space: parsedSpace ?? undefined,
-    priority: finalPriority,
-  });
+  // Map row to intent shape
+  const row = rows[0];
+  const intent = {
+    id: String(row.id),
+    planId: String(row.plan_id),
+    goalId: String(row.goal_id),
+    intentType: String(row.intent_type),
+    targetChannel: (row.target_channel as string) ?? null,
+    payload: (row.payload as Record<string, unknown>) ?? {},
+    status: row.status,
+    priority: Number(row.priority),
+    sovereigntyAssessment: row.sovereignty_assessment ?? null,
+    humanGateReason: (row.human_gate_reason as string) ?? null,
+    dispatchedTaskId: (row.dispatched_task_id as string) ?? null,
+    scheduledFor: row.scheduled_for ? new Date(row.scheduled_for as string) : null,
+    completedAt: row.completed_at ? new Date(row.completed_at as string) : null,
+    errorMessage: (row.error_message as string) ?? null,
+    privilege: row.privilege ?? 'public',
+    space: row.space ?? 'business',
+    metadata: (row.metadata as Record<string, unknown>) ?? {},
+    createdAt: new Date(row.created_at as string),
+    updatedAt: new Date(row.updated_at as string),
+  };
 
   return c.json({ intent });
 });
