@@ -10,7 +10,6 @@ import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
 import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
-import { ingestContextual } from './contextual-ingest';
 
 /**
  * Cron sync orchestrator.
@@ -75,25 +74,6 @@ export async function runCronSync(
         recordsSynced += matchResult.matches_found;
       } catch (err) {
         console.error('[matcher] failed:', err);
-      }
-
-      // Phase 3.5: Contextual (digested comms) ingest → cc_intents/obligations.
-      // Runs BEFORE triage so the AI triage engine scores the new candidate
-      // obligations in the same cron tick. Skips cleanly if the contextual
-      // read connection is not configured.
-      if (env.CONTEXTUAL_DATABASE_URL) {
-        try {
-          const ctxResult = await ingestContextual(env, sql, { limit: 50 });
-          console.log(
-            `[cron:contextual] scanned=${ctxResult.candidates_scanned} intents=${ctxResult.intents_created} ` +
-            `obligations=${ctxResult.obligations_created} recs=${ctxResult.recommendations_created} ` +
-            `conflicts=${ctxResult.conflicts_raised} dup=${ctxResult.skipped_duplicate} legalink=${ctxResult.legalink_gated} ` +
-            `via=${JSON.stringify(ctxResult.classifier_via)}`,
-          );
-          recordsSynced += ctxResult.obligations_created;
-        } catch (err) {
-          console.error('[cron:contextual] failed:', err);
-        }
       }
 
       // Phase 4: AI triage
