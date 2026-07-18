@@ -1055,7 +1055,7 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     }
 
     case 'cert_verify': {
-      const base = env.CHITTYCERT_URL || 'https://cert.chitty.cc';
+      const base = env.CHITTYCERT_URL || 'https://mychitty.com/api/v1/identity';
       const certificate_id = String(args.certificate_id || '').trim();
       if (!certificate_id) throw new Error('Missing argument: certificate_id');
       try {

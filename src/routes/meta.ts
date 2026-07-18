@@ -86,7 +86,7 @@ metaPublicRoutes.post('/cert/verify', async (c) => {
     const body = await c.req.json().catch(() => ({}));
     const certificateId = String(body?.certificate_id || '').trim();
     if (!certificateId) return c.json({ error: 'Missing field: certificate_id' }, 400);
-    const base = c.env.CHITTYCERT_URL || 'https://cert.chitty.cc';
+    const base = c.env.CHITTYCERT_URL || 'https://mychitty.com/api/v1/identity';
     const res = await fetch(`${base}/api/v1/verify`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json', 'X-Source-Service': 'chittycommand' },
@@ -106,7 +106,7 @@ metaPublicRoutes.get('/cert/:id', async (c) => {
   const id = c.req.param('id');
   if (!id) return c.json({ error: 'Missing certificate id' }, 400);
   try {
-    const base = c.env.CHITTYCERT_URL || 'https://cert.chitty.cc';
+    const base = c.env.CHITTYCERT_URL || 'https://mychitty.com/api/v1/identity';
     const res = await fetch(`${base}/api/v1/certificate/${encodeURIComponent(id)}`);
     const out = await res.json().catch(() => ({}));
     if (!res.ok) return c.json({ error: 'Not found', code: res.status, result: out }, res.status as ContentfulStatusCode);
