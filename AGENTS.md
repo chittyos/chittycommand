@@ -61,6 +61,8 @@ Neon PostgreSQL via Hyperdrive binding. All tables prefixed `cc_`. Schema in `sr
 
 ### Action Execution
 
+> **Agent Routing Rules**: Agents interfacing with ChittyCommand must respect the Attorney Decision Queue. Agents may assemble packets, detect contradictions (ChittyPro), and propose strategies (ChittyClaw), but cannot bypass the human approval gate for filings, strategy shifts, or irreversible ecosystem mutations.
+
 Three modes:
 1. **API** — Mercury transfers, Stripe payments via bridge routes
 2. **Codex in Chrome** — Browser automation for portals without APIs

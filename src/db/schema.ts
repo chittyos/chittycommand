@@ -119,50 +119,6 @@ export const ccLegalDeadlines = pgTable('cc_legal_deadlines', {
   dateIdx: index('idx_cc_legal_deadlines_date').on(table.deadlineDate),
 }));
 
-// ── Disputes ──────────────────────────────────────────────────
-export const ccDisputes = pgTable('cc_disputes', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  title: text('title').notNull(),
-  counterparty: text('counterparty').notNull(),
-  disputeType: text('dispute_type').notNull(),
-  amountClaimed: numeric('amount_claimed', { precision: 12, scale: 2 }),
-  amountAtStake: numeric('amount_at_stake', { precision: 12, scale: 2 }),
-  stage: text('stage').notNull().default('filed'),
-  status: text('status').default('open'),
-  priority: integer('priority').default(5),
-  description: text('description'),
-  nextAction: text('next_action'),
-  nextActionDate: date('next_action_date'),
-  resolutionTarget: text('resolution_target'),
-  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
-  // privilege ∈ {privileged, pii, hoa_evidentiary, public}
-  privilege: text('privilege').notNull().default('public'),
-  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
-  // space ∈ {business, legalink}
-  space: text('space').notNull().default('business'),
-  metadata: jsonb('metadata').default({}),
-  createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
-  updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
-}, (table) => ({
-  // @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
-  privilegeIdx: index('idx_cc_disputes_privilege').on(table.privilege, table.status),
-  spaceIdx: index('idx_cc_disputes_space').on(table.space, table.status),
-}));
-
-// ── Dispute Correspondence ────────────────────────────────────
-export const ccDisputeCorrespondence = pgTable('cc_dispute_correspondence', {
-  id: uuid('id').primaryKey().defaultRandom(),
-  disputeId: uuid('dispute_id').references(() => ccDisputes.id, { onDelete: 'cascade' }),
-  direction: text('direction').notNull(),
-  channel: text('channel').notNull(),
-  subject: text('subject'),
-  content: text('content'),
-  attachments: jsonb('attachments').default([]),
-  sentAt: timestamp('sent_at', { withTimezone: true }).defaultNow(),
-  metadata: jsonb('metadata').default({}),
-}, (table) => ({
-  disputeIdx: index('idx_cc_dispute_corr_dispute').on(table.disputeId),
-}));
 
 // ── Documents ─────────────────────────────────────────────────
 export const ccDocuments = pgTable('cc_documents', {
@@ -176,7 +132,7 @@ export const ccDocuments = pgTable('cc_documents', {
   parsedData: jsonb('parsed_data'),
   linkedObligationId: uuid('linked_obligation_id').references(() => ccObligations.id),
   linkedAccountId: uuid('linked_account_id').references(() => ccAccounts.id),
-  linkedDisputeId: uuid('linked_dispute_id').references(() => ccDisputes.id),
+  linkedDisputeId: text('linked_dispute_id'), // Migrating away from local FK to ChittyCases reference
   processingStatus: text('processing_status').default('pending'),
   metadata: jsonb('metadata').default({}),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
@@ -186,7 +142,7 @@ export const ccDocuments = pgTable('cc_documents', {
 export const ccRecommendations = pgTable('cc_recommendations', {
   id: uuid('id').primaryKey().defaultRandom(),
   obligationId: uuid('obligation_id').references(() => ccObligations.id),
-  disputeId: uuid('dispute_id').references(() => ccDisputes.id),
+  disputeId: text('dispute_id'), // Migrating away from local FK to ChittyCases reference
   recType: text('rec_type').notNull(),
   priority: integer('priority').notNull(),
   title: text('title').notNull(),

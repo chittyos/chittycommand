@@ -48,6 +48,8 @@ The dashboard is one consumer of the platform among many.
 
 Provide a unified life management and action dashboard that ingests data from 15+ financial, legal, and administrative sources, scores urgency with AI, recommends actions, and executes them via APIs, email, or browser automation.
 
+> **Core Principle**: ChittyCommand is the cockpit, not the engine. It shall never act as a source of truth for facts, finances, assets, or legal conclusions. Its sole mandate is to visualize, route, and orchestrate the truth produced by the canonical ChittyOS ecosystem.
+
 ## Scope
 
 ### IS Responsible For

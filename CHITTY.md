@@ -38,6 +38,8 @@ Unified life management dashboard that ingests data from 15+ financial, legal, a
 
 ## Architecture
 
+> **Constraint**: All ChittyCommand UI components must explicitly render their canonical provenance, including the Owning Service, Source Table, and Canonical ID. Any data mutation must be routed through the Ch1tty pilot layer to the appropriate bedrock service.
+
 Cloudflare Worker at command.chitty.cc with Neon PostgreSQL via Hyperdrive, R2 for document storage, and KV for sync state. Cron-triggered data ingestion from Mercury, Plaid, ChittyFinance, ChittyScrape, and more. React SPA frontend at app.command.chitty.cc. MCP server for Claude-driven queries.
 
 ### Stack
