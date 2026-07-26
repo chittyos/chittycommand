@@ -101,7 +101,14 @@ export async function bridgeAuthMiddleware(c: Context<{ Bindings: Env; Variables
 
 /**
  * MCP auth middleware for /mcp/* routes.
- * Verifies a shared service token stored in KV.
+ *
+ * Primary: Validates the `Cf-Access-Jwt-Assertion` header forwarded by the
+ * Cloudflare MCP server portal (Zero Trust AI Controls). CF handles the
+ * OAuth/PKCE flow with MCP clients and injects this signed JWT. The worker
+ * verifies it against CF's public JWKS endpoint.
+ *
+ * Fallback: KV shared-secret (`mcp:service_token`) retained for the transition
+ * window while the CF portal completes first-sync.
  */
 export async function mcpAuthMiddleware(c: Context<{ Bindings: Env; Variables: AuthVariables }>, next: Next) {
   // Dev mode bypass
@@ -111,68 +118,82 @@ export async function mcpAuthMiddleware(c: Context<{ Bindings: Env; Variables: A
     return next();
   }
 
-  const authHeader = c.req.header('Authorization');
-  if (!authHeader || !authHeader.startsWith('Bearer ')) {
-    return c.json({ error: 'MCP authentication required' }, 401);
-  }
-
-  const token = authHeader.slice(7);
-  const authUrl = c.env.CHITTYAUTH_URL;
-  if (authUrl) {
+  // ── Primary path: CF Access JWT from MCP portal ──────────────────────────
+  const cfJwt = c.req.header('Cf-Access-Jwt-Assertion');
+  if (cfJwt) {
     try {
-      const res = await fetch(`${authUrl}/v1/tokens/validate`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${token}`,
-          'X-Source-Service': 'chittycommand',
-        },
-        body: JSON.stringify({ token }),
-      });
-      if (res.ok) {
-        const identity = await res.json() as {
-          valid?: boolean;
-          user_id?: string;
-          chittyId?: string;
-          scopes?: string[] | string;
-          scope?: string[] | string;
-        };
+      const teamDomain = c.env.CF_TEAM_DOMAIN ?? 'chittycorp.cloudflareaccess.com';
+      const jwksUrl = `https://${teamDomain}/cdn-cgi/access/certs`;
+      const aud = c.env.CF_ACCESS_AUD ?? '';
 
-        const rawScopes = identity.scopes ?? identity.scope ?? [];
-        const normalizedScopes = Array.isArray(rawScopes)
-          ? rawScopes.filter((s): s is string => typeof s === 'string')
-          : typeof rawScopes === 'string'
-            ? rawScopes.split(/[,\s]+/).filter(Boolean)
-            : [];
-        const hasMcpScope = normalizedScopes.some(
-          (s) => s === 'mcp' || s.startsWith('mcp:') || s === 'admin' || s === '*'
-        );
-        const isValid = identity.valid === true || normalizedScopes.length > 0;
-
-        if (isValid && (hasMcpScope || normalizedScopes.length === 0)) {
-          c.set('userId', identity.user_id || identity.chittyId || 'mcp-client');
-          c.set('scopes', normalizedScopes.length ? normalizedScopes : ['mcp']);
-          return next();
-        }
-
-        if (isValid) {
-          return c.json({ error: 'Insufficient MCP scope' }, 403);
-        }
+      // Fetch JWKS (cached in KV to avoid per-request fetch)
+      const cacheKey = 'cf:access:jwks';
+      let jwksRaw = await c.env.COMMAND_KV.get(cacheKey);
+      if (!jwksRaw) {
+        const jwksRes = await fetch(jwksUrl);
+        if (!jwksRes.ok) throw new Error(`JWKS fetch failed: ${jwksRes.status}`);
+        jwksRaw = await jwksRes.text();
+        await c.env.COMMAND_KV.put(cacheKey, jwksRaw, { expirationTtl: 3600 });
       }
-    } catch {
-      // Fall through to legacy shared-token auth for backward compatibility.
+      const { keys } = JSON.parse(jwksRaw) as { keys: JsonWebKey[] };
+
+      // Verify the JWT header/payload manually (no jose dep in this worker yet —
+      // use the lightweight manual approach until jose is wired in)
+      const [headerB64, payloadB64, sigB64] = cfJwt.split('.');
+      if (!headerB64 || !payloadB64 || !sigB64) throw new Error('Malformed JWT');
+
+      const payload = JSON.parse(atob(payloadB64.replace(/-/g, '+').replace(/_/g, '/')));
+      const now = Math.floor(Date.now() / 1000);
+
+      if (payload.exp && payload.exp < now) throw new Error('JWT expired');
+      if (payload.nbf && payload.nbf > now + 30) throw new Error('JWT not yet valid');
+      if (aud && payload.aud) {
+        const audList = Array.isArray(payload.aud) ? payload.aud : [payload.aud];
+        if (!audList.includes(aud)) throw new Error('JWT audience mismatch');
+      }
+
+      // Signature verification via SubtleCrypto
+      const enc = new TextEncoder();
+      const signingInput = enc.encode(`${headerB64}.${payloadB64}`);
+      const sigBytes = Uint8Array.from(atob(sigB64.replace(/-/g, '+').replace(/_/g, '/')), c => c.charCodeAt(0));
+
+      let verified = false;
+      for (const jwk of keys) {
+        try {
+          const key = await crypto.subtle.importKey(
+            'jwk', jwk as JsonWebKey,
+            { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+            false, ['verify']
+          );
+          verified = await crypto.subtle.verify('RSASSA-PKCS1-v1_5', key, sigBytes, signingInput);
+          if (verified) break;
+        } catch { /* try next key */ }
+      }
+      if (!verified) throw new Error('JWT signature invalid');
+
+      c.set('userId', payload.email ?? payload.sub ?? 'cf-mcp-client');
+      c.set('scopes', ['mcp']);
+      return next();
+    } catch (err) {
+      return c.json({ error: 'Invalid CF Access JWT', detail: String(err) }, 401);
     }
   }
 
-  const validToken = await c.env.COMMAND_KV.get('mcp:service_token');
+  // ── Fallback: KV shared-secret (transition period) ───────────────────────
+  const authHeader = c.req.header('Authorization');
+  if (!authHeader?.startsWith('Bearer ')) {
+    return c.json({ error: 'MCP authentication required' }, 401);
+  }
+  const token = authHeader.slice(7);
 
-  if (!validToken || token !== validToken) {
-    return c.json({ error: 'Invalid MCP token' }, 403);
+  const validToken = await c.env.COMMAND_KV.get('mcp:service_token');
+  if (validToken && token === validToken) {
+    c.set('userId', 'mcp-client');
+    c.set('scopes', ['mcp']);
+    return next();
   }
 
-  c.set('userId', 'mcp-client');
-  c.set('scopes', ['mcp']);
-  return next();
+  return c.json({ error: 'Invalid MCP token' }, 403);
 }
 
 /**
