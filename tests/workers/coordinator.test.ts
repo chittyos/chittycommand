@@ -75,10 +75,12 @@ describe('CommandCoordinator lease arbitration', () => {
     expect(beat).toBeNull();
   });
 
-  it('extends the expiry on a valid heartbeat', async () => {
+  it('re-bases expiry on now, not on claimedAt, when heartbeating', async () => {
+    // Same leaseSeconds on both calls: if expiry were computed as
+    // claimedAt + leaseSeconds, `after` would equal `before` and this fails.
     const { before, after } = await run('t-hb-extend', async (c) => {
-      const first = await c.claim({ nodeId: 'node-a', sessionId: 's1', leaseSeconds: 1 });
-      await new Promise((r) => setTimeout(r, 50));
+      const first = await c.claim({ nodeId: 'node-a', sessionId: 's1', leaseSeconds: 60 });
+      await new Promise((r) => setTimeout(r, 60));
       const beat = await c.heartbeat({ nodeId: 'node-a', sessionId: 's1', leaseSeconds: 60 });
       return { before: first!.leaseExpiresAt!, after: beat!.leaseExpiresAt! };
     });
@@ -142,5 +144,115 @@ describe('CommandCoordinator lease arbitration', () => {
     await expect(
       run('t-novalid', (c) => c.claim({ nodeId: '' })),
     ).rejects.toThrow(/nodeId is required/);
+  });
+
+  it('clamps a sub-second lease up to the 1s minimum', async () => {
+    const lease = await run('t-clamp-min', (c) =>
+      c.claim({ nodeId: 'n1', sessionId: 's', leaseSeconds: 0.5 }),
+    );
+    expect(Date.parse(lease!.leaseExpiresAt!) - Date.parse(lease!.heartbeatAt!)).toBe(1_000);
+  });
+
+  it('refuses a release from a node that does not hold the role', async () => {
+    const released = await run('t-rel-othernode', async (c) => {
+      await c.claim({ nodeId: 'node-a', sessionId: 's1', leaseSeconds: 60 });
+      return c.release({ nodeId: 'node-b', sessionId: 's1' });
+    });
+    expect(released).toBe(false);
+  });
+
+  it('treats an omitted sessionId as null, matching SQL IS NOT DISTINCT FROM', async () => {
+    const beat = await run('t-session-omitted', async (c) => {
+      await c.claim({ nodeId: 'node-a', leaseSeconds: 60 });
+      return c.heartbeat({ nodeId: 'node-a' });
+    });
+    expect(beat).not.toBeNull();
+  });
+
+  it('recovers a role whose stored expiry is corrupt instead of deadlocking', async () => {
+    // Date.parse('not-a-date') is NaN and every NaN comparison is false, so a
+    // naive `expiresAt < now` check would make this role unclaimable forever.
+    const lease = await runInDurableObject(instance('t-corrupt'), async (c, state) => {
+      await c.claim({ nodeId: 'node-a', sessionId: 's1', leaseSeconds: 60 });
+      const stored = await state.storage.get<Record<string, unknown>>(
+        `lease:${META_LEADER_ROLE}`,
+      );
+      await state.storage.put(`lease:${META_LEADER_ROLE}`, {
+        ...stored,
+        leaseExpiresAt: 'not-a-date',
+      });
+      return c.claim({ nodeId: 'node-b', sessionId: 's2' });
+    });
+    expect(lease?.nodeId).toBe('node-b');
+  });
+});
+
+/**
+ * HTTP seam. The suite above calls the class directly via runInDurableObject,
+ * which leaves fetch() — path parsing, the method switch, error mapping, and
+ * the JSON envelopes the daemon client unwraps — entirely uncovered.
+ */
+describe('CommandCoordinator HTTP surface', () => {
+  const call = (name: string, method: string, path: string, body?: unknown) =>
+    instance(name).fetch(
+      new Request(`https://coordinator/api/meta/coordinator${path}`, {
+        method,
+        headers: { 'content-type': 'application/json' },
+        ...(body === undefined ? {} : { body: JSON.stringify(body) }),
+      }),
+    );
+
+  it('claims over HTTP and returns the lease as JSON', async () => {
+    const res = await call('h-claim', 'POST', '/claim', { nodeId: 'node-a', sessionId: 's1' });
+    expect(res.status).toBe(200);
+    expect((await res.json<{ nodeId: string }>()).nodeId).toBe('node-a');
+  });
+
+  it('returns a bare null body for an unheld describe — the client no-lease signal', async () => {
+    const res = await call('h-describe', 'GET', '/describe');
+    expect(res.status).toBe(200);
+    expect(await res.json()).toBeNull();
+  });
+
+  it('wraps release in a {released} envelope', async () => {
+    await call('h-release', 'POST', '/claim', { nodeId: 'node-a', sessionId: 's1' });
+    const res = await call('h-release', 'POST', '/release', { nodeId: 'node-a', sessionId: 's1' });
+    expect(await res.json()).toEqual({ released: true });
+  });
+
+  it('404s an unknown path', async () => {
+    const res = await call('h-404', 'POST', '/nope');
+    expect(res.status).toBe(404);
+  });
+
+  it('404s a correct path under the wrong method', async () => {
+    const res = await call('h-method', 'GET', '/claim');
+    expect(res.status).toBe(404);
+  });
+
+  it('maps a malformed body to a 400 rather than a 500', async () => {
+    const res = await instance('h-badjson').fetch(
+      new Request('https://coordinator/api/meta/coordinator/claim', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: '{not json',
+      }),
+    );
+    expect(res.status).toBe(400);
+    expect((await res.json<{ error: string }>()).error).toBe('coordinator_error');
+  });
+
+  it('does not dispatch a mutation from a path that does not name it', async () => {
+    // Regression: a greedy /^.*\/coordinator/ matched the LAST occurrence, so
+    // this executed `release`.
+    await call('h-greedy', 'POST', '/claim', { nodeId: 'node-a', sessionId: 's1' });
+    const res = await call('h-greedy', 'POST', '/a/coordinator/release', {
+      nodeId: 'node-a',
+      sessionId: 's1',
+    });
+    expect(res.status).toBe(404);
+
+    const still = await call('h-greedy', 'GET', '/describe');
+    expect((await still.json<{ nodeId: string } | null>())?.nodeId).toBe('node-a');
   });
 });

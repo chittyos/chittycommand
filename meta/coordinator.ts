@@ -30,39 +30,27 @@
 
 import { DurableObject } from 'cloudflare:workers';
 
-/** Canonical role claimed by the meta-orchestrator loop. */
-export const META_LEADER_ROLE = 'meta-orchestrator-leader' as const;
+import {
+  DEFAULT_LEASE_SECONDS,
+  MAX_LEASE_SECONDS,
+  META_LEADER_ROLE,
+  MIN_LEASE_SECONDS,
+  normalizeLeaseSeconds,
+  type ClaimBody,
+  type StoredLease,
+} from './lease-types';
 
-/** Lease bounds, mirroring normalizeLeaseSeconds() in daemon/leader.ts. */
-export const MIN_LEASE_SECONDS = 1;
-export const MAX_LEASE_SECONDS = 3600;
-export const DEFAULT_LEASE_SECONDS = 30;
-
-/** Stored form. Dates are ISO strings; the client rehydrates them. */
-export interface StoredLease {
-  role: string;
-  nodeId: string | null;
-  nodeDescriptor: string | null;
-  sessionId: string | null;
-  claimedAt: string | null;
-  heartbeatAt: string | null;
-  leaseExpiresAt: string | null;
-  metadata: Record<string, unknown>;
-}
-
-export interface ClaimBody {
-  nodeId: string;
-  nodeDescriptor?: string | null;
-  sessionId?: string | null;
-  leaseSeconds?: number;
-  role?: string;
-  metadata?: Record<string, unknown>;
-}
-
-export function normalizeLeaseSeconds(input: number | undefined): number {
-  if (!input || !Number.isFinite(input) || input <= 0) return DEFAULT_LEASE_SECONDS;
-  return Math.max(MIN_LEASE_SECONDS, Math.min(MAX_LEASE_SECONDS, Math.floor(input)));
-}
+// Re-exported so existing importers of this module keep working. The
+// definitions live in lease-types.ts because the daemon runs on Node and
+// cannot evaluate `cloudflare:workers`.
+export {
+  DEFAULT_LEASE_SECONDS,
+  MAX_LEASE_SECONDS,
+  META_LEADER_ROLE,
+  MIN_LEASE_SECONDS,
+  normalizeLeaseSeconds,
+};
+export type { ClaimBody, StoredLease };
 
 /** Storage key for a role's lease. */
 const keyFor = (role: string) => `lease:${role}`;
@@ -70,7 +58,11 @@ const keyFor = (role: string) => `lease:${role}`;
 export class CommandCoordinator extends DurableObject {
   async fetch(request: Request): Promise<Response> {
     const url = new URL(request.url);
-    const path = url.pathname.replace(/^.*\/coordinator/, '') || '/';
+    // Anchor on the FIRST '/coordinator' segment. A greedy match here let
+    // `/api/meta/coordinator/a/coordinator/release` dispatch `release`.
+    const marker = '/coordinator';
+    const at = url.pathname.indexOf(marker);
+    const path = at === -1 ? '/' : url.pathname.slice(at + marker.length) || '/';
 
     try {
       switch (`${request.method} ${path}`) {
@@ -101,9 +93,13 @@ export class CommandCoordinator extends DurableObject {
    *
    * Parity note: `claimedAt` is preserved across takeover, mirroring
    * `COALESCE(claimed_at, NOW())` in the SQL. That means a takeover from an
-   * expired holder reports the *previous* holder's claim time. Behaviour is
-   * ported verbatim rather than corrected, so this stays a drop-in replacement;
-   * flagged for review as a candidate defect in the original.
+   * expired holder reports the *previous* holder's claim time. This is
+   * deliberate and is not a defect: `claimedAt` reads as "when this role was
+   * first continuously held", which is a coherent semantic.
+   *
+   * It is also load-bearing, not diagnostic — daemon/coordinator-lease.ts
+   * returns null when `claimedAt` is falsy, so it participates in the
+   * lease/no-lease decision. Any future change has a second consumer.
    */
   async claim(body: ClaimBody): Promise<StoredLease | null> {
     if (!body?.nodeId) throw new Error('[meta/coordinator] nodeId is required');
@@ -113,8 +109,11 @@ export class CommandCoordinator extends DurableObject {
     const now = Date.now();
     const current = await this.read(role);
 
-    const expired =
-      !current?.leaseExpiresAt || Date.parse(current.leaseExpiresAt) < now;
+    // A corrupted timestamp parses to NaN, and every NaN comparison is false —
+    // which would leave the role permanently unclaimable. Postgres typed this
+    // column so the SQL had no such failure mode; treat unparseable as expired.
+    const expiresAt = current?.leaseExpiresAt ? Date.parse(current.leaseExpiresAt) : NaN;
+    const expired = !Number.isFinite(expiresAt) || expiresAt < now;
     const claimable = !current?.nodeId || current.nodeId === body.nodeId || expired;
     if (!claimable) return null;
 

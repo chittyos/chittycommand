@@ -16,7 +16,10 @@
  * @canonical-uri chittycanon://docs/architecture/chittycommand/ADR-001
  */
 
-import { META_LEADER_ROLE, type StoredLease } from '../meta/coordinator';
+// Import from lease-types, NOT meta/coordinator: the latter evaluates
+// `cloudflare:workers`, which does not resolve on Node and would crash the
+// daemon at module load, before main() and before any log line.
+import { META_LEADER_ROLE, type StoredLease } from '../meta/lease-types';
 
 export { META_LEADER_ROLE };
 
@@ -51,10 +54,17 @@ export interface ClaimOptions {
   metadata?: Record<string, unknown>;
 }
 
-function baseUrl(env: CoordinatorEnv): string {
+/**
+ * Both the URL and the token are required. A configured URL with no token
+ * yields a 401 on every call, which loop.ts logs as a claim error and retries
+ * forever — a permanently dead daemon whose logs read like a transient auth
+ * blip. Fail closed on the config error instead, with a distinguishable code.
+ */
+function requireConfig(env: CoordinatorEnv): { url: string; token: string } {
   const url = env.COORDINATOR_URL?.replace(/\/+$/, '');
   if (!url) throw new Error(POLICY_BLOCKED_COORDINATOR_UNAVAILABLE);
-  return url;
+  if (!env.COORDINATOR_TOKEN) throw new Error(POLICY_BLOCKED_COORDINATOR_UNAVAILABLE);
+  return { url, token: env.COORDINATOR_TOKEN };
 }
 
 async function call<T>(
@@ -63,10 +73,13 @@ async function call<T>(
   path: string,
   body?: unknown,
 ): Promise<T> {
-  const headers: Record<string, string> = { 'content-type': 'application/json' };
-  if (env.COORDINATOR_TOKEN) headers.authorization = `Bearer ${env.COORDINATOR_TOKEN}`;
+  const { url, token } = requireConfig(env);
+  const headers: Record<string, string> = {
+    'content-type': 'application/json',
+    authorization: `Bearer ${token}`,
+  };
 
-  const res = await fetch(`${baseUrl(env)}/api/meta/coordinator${path}`, {
+  const res = await fetch(`${url}/api/meta/coordinator${path}`, {
     method,
     headers,
     ...(body === undefined ? {} : { body: JSON.stringify(body) }),
