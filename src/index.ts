@@ -41,6 +41,9 @@ import { runHealthProbes } from './routes/health';
 // Re-export ActionAgent DO class so the runtime can find it
 export { ActionAgent } from './agents/action-agent';
 
+// Meta-orchestrator role arbiter (ADR-001). Replaces Neon cc_node_leases.
+export { CommandCoordinator } from '../meta/coordinator';
+
 export type Env = {
   AI: Ai;
   HYPERDRIVE: Hyperdrive;
@@ -48,6 +51,7 @@ export type Env = {
   SVC_STORAGE: Fetcher;
   COMMAND_KV: KVNamespace;
   ACTION_AGENT: DurableObjectNamespace;
+  COMMAND_COORDINATOR: DurableObjectNamespace;
   DATABASE_URL?: string;
   ENVIRONMENT?: string;
   CHITTYAUTH_URL?: string;
@@ -147,6 +151,14 @@ app.route('/api/bridge', bridgeRoutes);
 app.use('/api/*', authMiddleware);
 
 // API routes
+// Meta-orchestrator role arbiter. Single named instance — the DO *is* the
+// leader, so there is exactly one coordinator for the whole cluster (ADR-001).
+// Sits under /api/* and therefore behind authMiddleware.
+app.all('/api/meta/coordinator/*', (c) => {
+  const ns = c.env.COMMAND_COORDINATOR;
+  return ns.get(ns.idFromName('meta-orchestrator')).fetch(c.req.raw);
+});
+
 app.route('/api/dashboard', dashboardRoutes);
 app.route('/api/accounts', accountRoutes);
 app.route('/api/transactions', transactionRoutes);
