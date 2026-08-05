@@ -3,8 +3,8 @@ import { z } from 'zod';
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../../index';
 import { mercuryClient } from '../../lib/integrations';
-// Canonical executor (registry-backed). ActionAgent's chat tool here wraps
-// the same pure runner the meta-orchestrator dispatcher invokes — sibling
+// Canonical executors (registry-backed). ActionAgent's chat tools here wrap
+// the same pure runners the meta-orchestrator dispatcher invokes — sibling
 // surfaces, shared implementation. See ADR-001 amendment (PR-A).
 import {
   updateObligationStatusSchema,
@@ -20,65 +20,38 @@ import {
 export function createActionTools(env: Env, sql: NeonQueryFunction<false, false>) {
   return {
     execute_payment: tool({
-      description: 'Execute a payment via Mercury Banking. Requires explicit user approval. Creates an ACH transfer from a Mercury account to a saved recipient. The payment is logged and the linked obligation is updated.',
+      description:
+        'REFUSED in chat surface. Mercury payments must be initiated from the dashboard, where the authenticated user identity drives a real sovereignty assessment against trust.chitty.cc. The chat tool factory has no access to the chat actor ChittyID, so a real assessSovereignty() call cannot be made — and the prior synthetic `{ decision: "autonomous" }` snapshot was a silent bypass of the gate that protects the real-money path. Use the dashboard payments page instead.',
       inputSchema: z.object({
-        account_slug: z.string().describe('Mercury org slug (e.g., "aribia-llc", "aribia-mgmt")'),
-        mercury_account_id: z.string().describe('Mercury account ID to pay from'),
-        recipient_id: z.string().describe('Mercury recipient ID to pay'),
-        amount: z.number().positive().describe('Payment amount in USD'),
-        note: z.string().optional().describe('Payment memo/note'),
-        obligation_id: z.string().uuid().optional().describe('Link payment to this obligation'),
+        account_slug: z.string().optional(),
+        mercury_account_id: z.string().optional(),
+        recipient_id: z.string().optional(),
+        amount: z.number().positive().optional(),
+        note: z.string().optional(),
+        obligation_id: z.string().uuid().optional(),
       }),
-      execute: async ({ account_slug, mercury_account_id, recipient_id, amount, note, obligation_id }) => {
-        // Get Mercury token from KV
-        const token = await env.COMMAND_KV.get(`mercury:token:${account_slug}`);
-        if (!token) {
-          return { success: false, error: `No Mercury token for org "${account_slug}". Run token refresh first.` };
-        }
-
-        const mercury = mercuryClient(token);
-        const idempotencyKey = crypto.randomUUID();
-
-        const result = await mercury.createPayment(mercury_account_id, {
-          recipientId: recipient_id,
-          amount,
-          paymentMethod: 'ach',
-          idempotencyKey,
-          note: note || undefined,
-        });
-
-        if (!result) {
-          // Log failed attempt
-          await sql`
-            INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
-            VALUES ('payment', 'obligation', ${obligation_id || null},
-                    ${`Mercury ACH $${amount.toFixed(2)} to ${recipient_id} — FAILED`}, 'failed',
-                    ${JSON.stringify({ account_slug, mercury_account_id, recipient_id, amount, idempotencyKey })}::jsonb)
-          `;
-          return { success: false, error: 'Mercury API rejected the payment. Check logs for details.' };
-        }
-
-        // Log successful payment
+      execute: async ({ account_slug, recipient_id, amount, obligation_id }) => {
+        // Audit the refusal so attempted chat-initiated payments are visible
+        // to operators (signal: a model tried to move money from chat).
         await sql`
           INSERT INTO cc_actions_log (action_type, target_type, target_id, description, status, metadata)
-          VALUES ('payment', 'obligation', ${obligation_id || null},
-                  ${`Mercury ACH $${amount.toFixed(2)} — tx ${result.id}`}, 'completed',
-                  ${JSON.stringify({ ...result, account_slug, idempotencyKey })}::jsonb)
+          VALUES ('payment_refusal', 'obligation', ${obligation_id || null},
+                  ${`Mercury payment refused in chat surface (use dashboard): ${account_slug ?? '?'} -> ${recipient_id ?? '?'} $${(amount ?? 0).toFixed(2)}`},
+                  'failed',
+                  ${JSON.stringify({
+                    refusal_reason: 'chat_surface_refuses_mercury',
+                    surface: 'chat',
+                    account_slug: account_slug ?? null,
+                    recipient_id: recipient_id ?? null,
+                    amount: amount ?? null,
+                  })}::jsonb)
         `;
-
-        // Update obligation if linked
-        if (obligation_id) {
-          await sql`
-            UPDATE cc_obligations
-            SET status = 'paid', updated_at = NOW(),
-                metadata = COALESCE(metadata, '{}'::jsonb) || ${JSON.stringify({
-                  last_payment: { amount, mercury_tx_id: result.id, date: new Date().toISOString() },
-                })}::jsonb
-            WHERE id = ${obligation_id}::uuid
-          `;
-        }
-
-        return { success: true, transaction_id: result.id, amount, status: result.status };
+        return {
+          success: false,
+          error:
+            'Mercury payments cannot be initiated from chat. Use the dashboard payments page — it has the authenticated chat actor identity needed for a real sovereignty assessment against trust.chitty.cc. This refusal is by design: a synthetic "autonomous" snapshot in chat would silently bypass the money-path sovereignty gate.',
+          refusal_reason: 'chat_surface_refuses_mercury',
+        };
       },
     }),
 

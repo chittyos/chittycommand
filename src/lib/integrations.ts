@@ -519,6 +519,22 @@ export interface PromptExecuteResponse {
 // ── Mercury ─────────────────────────────────────────────────
 // Direct Mercury API for multi-entity banking
 
+/**
+ * Discriminated result type for Mercury API calls. Distinguishes every failure
+ * mode so callers (executor, audit row) can record the actual cause instead of
+ * collapsing everything to `null` / silent success. REAL MONEY PATH — every
+ * branch must be visible in cc_actions_log.
+ */
+export type MercuryPostResult<T> =
+  | { ok: true; body: T; httpStatus: number; rawSnippet?: string }
+  | {
+      ok: false;
+      kind: 'network' | 'http' | 'parse' | 'idempotency_collision';
+      httpStatus?: number;
+      bodySnippet?: string;
+      errorCode?: string;
+    };
+
 export interface MercuryAccount {
   id: string;
   name: string;
@@ -549,12 +565,17 @@ export interface MercuryTransaction {
   status: string;
 }
 
-export function mercuryClient(token: string) {
+/** Optional fetch override — exists solely so integration tests can drive the
+ *  Mercury client against an in-process fetch double WITHOUT mocking the
+ *  client. Default is global fetch (real Mercury). */
+export type FetchImpl = typeof fetch;
+
+export function mercuryClient(token: string, fetchImpl: FetchImpl = fetch) {
   const baseUrl = 'https://api.mercury.com/api/v1';
 
   async function get<T>(path: string): Promise<T | null> {
     try {
-      const res = await fetch(`${baseUrl}${path}`, {
+      const res = await fetchImpl(`${baseUrl}${path}`, {
         headers: { Authorization: `Bearer ${token}`, Accept: 'application/json' },
       });
       if (!res.ok) {
@@ -569,23 +590,60 @@ export function mercuryClient(token: string) {
     }
   }
 
-  async function post<T>(path: string, body: unknown): Promise<T | null> {
+  /**
+   * POST with a discriminated result. Every failure mode is enumerated:
+   *   - 409 → `idempotency_collision` (replay-attack tell — operator must see)
+   *   - other 4xx/5xx → `http`
+   *   - non-JSON body on 2xx → `parse`
+   *   - thrown / network error → `network`
+   * Successful response includes `httpStatus` AND a body-text snippet so the
+   * audit row can show what Mercury returned without leaking secrets (body is
+   * Mercury's payment object — no token in it).
+   */
+  async function post<T>(
+    path: string,
+    body: unknown,
+    opts?: { idempotencyKey?: string },
+  ): Promise<MercuryPostResult<T>> {
+    let res: Response;
     try {
-      const res = await fetch(`${baseUrl}${path}`, {
+      const headers: Record<string, string> = {
+        Authorization: `Bearer ${token}`,
+        'Content-Type': 'application/json',
+        Accept: 'application/json',
+      };
+      // Mercury dedupes ACH/wire/check creations by the `Idempotency-Key` HTTP
+      // header. Putting the key only in the JSON body lets a transport retry
+      // create duplicate transfers — money out twice. Forward as header.
+      if (opts?.idempotencyKey) headers['Idempotency-Key'] = opts.idempotencyKey;
+      res = await fetchImpl(`${baseUrl}${path}`, {
         method: 'POST',
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json', Accept: 'application/json' },
+        headers,
         body: JSON.stringify(body),
       });
-      if (!res.ok) {
-        const text = await res.text().catch(() => '');
-        console.error(`[mercury] POST ${path} failed: ${res.status} — ${text.slice(0, 500)}`);
-        return null;
-      }
-      return await res.json() as T;
     } catch (err) {
-      console.error(`[mercury] POST ${path} error:`, err);
-      return null;
+      const msg = err instanceof Error ? err.message : String(err);
+      console.error(`[mercury] POST ${path} network error: ${msg}`);
+      return { ok: false, kind: 'network', bodySnippet: msg.slice(0, 500) };
     }
+
+    const text = await res.text().catch(() => '');
+    if (!res.ok) {
+      if (res.status === 409) {
+        console.error(`[mercury] POST ${path} idempotency collision (409): ${text.slice(0, 500)}`);
+        return { ok: false, kind: 'idempotency_collision', httpStatus: 409, bodySnippet: text.slice(0, 500) };
+      }
+      console.error(`[mercury] POST ${path} failed: ${res.status} — ${text.slice(0, 500)}`);
+      return { ok: false, kind: 'http', httpStatus: res.status, bodySnippet: text.slice(0, 500) };
+    }
+    let parsed: T;
+    try {
+      parsed = JSON.parse(text) as T;
+    } catch {
+      console.error(`[mercury] POST ${path} parse error: body was not JSON — ${text.slice(0, 200)}`);
+      return { ok: false, kind: 'parse', httpStatus: res.status, bodySnippet: text.slice(0, 500) };
+    }
+    return { ok: true, body: parsed, httpStatus: res.status, rawSnippet: text.slice(0, 500) };
   }
 
   return {
@@ -602,14 +660,25 @@ export function mercuryClient(token: string) {
     getRecipients: (accountId: string) =>
       get<{ recipients: Array<{ id: string; name: string; accountNumber?: string; routingNumber?: string }> }>(`/account/${accountId}/recipients`),
 
-    /** Create an ACH payment from an account to a recipient */
+    /** Create an ACH payment from an account to a recipient. Returns the
+     *  discriminated `MercuryPostResult` so callers can branch on the exact
+     *  failure mode (network / http / parse / idempotency_collision). */
     createPayment: (accountId: string, payment: {
       recipientId: string;
       amount: number;
       paymentMethod: 'ach' | 'wire' | 'check';
       idempotencyKey: string;
       note?: string;
-    }) => post<{ id: string; status: string; amount: number }>(`/account/${accountId}/transactions`, payment),
+    }) => {
+      // Mercury expects `Idempotency-Key` as an HTTP header, not in the body.
+      // Strip from body and forward via opts so transport retries dedupe.
+      const { idempotencyKey, ...bodyWithoutKey } = payment;
+      return post<{ id: string; status: string; amount: number }>(
+        `/account/${accountId}/transactions`,
+        bodyWithoutKey,
+        { idempotencyKey },
+      );
+    },
   };
 }
 

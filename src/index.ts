@@ -91,6 +91,13 @@ export type Env = {
   CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_SECRET?: string;
   REGISTERED_CHANNELS_JSON?: string;
   GCP_JWKS_URL?: string;
+  /**
+   * Per-intent autonomous-execution cap for mercury_payment, in whole USD.
+   * Amounts strictly greater than this are refused by the executor and must
+   * be approved via the dashboard. Default 500 if unset. See
+   * meta/executors/mercury-payment.ts and docs/runbooks/mercury-payment-executor.md.
+   */
+  MERCURY_AUTONOMOUS_AMOUNT_CAP_USD?: string;
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
