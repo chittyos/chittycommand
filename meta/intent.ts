@@ -297,6 +297,64 @@ export async function createRouxIngestIntentIdempotent(
   return { intent: rowToIntent(winner[0]), created: false };
 }
 
+/**
+ * Atomic create-or-fetch for contextual_ingest intents keyed by the contextual
+ * message id (carried as payload.source.message_id, e.g. 'ctx-msg-16884').
+ *
+ * Backed by the partial unique index `cc_intents_contextual_ingest_message_id_uidx`
+ * (migration 0019). Distinct from createRouxIngestIntentIdempotent: the
+ * ON CONFLICT arbiter predicate and the re-fetch BOTH filter
+ * intent_type='contextual_ingest', so the conflict actually fires for
+ * contextual rows (the roux helper's hardcoded 'roux_ingest' predicate does
+ * not cover them — routing contextual through it would either never dedup or,
+ * with the 0019 index present, raise a unique violation).
+ *
+ * @canon: chittycanon://core/services/chittycommand/contextual-ingest
+ * @canon: chittycanon://gov/governance#classification-axes  STATUS:PENDING
+ */
+export async function createContextualIngestIntentIdempotent(
+  env: IntentEnv,
+  input: CreateIntentInput & { messageId: string },
+): Promise<{ intent: Intent; created: boolean }> {
+  const sql = getSql(env);
+  const initialStatus: IntentStatus =
+    input.sovereigntyAssessment?.decision === 'requires_human'
+      ? 'blocked_human'
+      : input.sovereigntyAssessment?.decision === 'blocked'
+        ? 'failed'
+        : 'pending';
+
+  const inserted = await sql`
+    INSERT INTO cc_intents
+      (plan_id, goal_id, intent_type, target_channel, payload, status, priority,
+       sovereignty_assessment, human_gate_reason, scheduled_for, privilege, space, metadata)
+    VALUES
+      (${input.planId}, ${input.goalId}, ${input.intentType},
+       ${input.targetChannel ?? null}, ${JSON.stringify(input.payload)}::jsonb,
+       ${initialStatus}, ${input.priority ?? 5},
+       ${input.sovereigntyAssessment ? JSON.stringify(input.sovereigntyAssessment) : null}::jsonb,
+       ${input.humanGateReason ?? null}, ${input.scheduledFor ?? null},
+       ${input.privilege ?? 'public'}, ${input.space ?? 'business'},
+       ${JSON.stringify(input.metadata ?? {})}::jsonb)
+    ON CONFLICT ((payload->'source'->>'message_id'))
+      WHERE intent_type = 'contextual_ingest'
+        AND payload->'source'->>'message_id' IS NOT NULL
+      DO NOTHING
+    RETURNING *`;
+  if (inserted[0]) {
+    return { intent: rowToIntent(inserted[0]), created: true };
+  }
+  const winner = await sql`
+    SELECT * FROM cc_intents
+    WHERE intent_type = 'contextual_ingest'
+      AND payload->'source'->>'message_id' = ${input.messageId}
+    LIMIT 1`;
+  if (!winner[0]) {
+    throw new Error(`ON CONFLICT path with no winning row for contextual message_id=${input.messageId}`);
+  }
+  return { intent: rowToIntent(winner[0]), created: false };
+}
+
 export async function getIntent(env: IntentEnv, id: string): Promise<Intent | null> {
   const sql = getSql(env);
   const rows = await sql`SELECT * FROM cc_intents WHERE id = ${id} LIMIT 1`;

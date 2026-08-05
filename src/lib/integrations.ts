@@ -1,4 +1,5 @@
 import type { Env } from '../index';
+import { getDb } from './db';
 
 /**
  * Service integration clients for the ChittyOS ecosystem.
@@ -1030,6 +1031,150 @@ export function notionClient(env: Env) {
       }
     },
   };
+}
+
+// ── chittyagent-tasks ─────────────────────────────────────────
+// Canonical distributed task queue (agent_tasks.tasks). ChittyCommand raises a
+// task here when an inferred contextual signal CONFLICTS with an existing
+// record — conflicts never auto-resolve (spine rule). Deployed at
+// tasks.chitty.cc; create via POST /api/v1/tasks (bearer auth).
+// @canon: chittycanon://core/services/chittyagent-tasks
+
+export interface CreateAgentTaskInput {
+  title: string;
+  description?: string;
+  task_type: string;
+  assigned_agent: string;
+  source_agent?: string;
+  priority?: number;
+  payload?: Record<string, unknown>;
+  // @canon: chittyentity/workers/shared/task-constants.ts — agent_tasks.tasks
+  // CHECK constraints. triage_class ∈ ignore|defer|delegate|escalate,
+  // urgency ∈ now|today|this_week|later.
+  triage_class?: 'ignore' | 'defer' | 'delegate' | 'escalate';
+  urgency?: 'now' | 'today' | 'this_week' | 'later';
+  needs_nick?: boolean;
+}
+
+export interface AgentTaskResult {
+  id: string;
+  title: string;
+  assigned_agent: string;
+  status: string;
+}
+
+export function tasksClient(env: Env) {
+  const baseUrl = env.CHITTYAGENT_TASKS_URL;
+  if (!baseUrl) return null;
+
+  async function resolveToken(): Promise<string | null> {
+    if (env.CHITTYAGENT_TASKS_TOKEN) return env.CHITTYAGENT_TASKS_TOKEN;
+    // Fall back to KV (mirrors routerClient's scrape:service_token pattern;
+    // credential delivered via CF secret / ChittyConnect, never hardcoded).
+    try {
+      return (await env.COMMAND_KV.get('tasks:service_token')) ?? null;
+    } catch (err) {
+      console.warn('[tasks] KV token read failed:', err);
+      return null;
+    }
+  }
+
+  return {
+    /** Create a task on chittyagent-tasks. Returns null on any failure. */
+    createTask: async (input: CreateAgentTaskInput): Promise<AgentTaskResult | null> => {
+      try {
+        const token = await resolveToken();
+        if (!token) {
+          console.warn('[tasks] No CHITTYAGENT_TASKS_TOKEN / tasks:service_token — cannot create task');
+          return null;
+        }
+        const res = await fetch(`${baseUrl}/api/v1/tasks`, {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`,
+            'X-ChittyOS-Caller': 'chittycommand',
+          },
+          body: JSON.stringify({ source_agent: 'chittycommand', ...input }),
+          signal: AbortSignal.timeout(15000),
+        });
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          console.error(`[tasks] POST /api/v1/tasks failed: ${res.status} — ${errBody.slice(0, 500)}`);
+          return null;
+        }
+        const json = await res.json() as { success: boolean; data?: AgentTaskResult };
+        return json.data ?? null;
+      } catch (err) {
+        console.error('[tasks] createTask error:', err);
+        return null;
+      }
+    },
+  };
+}
+
+// ── Contextual task fallback ───────────────────────────────────
+// Lightweight task writer for contextual ingest conflict reconciliation.
+
+export interface ContextualTaskCreatePayload {
+  title: string;
+  description?: string;
+  task_type: string;
+  assigned_agent?: string;
+  priority?: number;
+  urgency?: 'now' | 'today' | 'this_week' | 'later';
+  needs_nick?: boolean;
+  payload?: Record<string, unknown>;
+}
+
+export function contextualTasksClient(env: Env) {
+  try {
+    const sql = getDb(env);
+    return {
+      createTask: async (payload: ContextualTaskCreatePayload): Promise<Record<string, unknown> | null> => {
+        try {
+          const externalId =
+            typeof payload.payload?.source_ref === 'string' && payload.payload.source_ref
+              ? `task:${payload.task_type}:${payload.payload.source_ref}`
+              : `task:${payload.task_type}:${crypto.randomUUID()}`;
+          const rows = await sql`
+            INSERT INTO cc_tasks (
+              external_id, title, description, task_type, source, priority, backend_status, metadata
+            )
+            VALUES (
+              ${externalId},
+              ${payload.title},
+              ${payload.description ?? null},
+              ${payload.task_type},
+              'contextual',
+              ${payload.priority ?? 5},
+              'queued',
+              ${JSON.stringify({
+                assigned_agent: payload.assigned_agent ?? null,
+                urgency: payload.urgency ?? null,
+                needs_nick: payload.needs_nick ?? false,
+                ...payload.payload,
+              })}::jsonb
+            )
+            ON CONFLICT (external_id) DO UPDATE SET
+              title = EXCLUDED.title,
+              description = EXCLUDED.description,
+              task_type = EXCLUDED.task_type,
+              priority = EXCLUDED.priority,
+              metadata = EXCLUDED.metadata,
+              updated_at = NOW()
+            RETURNING id, external_id, title, description, task_type, source, priority, backend_status, metadata`;
+          return rows[0] ?? null;
+        } catch (err) {
+          console.error('[contextual-tasks] createTask error:', err);
+          return null;
+        }
+      },
+    };
+  } catch (err) {
+    console.error('[contextual-tasks] client unavailable:', err);
+    return null;
+  }
 }
 
 // ── ChittyGov ─────────────────────────────────────────────

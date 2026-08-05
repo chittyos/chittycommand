@@ -18,7 +18,8 @@
     "ui:build": "cd ui && vite build",
     "ui:preview": "cd ui && vite preview",
     "test": "vitest run",
-    "test:watch": "vitest"
+    "test:watch": "vitest",
+    "test:workers": "vitest run --config vitest.workers.config.mts"
   },
   "dependencies": {
     "@cloudflare/ai-chat": "^0.1.9",
@@ -33,6 +34,7 @@
     "zod": "^4.3.6"
   },
   "devDependencies": {
+    "@cloudflare/vitest-pool-workers": "^0.20.1",
     "@cloudflare/workers-types": "^4.20240512.0",
     "drizzle-kit": "^0.31.9",
     "typescript": "^5.5.0",

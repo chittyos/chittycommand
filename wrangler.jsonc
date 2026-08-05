@@ -52,12 +52,15 @@
   // ActionAgent Durable Object (Agents SDK)
   "durable_objects": {
     "bindings": [
-      { "name": "ACTION_AGENT", "class_name": "ActionAgent" }
+      { "name": "ACTION_AGENT", "class_name": "ActionAgent" },
+      // Meta-orchestrator role arbiter — replaces Neon cc_node_leases (ADR-001)
+      { "name": "COMMAND_COORDINATOR", "class_name": "CommandCoordinator" }
     ]
   },
 
   "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["ActionAgent"] }
+    { "tag": "v1", "new_sqlite_classes": ["ActionAgent"] },
+    { "tag": "v2", "new_sqlite_classes": ["CommandCoordinator"] }
   ],
 
   // Observability — match dashboard config
