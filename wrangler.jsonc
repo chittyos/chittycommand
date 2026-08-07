@@ -2,7 +2,7 @@
   "name": "chittycommand",
   "account_id": "0bc21e3a5a9de1a4cc843be9c3e98121",
   "main": "src/index.ts",
-  "compatibility_date": "2026-03-02",
+  "compatibility_date": "2026-08-07",
   "compatibility_flags": ["nodejs_compat"],
   // Custom domain (command.chitty.cc) managed via CF dashboard — no zone token needed
 
