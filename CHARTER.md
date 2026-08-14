@@ -13,6 +13,7 @@ discovery_refs:
   - chittycanon://gov/governance
   - chittycanon://docs/tech/spec/context-schema
   - chittycanon://specs/chittydna-session-governance
+  - chittycanon://docs/ops/policy/chittycommand-service-boundary-contract
 ---
 
 # ChittyCommand Charter
@@ -209,7 +210,7 @@ This charter is part of a synchronized documentation triad. Changes to shared fi
 | Dependencies | CHARTER.md (Dependencies) | CLAUDE.md (Architecture) |
 | Certification badge | CHITTY.md (Certification) | CHARTER.md frontmatter `status` |
 
-**Related docs**: [CHITTY.md](CHITTY.md) (badge/one-pager) | [CLAUDE.md](CLAUDE.md) (developer guide)
+**Related docs**: [CHITTY.md](CHITTY.md) (badge/one-pager) | [CLAUDE.md](CLAUDE.md) (developer guide) | [Service-Boundary Contract](docs/architecture/service-boundary-contract.md) (`chittycanon://docs/ops/policy/chittycommand-service-boundary-contract` — implementation-gated ecosystem ownership boundaries)
 
 ## Compliance
 
