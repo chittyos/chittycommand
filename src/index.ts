@@ -91,6 +91,9 @@ export type Env = {
   CHITTYROUX_MARKETPLACE_OAUTH_CLIENT_SECRET?: string;
   REGISTERED_CHANNELS_JSON?: string;
   GCP_JWKS_URL?: string;
+  // Cloudflare Access MCP portal auth
+  CF_TEAM_DOMAIN?: string; // e.g. chittycorp.cloudflareaccess.com
+  CF_ACCESS_AUD?: string;  // Access application AUD tag (from CF Zero Trust dashboard)
 };
 
 const app = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
