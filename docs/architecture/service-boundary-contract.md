@@ -78,7 +78,7 @@ canonical docs?) and a **code axis** (does live repository evidence support it?)
 |-----|------|---------|
 | `canon_confirmed` | canon | Explicitly stated in canonical ChittyCanon documentation. |
 | `canon_directional` | canon | Implied by canonical references (e.g. tier/placement) but not spelled out as an ownership rule. |
-| `registry_confirmed` | live | The live ChittyOS service registry (`helper_registry_lookup`) records this ownership scope + canonical `doc_ref`. Authoritative for *ownership intent*, independent of repo-file identity. |
+| `registry_confirmed` | live | The live ChittyOS service registry (queried via the external ChittyMCP `helper_registry_lookup` tool — see the Live Verification section) records this ownership scope + canonical `doc_ref`. Authoritative for *ownership intent*, independent of repo-file identity. |
 | `code_confirmed` | code | Verified against current, service-specific repository implementation (the repo's own `CHARTER.md` / `package.json`). |
 | `code_drift` | code | Canon says one thing; the repo's current code/identity does not yet match. |
 | `repo_identity_drift` | code | The repo carries another service's identity (e.g. a copied ChittyCanon `CHARTER.md` / `package.json`) instead of its own. A special case of `code_drift`. |
@@ -153,9 +153,16 @@ A live status sweep of the canon validator and the ChittyOS service registry was
 run on 2026-06-28. Results are recorded here as dated evidence; re-run before
 relying on them.
 
-### Service-registry ownership (`helper_registry_lookup`)
+### Service-registry ownership (live registry lookup)
 
-| System | Ownership scope (registry) | `doc_ref` | Interface | `last_verified` |
+> **Interface note:** `helper_registry_lookup` denotes the **external ChittyMCP
+> registry-lookup tool** (`mcp__ChittyMCP__helper_registry_lookup`) used to run this
+> sweep — it is not an in-repo symbol, and the tool name may change over time. The
+> durable claim here is the *ownership snapshot*, not the tool identity. The
+> `registry_last_verified` column is the registry record's **own** timestamp, which is
+> distinct from the 2026-06-28 sweep date at the top of this section.
+
+| System | Ownership scope (registry) | `doc_ref` | Interface | `registry_last_verified` |
 |---|---|---|---|---|
 | `chittyid` | identity management, user authentication, DID resolution | `chittycanon://core/services/identity` | id.chitty.cc | 2026-01-06 |
 | `chittyconnect` | service connections, credential proxying, API access | `chittycanon://core/services/connect` | connect.chitty.cc | 2026-01-06 |
@@ -167,9 +174,9 @@ The registry confirms ownership intent for the four registered services. The
 `chittyrouter` row is a **registry-lookup miss, not a statement that routing is absent** —
 ChittyRouter is integrated in this repo (`wrangler.jsonc` `CHITTYROUTER_URL`, and a
 `CHARTER.md` upstream dependency). It means only that the registry carries no canonical
-*routing-ownership* record to enforce against, which is what scopes the `hold`. Registry
-`last_verified` stamps are themselves stale (2026-01-06), so this is ownership-of-record,
-not a liveness guarantee.
+*routing-ownership* record to enforce against, which is what scopes the `hold`. The
+`registry_last_verified` stamps are themselves stale (2026-01-06), so this is
+ownership-of-record, not a liveness guarantee.
 
 ### Canon URI / frontmatter validation
 
