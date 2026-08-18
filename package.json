@@ -28,13 +28,13 @@
     "ai": "^6.0.141",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.12.23",
-    "hono-agents": "^0.19.0",
+    "hono-agents": "^3.0.7",
     "jose": "^6.2.3",
     "workers-ai-provider": "^3.1.8",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@cloudflare/vitest-pool-workers": "^0.20.1",
+    "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^4.20240512.0",
     "drizzle-kit": "^0.31.9",
     "typescript": "^5.5.0",
