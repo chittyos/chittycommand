@@ -83,6 +83,11 @@ jobs:
         run: npx tsc -p tsconfig.json --noEmit
       - name: Test
         run: npm test
+      - name: Test (workers)
+        # tests/workers/** runs in workerd via @cloudflare/vitest-pool-workers.
+        # `npm test` deliberately excludes it, so without this step the DO
+        # coordinator suite would not run in CI at all.
+        run: npm run test:workers
       - name: Governance Pressure Tests
         run: bash scripts/pressure-test-governance.sh
       - name: Lint (skipped)
