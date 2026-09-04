@@ -9,7 +9,12 @@ export const scrapeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }
 
 // ── ChittyScrape ─────────────────────────────────────────────
 
-/** Trigger court docket scrape */
+/**
+ * Read the latest pushed court docket result for a case.
+ * Kept as POST /court-docket (not renamed/removed) for existing callers --
+ * the endpoint's contract changed (read-back, not trigger-a-scrape) but its
+ * shape and route didn't, so nothing calling this needs to change.
+ */
 scrapeRoutes.post('/court-docket', async (c) => {
   const scrape = scrapeClient(c.env);
   if (!scrape) return c.json({ error: 'ChittyScrape not configured' }, 503);
