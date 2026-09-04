@@ -10,6 +10,7 @@ export default defineConfig({
     pool: 'threads',
     maxWorkers: 1,
     globalSetup: ['./tests/setup/global-setup.ts'],
+    setupFiles: ['./tests/setup/env-guard.ts'],
   },
   resolve: {
     alias: {

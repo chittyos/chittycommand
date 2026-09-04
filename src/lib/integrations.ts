@@ -737,9 +737,40 @@ export function scrapeClient(env: Env) {
     }
   }
 
+  async function get<T>(path: string, token: string): Promise<T | null> {
+    try {
+      const res = await fetch(`${baseUrl}${path}`, {
+        headers: { 'Authorization': `Bearer ${token}` },
+        signal: AbortSignal.timeout(15000),
+      });
+      if (!res.ok) {
+        const errBody = await res.text().catch(() => '');
+        console.error(`[scrape] GET ${path} failed: ${res.status} — ${errBody.slice(0, 500)}`);
+        return null;
+      }
+      return await res.json() as T;
+    } catch (err) {
+      console.error(`[scrape] ${path} error:`, err);
+      return null;
+    }
+  }
+
   return {
     scrapeCourtDocket: (caseNumber: string, token: string) =>
       post<{ success: boolean; data?: any; error?: string }>('/api/scrape/court-docket', { caseNumber }, token),
+
+    // court-docket (Cook County) can't run live inside chittyscrape's Worker
+    // at all -- the portal's WAF blocks every CDP-driven/headless method
+    // Cloudflare Browser Rendering could use. Results instead arrive via a
+    // periodic real-Safari-GUI push from chittyactor-cook-county-docket
+    // (chittymini-01, launchd) landing in chittyscrape's KV; this reads
+    // back whatever was most recently pushed for a given case number,
+    // rather than triggering a scrape that can never succeed synchronously.
+    getLatestCourtDocket: (caseNumber: string, token: string) =>
+      get<{ success: boolean; data?: any; error?: string; scrapedAt?: string }>(
+        `/api/scrape/court-docket/latest?case=${encodeURIComponent(caseNumber)}`,
+        token,
+      ),
 
     scrapeCookCountyTax: (pin: string, token: string) =>
       post<{ success: boolean; data?: any; error?: string }>('/api/scrape/cook-county-tax', { pin }, token),

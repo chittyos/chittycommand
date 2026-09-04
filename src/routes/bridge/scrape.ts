@@ -9,7 +9,12 @@ export const scrapeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }
 
 // ── ChittyScrape ─────────────────────────────────────────────
 
-/** Trigger court docket scrape */
+/**
+ * Read the latest pushed court docket result for a case.
+ * Kept as POST /court-docket (not renamed/removed) for existing callers --
+ * the endpoint's contract changed (read-back, not trigger-a-scrape) but its
+ * shape and route didn't, so nothing calling this needs to change.
+ */
 scrapeRoutes.post('/court-docket', async (c) => {
   const scrape = scrapeClient(c.env);
   if (!scrape) return c.json({ error: 'ChittyScrape not configured' }, 503);
@@ -21,7 +26,13 @@ scrapeRoutes.post('/court-docket', async (c) => {
   if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
   const targetCase = parsed.data.caseNumber || '2024D007847';
 
-  const result = await scrape.scrapeCourtDocket(targetCase, token);
+  // court-docket has no live scraper inside chittyscrape's Worker at all --
+  // Cook County's WAF blocks every CDP-driven/headless method it could use
+  // (see chittyentity/actors/chittyactor-cook-county-docket/CHARTER.md).
+  // Results only arrive via that actor's periodic real-Safari push; this
+  // reads back whatever was most recently pushed instead of triggering a
+  // scrape that would just 404 as no_scraper_available.
+  const result = await scrape.getLatestCourtDocket(targetCase, token);
 
   const sql = getDb(c.env);
   await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
