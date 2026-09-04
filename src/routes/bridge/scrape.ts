@@ -21,7 +21,13 @@ scrapeRoutes.post('/court-docket', async (c) => {
   if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
   const targetCase = parsed.data.caseNumber || '2024D007847';
 
-  const result = await scrape.scrapeCourtDocket(targetCase, token);
+  // court-docket has no live scraper inside chittyscrape's Worker at all --
+  // Cook County's WAF blocks every CDP-driven/headless method it could use
+  // (see chittyentity/actors/chittyactor-cook-county-docket/CHARTER.md).
+  // Results only arrive via that actor's periodic real-Safari push; this
+  // reads back whatever was most recently pushed instead of triggering a
+  // scrape that would just 404 as no_scraper_available.
+  const result = await scrape.getLatestCourtDocket(targetCase, token);
 
   const sql = getDb(c.env);
   await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
