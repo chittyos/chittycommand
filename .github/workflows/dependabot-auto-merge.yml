@@ -1,5 +1,20 @@
 name: Dependabot auto-merge
 
+# Merges only AFTER checks have registered and passed.
+#
+# The previous version called `gh pr merge --auto`. With zero required status
+# checks configured in branch protection, `--auto` merges immediately rather
+# than waiting -- proven on chittyregistry PR #184, which merged 14 seconds
+# BEFORE its build-and-test job completed. Branch protection cannot be the fix
+# here: private repos on this plan cannot have it at all, so the gate has to
+# live in the workflow to be uniform across the fleet.
+#
+# Two traps this works around, both real:
+#   1. A watch started before any check registers sees an empty set and passes
+#      vacuously. Hence the explicit "no checks ever appeared" -> fail closed.
+#   2. This job is itself a check run on the PR, so `gh pr checks --watch`
+#      would wait on itself forever. Hence the self-exclusion by run id.
+
 on: pull_request_target
 
 permissions:
@@ -9,6 +24,7 @@ permissions:
 jobs:
   dependabot:
     runs-on: ubuntu-latest
+    timeout-minutes: 30
     if: github.actor == 'dependabot[bot]'
     steps:
       - name: Fetch Dependabot metadata
@@ -17,20 +33,85 @@ jobs:
         with:
           github-token: "${{ secrets.GITHUB_TOKEN }}"
 
-      - name: Approve minor and patch updates
+      - name: Wait for checks to register and pass
+        id: gate
         if: >-
           steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
           steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr review --approve "$PR_URL"
+        run: |
+          set -euo pipefail
+
+          deadline=$(( SECONDS + 1500 ))
+          saw_any=0
+
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            # Exclude this job's own check run. Belt and braces: by run id
+            # (details_url is .../actions/runs/<id>/job/<id>, verified) and by
+            # job name, so a change to either shape cannot deadlock the gate.
+            # `gh api` has no --arg, so jq is invoked separately.
+            runs=$(gh api --paginate --slurp \
+              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/check-runs" \
+              | jq -r --arg runid "${GITHUB_RUN_ID}" --arg self "${GITHUB_JOB}" '
+                  .[].check_runs[]
+                  | select(((((.details_url // "") | contains("/runs/" + $runid + "/"))
+                              or (.name == $self and .status != "completed"))) | not)
+                  | [.name, .status, (.conclusion // "")] | @tsv')
+
+            # Legacy commit statuses (some systems report here, not as check runs).
+            # A status in state "pending" is still running -- hardcoding
+            # "completed" here would let the gate merge mid-build.
+            statuses=$(gh api \
+              "repos/${GITHUB_REPOSITORY}/commits/${HEAD_SHA}/status" \
+              --jq '.statuses[]
+                    | [.context,
+                       (if .state == "pending" then "in_progress" else "completed" end),
+                       .state] | @tsv')
+
+            all=$(printf '%s\n%s\n' "$runs" "$statuses" | sed '/^$/d')
+
+            if [ -n "$all" ]; then
+              saw_any=1
+
+              # Any hard failure -> stop now, leave the PR open for a human.
+              if failed=$(printf '%s\n' "$all" | awk -F'\t' '$3=="failure"||$3=="cancelled"||$3=="timed_out"||$3=="error"' | grep .); then
+                echo "::error::Checks failed, refusing to merge:"
+                printf '%s\n' "$failed"
+                exit 1
+              fi
+
+              # Still-running checks -> keep waiting.
+              pending=$(printf '%s\n' "$all" | awk -F'\t' '$2!="completed"' || true)
+              if [ -z "$pending" ]; then
+                echo "All checks complete and non-failing:"
+                printf '%s\n' "$all"
+                exit 0
+              fi
+            fi
+
+            sleep 20
+          done
+
+          if [ "$saw_any" -eq 0 ]; then
+            echo "::error::No checks ever registered on ${HEAD_SHA} -- refusing to merge."
+          else
+            echo "::error::Checks did not settle before the deadline -- refusing to merge."
+          fi
+          exit 1
         env:
-          PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Enable auto-merge for minor and patch updates
-        if: >-
-          steps.metadata.outputs.update-type == 'version-update:semver-minor' ||
-          steps.metadata.outputs.update-type == 'version-update:semver-patch'
-        run: gh pr merge --auto --squash "$PR_URL"
+      - name: Approve and merge
+        if: steps.gate.outcome == 'success'
+        run: |
+          set -euo pipefail
+          # --match-head-commit closes the window between the gate passing and
+          # the merge: pull_request_target does re-trigger on push (verified --
+          # PR 186 has two runs, one per pushed commit), so a race here would
+          # merge a commit this run never gated. Refuse instead.
+          gh pr review --approve "$PR_URL"
+          gh pr merge --squash --match-head-commit "$HEAD_SHA" "$PR_URL"
         env:
           PR_URL: ${{ github.event.pull_request.html_url }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha }}
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
