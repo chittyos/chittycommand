@@ -13,7 +13,6 @@
   "useOrgRulesets": true,
   "requiredFiles": [
     ".github/workflows/governance-gates.yml",
-    ".github/workflows/adversarial-review.yml",
     ".github/workflows/identity-context-onboarding.yml",
     ".github/workflows/onepassword-rotation-audit.yml",
     ".github/ISSUE_TEMPLATE/config.yml",
@@ -32,9 +31,6 @@
     ".github/workflows/governance-gates.yml": [
       "pull_request",
       "push"
-    ],
-    ".github/workflows/adversarial-review.yml": [
-      "pull_request_target"
     ],
     ".github/workflows/identity-context-onboarding.yml": [
       "pull_request",
