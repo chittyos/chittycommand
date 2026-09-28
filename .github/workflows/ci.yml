@@ -74,10 +74,14 @@ jobs:
         run: npm ci
       - name: Dependency Audit
         # Scope the High+ gate to production dependencies shipped to the Worker
-        # runtime. All current High/Moderate advisories are in dev-only tooling
-        # (esbuild, vite, ws via wrangler / drizzle-kit / vitest) with no
-        # non-breaking fix; the runtime dependency tree is clean. Mirrors the
-        # audit_omit_dev option already exposed by reusable-governance-gates.yml.
+        # runtime. Mirrors the audit_omit_dev option already exposed by
+        # reusable-governance-gates.yml.
+        #
+        # Do NOT re-add a blanket claim that the runtime tree is clean. One was
+        # asserted here and went stale: this gate was unreachable from 2026-08-07
+        # to 2026-09-18 (npm ci failed ahead of it), and when it next ran it found
+        # 5 high-severity advisories in the production tree, three of which
+        # predated the break. The gate is the source of truth, not this comment.
         run: npm audit --audit-level=high --omit=dev
       - name: Typecheck
         run: npx tsc -p tsconfig.json --noEmit
