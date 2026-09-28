@@ -207,18 +207,21 @@ export async function runCronSync(
     }
 
     if (source === 'court_docket') {
-      try {
-        // Enqueue via dispatcher for retry + fan-out
-        const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
-        await enqueueJob(sql, 'court_docket', { case_number: '2024D007847' }, {
-          chittyId,
-          cronSource: 'court_docket',
-        }, env);
-        const queueResult = await processQueue(sql, env, ctx);
-        recordsSynced += queueResult.succeeded;
-        console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
-      } catch (err) {
-        console.error('[cron:court_docket] failed:', err);
+      // Direct read-back, not the ChittyRouter ScrapeAgent queue -- that
+      // queue is for jobs a Worker can execute synchronously on demand,
+      // which Cook County's WAF makes impossible for this portal (see
+      // syncCourtDocket's comment). Results only ever arrive via the
+      // separate chittyactor-cook-county-docket push pipeline, so there is
+      // nothing here to enqueue or retry-fan-out; this just reads whatever
+      // was most recently pushed for each tracked case.
+      for (const caseNumber of COURT_DOCKET_TRACKED_CASES) {
+        try {
+          const synced = await syncCourtDocket(env, sql, caseNumber);
+          recordsSynced += synced;
+          console.log(`[cron:court_docket] ${caseNumber}: ${synced} deadline(s) synced`);
+        } catch (err) {
+          console.error(`[cron:court_docket] ${caseNumber} failed:`, err);
+        }
       }
     }
 
@@ -520,20 +523,32 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
   return recordsSynced;
 }
 
+// Cook County cases actively monitored via chittyactor-cook-county-docket's
+// push pipeline (chittyentity/actors/chittyactor-cook-county-docket/cases.json
+// is the source of truth for what the actor actually scrapes -- add a case
+// there first, then list its real court case number here). Kept as a plain
+// array rather than a dynamic registry: extending coverage to another case
+// is a one-line add in both places, no new service required.
+export const COURT_DOCKET_TRACKED_CASES = ['2024D007847']; // Arias v. Bianchi
+
 /**
- * Scrape court docket via ChittyScrape and insert new deadlines.
+ * Read back the most recently pushed docket result for one case number
+ * (see integrations.ts getLatestCourtDocket()) and insert any new deadlines.
  */
-export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
+export async function syncCourtDocket(
+  env: Env,
+  sql: NeonQueryFunction<false, false>,
+  caseNumber: string,
+): Promise<number> {
   const scrape = scrapeClient(env);
   if (!scrape) return 0;
 
   const token = await env.COMMAND_KV.get('scrape:service_token');
   if (!token) return 0;
 
-  // Arias v. Bianchi case number
-  const result = await scrape.scrapeCourtDocket('2024D007847', token);
+  const result = await scrape.getLatestCourtDocket(caseNumber, token);
   if (!result?.success) {
-    console.error('[cron:court_docket] scrape failed:', result?.error);
+    console.error(`[cron:court_docket] no usable pushed result for ${caseNumber}:`, result?.error);
     return 0;
   }
 
@@ -543,7 +558,7 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
     for (const entry of result.data.entries) {
       await sql`
         INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-        VALUES ('2024D007847', ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
+        VALUES (${caseNumber}, ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
         ON CONFLICT DO NOTHING
       `;
       synced++;
@@ -553,7 +568,7 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
   if (result.data?.nextHearing) {
     await sql`
       INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-      VALUES ('2024D007847', 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
+      VALUES (${caseNumber}, 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
       ON CONFLICT DO NOTHING
     `;
     synced++;

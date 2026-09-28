@@ -2,7 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
-import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal, syncGovernanceCompliance } from '../lib/cron';
+import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal, syncGovernanceCompliance, COURT_DOCKET_TRACKED_CASES } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
 
@@ -50,7 +50,15 @@ syncRoutes.post('/trigger/:source', async (c) => {
     mercury: () => syncMercury(c.env, sql),
     plaid: () => syncPlaid(c.env, sql),
     chittyfinance: () => syncFinance(c.env, sql),
-    court_docket: () => syncCourtDocket(c.env, sql),
+    // Optional ?case=<caseNumber> for a single case; defaults to every
+    // actively-tracked case (see COURT_DOCKET_TRACKED_CASES in lib/cron.ts).
+    court_docket: async () => {
+      const requested = c.req.query('case');
+      const caseNumbers = requested ? [requested] : COURT_DOCKET_TRACKED_CASES;
+      let total = 0;
+      for (const caseNumber of caseNumbers) total += await syncCourtDocket(c.env, sql, caseNumber);
+      return total;
+    },
     mr_cooper: () => syncMrCooper(c.env, sql),
     cook_county_tax: () => syncCookCountyTax(c.env, sql),
     sos_status: () => syncGovernanceCompliance(c.env, sql),
