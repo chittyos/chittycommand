@@ -104,12 +104,24 @@ documentRoutes.post('/upload', async (c) => {
     httpMetadata: { contentType: file.type },
     customMetadata: { filename: safeName, source: 'chittycommand' },
   });
-  const [doc] = await sql`
+  // Codex P2 PR#105: migration 0016 adds a unique partial index on r2_key,
+  // so re-uploading an already-ingested sha256/* key would raise a unique-
+  // violation 500 here. Match the batch path's ON CONFLICT semantics: skip
+  // the insert, then SELECT the existing row to return.
+  const inserted = await sql`
     INSERT INTO cc_documents (doc_type, source, filename, r2_key, processing_status)
     VALUES ('upload', 'manual', ${safeName}, ${r2Key}, 'pending')
+    ON CONFLICT (r2_key) WHERE (r2_key IS NOT NULL) DO NOTHING
     RETURNING *
   `;
-  return c.json(doc, 201);
+  if (inserted.length > 0) {
+    return c.json(inserted[0], 201);
+  }
+  // Existing row already had this r2_key — return it with 200 instead of 201.
+  const [existing] = await sql`
+    SELECT * FROM cc_documents WHERE r2_key = ${r2Key} LIMIT 1
+  `;
+  return c.json(existing, 200);
 });
 
 // Batch upload via ChittyStorage

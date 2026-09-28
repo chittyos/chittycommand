@@ -1,0 +1,84 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  ChittyCommand cluster daemon — macOS launchd unit.
+
+  Used on the Mac Mini cluster nodes (chittymini-01 stays macOS). The
+  chittyserv-vm bootstrap (PR target) uses systemd; this plist is included
+  so the next-node bring-up doesn't need a separate PR.
+
+  Install path: /Library/LaunchDaemons/com.chittyos.chittycommand-daemon.plist
+  Owned by root:wheel, mode 0644.
+  Load:   sudo launchctl bootstrap system <path>
+  Unload: sudo launchctl bootout system/com.chittyos.chittycommand-daemon
+
+  canonical-uri: chittycanon://docs/architecture/chittycommand/daemon-supervisor
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.chittyos.chittycommand-daemon</string>
+
+  <!--
+    Codex P2 PR#105: launchd has no native EnvironmentFile equivalent and
+    entrypoint.ts requires NODE_CHITTY_ID, DATABASE_URL, and
+    NODE_DESCRIPTOR/HOSTNAME. Invoke a shim that sources
+    /etc/chittycommand/env before exec'ing node, so the daemon sees the
+    same env shape on macOS as on systemd Linux.
+  -->
+  <key>ProgramArguments</key>
+  <array>
+    <string>/opt/chittycommand/dist/daemon/runtime/launchd-shim.sh</string>
+  </array>
+
+  <key>WorkingDirectory</key>
+  <string>/opt/chittycommand</string>
+
+  <key>UserName</key>
+  <string>chittycommand</string>
+
+  <key>GroupName</key>
+  <string>chittycommand</string>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+    <key>Crashed</key>
+    <true/>
+  </dict>
+
+  <key>ThrottleInterval</key>
+  <integer>5</integer>
+
+  <key>ExitTimeOut</key>
+  <integer>30</integer>
+
+  <!--
+    Environment is loaded from /etc/chittycommand/env via a shim. launchd
+    has no native EnvironmentFile, so the ProgramArguments above should be
+    wrapped at install time by an entrypoint that sources the env file, or
+    EnvironmentVariables below is populated by `op inject` at install time.
+    See docs/runbooks/daemon-bring-up-vm.md note on macOS path.
+  -->
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>NODE_ENV</key>
+    <string>production</string>
+    <key>NODE_OPTIONS</key>
+    <string>--enable-source-maps</string>
+  </dict>
+
+  <key>StandardOutPath</key>
+  <string>/var/log/chittycommand-daemon.out.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/var/log/chittycommand-daemon.err.log</string>
+
+  <key>ProcessType</key>
+  <string>Background</string>
+</dict>
+</plist>

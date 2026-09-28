@@ -1,0 +1,48 @@
+[Unit]
+Description=ChittyCommand cluster daemon (meta-orchestrator leader)
+Documentation=chittycanon://docs/architecture/chittycommand/ADR-001
+Documentation=chittycanon://docs/runbooks/chittycommand/daemon-bring-up-vm
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=chittycommand
+Group=chittycommand
+WorkingDirectory=/opt/chittycommand
+EnvironmentFile=/etc/chittycommand/env
+# NOTE: install-daemon-vm.sh substitutes @@NODE_BIN@@ with the detected
+# node path (command -v node) before installing this unit, so deployments
+# using nvm or /usr/local/bin/node still start. If editing this file by
+# hand, replace @@NODE_BIN@@ with the absolute path to node.
+# Codex P2 PR#105: previously hard-coded /usr/bin/node failed when node was
+# installed elsewhere (nvm, /usr/local/bin).
+ExecStart=@@NODE_BIN@@ /opt/chittycommand/dist/daemon/runtime/entrypoint.js
+Restart=always
+RestartSec=5
+KillSignal=SIGTERM
+TimeoutStopSec=30
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=chittycommand-daemon
+
+# Hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+PrivateDevices=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictNamespaces=true
+RestrictRealtime=true
+LockPersonality=true
+# MemoryDenyWriteExecute is intentionally OMITTED.
+# Codex P2 PR#105: systemd documents MDWE as incompatible with JIT engines
+# (V8 generates executable code pages at runtime). Enabling it would abort
+# Node at startup. Source maps in NODE_OPTIONS do not affect this.
+ReadWritePaths=/var/log/chittycommand
+
+[Install]
+WantedBy=multi-user.target

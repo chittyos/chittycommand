@@ -13,8 +13,26 @@
  */
 
 import type { NeonQueryFunction } from '@neondatabase/serverless';
-import type { Env } from '../../src/index';
 import type { Intent, SovereigntyAssessmentSnapshot } from '../intent';
+
+/**
+ * Minimal env contract the executor registry depends on.
+ *
+ * Per ADR-001 the registry is consumed by BOTH the Cloudflare Worker
+ * (ActionAgent) and the meta-orchestrator daemon. The Worker's `Env`
+ * (Workers-typed: Hyperdrive, KV, R2, …) is neither available nor compilable
+ * in the daemon's NodeNext + node-types build. Depending on a structural slice
+ * instead of `src/index`'s Worker `Env` keeps the registry portable across both
+ * consumers. The Worker `Env` is structurally assignable to this (it has both
+ * fields), so Worker-side callers pass through unchanged.
+ *
+ * Executors needing bindings beyond the DB connection cast `ctx.env` at their
+ * use site.
+ */
+export interface ExecutorEnv {
+  DATABASE_URL?: string;
+  HYPERDRIVE?: { connectionString: string };
+}
 
 /**
  * Re-reckon window. If `intent.sovereigntyAssessment.assessedAt` is older
@@ -23,7 +41,7 @@ import type { Intent, SovereigntyAssessmentSnapshot } from '../intent';
 export const SOVEREIGNTY_FRESHNESS_MS = 5 * 60 * 1000; // 5 minutes
 
 export interface ExecutorContext {
-  env: Env;
+  env: ExecutorEnv;
   sql: NeonQueryFunction<false, false>;
   intent: Intent;
   /** The assessment snapshot in force at execution time (possibly re-reckoned). */

@@ -11,6 +11,7 @@
     "backend:build": "npm run backend:typecheck",
     "deploy": "wrangler deploy",
     "predeploy": "npm run typecheck",
+    "build:daemon": "tsc -p daemon/runtime/tsconfig.daemon.json",
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "kv:seed": "bash scripts/seed-kv.sh ${KV_NAMESPACE_ID:-}",
