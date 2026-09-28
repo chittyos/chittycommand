@@ -17,8 +17,14 @@ on:
         required: false
         default: ""
         type: string
-  schedule:
-    - cron: "15 */6 * * *"
+  # Scheduled runs disabled 2026-09-18. Every run since 2026-08-23 failed closed at
+  # "Missing ORG_AUTOMATION_TOKEN" (100/100 of the visible history), remediating nothing.
+  # The secret cannot be provisioned: there is no agent-reachable identity for the
+  # mandatory broker path. Blocked on CHITTYOS/chittyconnect#282 — restore the cron
+  # once that issue's acceptance test passes (a dispatched agent completes a
+  # credential-provisioning request with no human step).
+  # schedule:
+  #   - cron: "15 */6 * * *"
   repository_dispatch:
     types:
       - governance-signal
