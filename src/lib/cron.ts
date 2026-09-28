@@ -9,7 +9,7 @@ import { generatePaymentPlan, savePaymentPlan } from './payment-planner';
 import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
-import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
+import { computeVendorRisk, vendorRiskInputFromRow, AT_RISK_THRESHOLD } from './vendor-risk';
 
 /**
  * Cron sync orchestrator.
@@ -267,7 +267,7 @@ async function sweepVendorRisk(
     const { score } = computeVendorRisk(vendorRiskInputFromRow(r));
     ids.push(r.id as string);
     scores.push(score);
-    if (score >= 50) atRisk++;
+    if (score >= AT_RISK_THRESHOLD) atRisk++;
   }
   await sql`
     UPDATE cc_vendors SET risk_score = bulk.score, updated_at = NOW()
