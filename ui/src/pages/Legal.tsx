@@ -101,7 +101,7 @@ export function Legal() {
                 <input
                   value={form.case_ref}
                   onChange={(e) => setForm(f => ({ ...f, case_ref: e.target.value }))}
-                  placeholder="e.g. 2024D007847"
+                  placeholder="e.g. 2019D001234"
                   className="w-full px-3 py-2 rounded-lg bg-slate-50 border border-slate-200 text-card-text text-sm focus:outline-none focus:ring-2 focus:ring-chitty-500/50"
                 />
               </div>

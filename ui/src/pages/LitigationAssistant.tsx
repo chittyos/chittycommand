@@ -29,7 +29,9 @@ export function LitigationAssistant() {
   const [step, setStep] = useState<Step>('idle');
   const [rawNotes, setRawNotes] = useState('');
   const [property, setProperty] = useState('550 W Surf St, Unit 504, Chicago, IL');
-  const [caseNumber, setCaseNumber] = useState('2024D007847');
+  // No prefill. A live matter number as the default made every user of this
+  // page start inside someone else's case (legal-operating-defaults §8).
+  const [caseNumber, setCaseNumber] = useState('');
   const [focus, setFocus] = useState(FOCUS_OPTIONS[0]);
   const [recipient, setRecipient] = useState('Robert Alexander');
 

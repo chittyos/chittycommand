@@ -10,7 +10,7 @@
  *      ChittyLedger-Messaging / delicate-moon — read-only). Candidates are
  *      messages carrying an `amount` entity plus a payee-like entity
  *      (person/org). `date` entities give a due date; `legal_document` and
- *      case-ref entities (#287 / #239 / 2024D007847) drive sensitivity.
+ *      case-ref entities (court case numbers and configured matter refs) drive sensitivity.
  *   2. Route/classify via chittyrouter. We attempt its intelligentRoute surface
  *      (POST /process); the deployed edge currently does not expose it
  *      (404) and /agents/triage/classify returns a deterministic stub, so we
@@ -47,9 +47,47 @@ import { contextualTasksClient } from './integrations';
 const ROUTER_MODEL = '@cf/meta/llama-3.1-8b-instruct-fast';
 
 // Case refs / patterns that force legalink sensitivity + privileged intent.
-// @canon: chittyview-projection-spine — divorce 2024D007847 work product is
-// privileged even though it is business-relevant.
-const LEGAL_CASE_PATTERN = /2024D007847|#?\s?287\b|#?\s?239\b|arias\s+v\.?\s+bianchi/i;
+// @canon: chittyview-projection-spine — litigation work product is privileged
+// even when it is business-relevant.
+//
+// This matches court-case-number SHAPES, not one matter. Keying privilege
+// classification to a single hardcoded case meant every OTHER matter's work
+// product was silently classified non-sensitive — a §9 privilege risk, not a
+// tidiness problem. The shapes below are a superset of what the literal matched.
+//
+// Non-docket refs (unit numbers, party names, internal slugs) cannot be derived
+// from a shape and are read from KV `legal:case_refs` instead. See
+// matchesConfiguredCaseRef().
+const LEGAL_CASE_PATTERN =
+  /\b(\d{4}\s?D\s?\d{6}|\d{2}\s?M\d\s?\d{6}|\d{4}-\d{2}-\d{5}|\d{2}-?[A-Z]{1,3}-?\d{4,6})\b/i;
+
+/**
+ * Additional matter references that have no derivable shape — unit numbers,
+ * party names, internal slugs. Stored as a JSON array of strings in KV
+ * `legal:case_refs`.
+ *
+ * These are matter data and never belong in source. If the key is unset the
+ * classifier falls back to shapes and keywords alone, which is NARROWER than
+ * the old hardcoded behaviour for non-docket refs — so it warns rather than
+ * failing silently.
+ */
+let configuredRefsCache: string[] | null = null;
+async function matchesConfiguredCaseRef(env: Env, text: string): Promise<boolean> {
+  if (configuredRefsCache === null) {
+    try {
+      const raw = await env.COMMAND_KV.get('legal:case_refs');
+      configuredRefsCache = raw ? (JSON.parse(raw) as string[]).filter((r) => typeof r === 'string' && r) : [];
+      if (configuredRefsCache.length === 0) {
+        console.warn('[contextual-ingest] KV legal:case_refs unset — non-docket matter refs will not force legal sensitivity');
+      }
+    } catch (err) {
+      console.error('[contextual-ingest] legal:case_refs is not valid JSON:', err);
+      configuredRefsCache = [];
+    }
+  }
+  const lower = text.toLowerCase();
+  return configuredRefsCache.some((ref) => lower.includes(ref.toLowerCase()));
+}
 const LEGAL_KEYWORD_PATTERN = /\b(lawsuit|subpoena|court|hearing|motion|deposition|notice of motion|debt[-\s]?collection|collection agency)\b/i;
 
 export interface ContextualCandidate {
@@ -217,7 +255,10 @@ export async function classifyCandidate(
 ): Promise<ClassificationResult> {
   const text = `${cand.body_text}`.slice(0, 1500);
   const legalSignal =
-    cand.has_legal_doc || LEGAL_CASE_PATTERN.test(text) || LEGAL_KEYWORD_PATTERN.test(text);
+    cand.has_legal_doc ||
+    LEGAL_CASE_PATTERN.test(text) ||
+    (await matchesConfiguredCaseRef(env, text)) ||
+    LEGAL_KEYWORD_PATTERN.test(text);
 
   // 1) chittyrouter intelligentRoute (POST /process). Returns ai.analysis with
   //    category/priority/urgency_score when available.

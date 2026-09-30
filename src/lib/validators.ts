@@ -175,8 +175,12 @@ export const submitEvidenceSchema = z.object({
 
 // ── Bridge: Scrape ───────────────────────────────────────────
 
+// caseNumber is REQUIRED. It was optional, and the route defaulted the missing
+// value to a live matter -- exactly the "no defaulting to the active case"
+// prohibition in legal-operating-defaults §8. A docket scrape with no matter
+// named is a bad request, not an invitation to guess.
 export const courtDocketScrapeSchema = z.object({
-  caseNumber: z.string().max(50).optional(),
+  caseNumber: z.string().min(1).max(50),
 });
 
 // ── Bridge: Plaid ────────────────────────────────────────────
