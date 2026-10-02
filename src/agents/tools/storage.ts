@@ -43,7 +43,7 @@ export function createStorageTools() {
       description: 'Search documents in ChittyStorage by entity, filename, or content hash. Returns matching documents with metadata.',
       inputSchema: z.object({
         query: z.string().describe('Search query — entity slug, filename, or SHA-256 hash'),
-        entity: z.string().optional().describe('Filter by entity slug (e.g., "arias-v-bianchi")'),
+        entity: z.string().optional().describe('Filter by entity slug (e.g., "smith-v-jones")'),
         limit: z.number().min(1).max(50).optional().describe('Max results (default 20)'),
       }),
       execute: async ({ query, entity, limit }) => {
@@ -68,7 +68,7 @@ export function createStorageTools() {
     list_entity_documents: tool({
       description: 'List all documents stored for a specific entity.',
       inputSchema: z.object({
-        entity: z.string().describe('Entity slug (e.g., "arias-v-bianchi", "it-can-be-llc")'),
+        entity: z.string().describe('Entity slug (e.g., "smith-v-jones", "example-holdings-llc")'),
       }),
       execute: async ({ entity }) => {
         return callStorageMcp('storage_entity', { entity });

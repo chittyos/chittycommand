@@ -210,10 +210,22 @@ export async function runCronSync(
       try {
         // Enqueue via dispatcher for retry + fan-out
         const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
-        await enqueueJob(sql, 'court_docket', { case_number: '2024D007847' }, {
-          chittyId,
-          cronSource: 'court_docket',
-        }, env);
+        const trackedCases = await getTrackedCases(env);
+        if (trackedCases.length === 0) {
+          console.warn('[cron:court_docket] no cases configured in KV legal:tracked_cases — nothing to sync');
+        }
+        // Per-case isolation: one failing enqueue must not abandon the rest of
+        // the batch, nor skip processQueue for jobs that did enqueue.
+        for (const caseNumber of trackedCases) {
+          try {
+            await enqueueJob(sql, 'court_docket', { case_number: caseNumber }, {
+              chittyId,
+              cronSource: 'court_docket',
+            }, env);
+          } catch (err) {
+            console.error(`[cron:court_docket] enqueue failed for ${caseNumber}:`, err);
+          }
+        }
         const queueResult = await processQueue(sql, env, ctx);
         recordsSynced += queueResult.succeeded;
         console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
@@ -521,6 +533,28 @@ export async function syncMercury(env: Env, sql: NeonQueryFunction<false, false>
 }
 
 /**
+ * Matters tracked by the docket cron, read from KV `legal:tracked_cases`
+ * (a JSON array of case numbers).
+ *
+ * This is config, never a literal. A hardcoded case number made every scheduled
+ * run operate on one operator's live matter and made the job unusable for any
+ * other -- the "no defaulting to the active case" prohibition in
+ * legal-operating-defaults §8. Unset config means the cron does nothing and says
+ * so; it never guesses a matter.
+ */
+async function getTrackedCases(env: Env): Promise<string[]> {
+  try {
+    const raw = await env.COMMAND_KV.get('legal:tracked_cases');
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed.filter((c): c is string => typeof c === 'string' && c.length > 0) : [];
+  } catch (err) {
+    console.error('[cron:court_docket] legal:tracked_cases is not valid JSON:', err);
+    return [];
+  }
+}
+
+/**
  * Scrape court docket via ChittyScrape and insert new deadlines.
  */
 export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
@@ -530,33 +564,40 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
   const token = await env.COMMAND_KV.get('scrape:service_token');
   if (!token) return 0;
 
-  // Arias v. Bianchi case number
-  const result = await scrape.scrapeCourtDocket('2024D007847', token);
-  if (!result?.success) {
-    console.error('[cron:court_docket] scrape failed:', result?.error);
+  const trackedCases = await getTrackedCases(env);
+  if (trackedCases.length === 0) {
+    console.warn('[cron:court_docket] no cases configured in KV legal:tracked_cases — nothing to sync');
     return 0;
   }
 
   let synced = 0;
 
-  if (result.data?.entries) {
-    for (const entry of result.data.entries) {
+  for (const caseNumber of trackedCases) {
+    const result = await scrape.scrapeCourtDocket(caseNumber, token);
+    if (!result?.success) {
+      console.error(`[cron:court_docket] scrape failed for ${caseNumber}:`, result?.error);
+      continue;
+    }
+
+    if (result.data?.entries) {
+      for (const entry of result.data.entries) {
+        await sql`
+          INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
+          VALUES (${caseNumber}, ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
+          ON CONFLICT DO NOTHING
+        `;
+        synced++;
+      }
+    }
+
+    if (result.data?.nextHearing) {
       await sql`
         INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-        VALUES ('2024D007847', ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
+        VALUES (${caseNumber}, 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
         ON CONFLICT DO NOTHING
       `;
       synced++;
     }
-  }
-
-  if (result.data?.nextHearing) {
-    await sql`
-      INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-      VALUES ('2024D007847', 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
-      ON CONFLICT DO NOTHING
-    `;
-    synced++;
   }
 
   return synced;

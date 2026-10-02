@@ -19,7 +19,8 @@ scrapeRoutes.post('/court-docket', async (c) => {
 
   const parsed = courtDocketScrapeSchema.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
-  const targetCase = parsed.data.caseNumber || '2024D007847';
+  // No fallback. The schema now requires caseNumber; an absent matter is a 400.
+  const targetCase = parsed.data.caseNumber;
 
   const result = await scrape.scrapeCourtDocket(targetCase, token);
 
