@@ -71,18 +71,32 @@ const LEGAL_CASE_PATTERN =
  * the old hardcoded behaviour for non-docket refs — so it warns rather than
  * failing silently.
  */
+// Bounded cache. Workers reuse globals across requests for the isolate's
+// lifetime, so an unbounded cache would freeze the first result forever:
+// seeding legal:case_refs afterwards would never take effect, and a later
+// change would never propagate. A read FAILURE is never cached as "configured
+// empty" -- doing so would silently and permanently downgrade sensitivity
+// classification for every subsequent request in that isolate.
+const CASE_REFS_TTL_MS = 60_000;
 let configuredRefsCache: string[] | null = null;
+let configuredRefsFetchedAt = 0;
+
 async function matchesConfiguredCaseRef(env: Env, text: string): Promise<boolean> {
-  if (configuredRefsCache === null) {
+  const stale = Date.now() - configuredRefsFetchedAt > CASE_REFS_TTL_MS;
+  if (configuredRefsCache === null || stale) {
     try {
       const raw = await env.COMMAND_KV.get('legal:case_refs');
-      configuredRefsCache = raw ? (JSON.parse(raw) as string[]).filter((r) => typeof r === 'string' && r) : [];
-      if (configuredRefsCache.length === 0) {
+      const parsed = raw ? (JSON.parse(raw) as string[]).filter((r) => typeof r === 'string' && r) : [];
+      configuredRefsCache = parsed;
+      configuredRefsFetchedAt = Date.now();
+      if (parsed.length === 0) {
         console.warn('[contextual-ingest] KV legal:case_refs unset — non-docket matter refs will not force legal sensitivity');
       }
     } catch (err) {
-      console.error('[contextual-ingest] legal:case_refs is not valid JSON:', err);
-      configuredRefsCache = [];
+      // Do NOT cache the failure. Keep any previously-good value and retry on
+      // the next call rather than locking in an empty configuration.
+      console.error('[contextual-ingest] legal:case_refs read/parse failed:', err);
+      if (configuredRefsCache === null) return false;
     }
   }
   const lower = text.toLowerCase();

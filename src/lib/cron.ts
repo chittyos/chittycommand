@@ -214,11 +214,17 @@ export async function runCronSync(
         if (trackedCases.length === 0) {
           console.warn('[cron:court_docket] no cases configured in KV legal:tracked_cases — nothing to sync');
         }
+        // Per-case isolation: one failing enqueue must not abandon the rest of
+        // the batch, nor skip processQueue for jobs that did enqueue.
         for (const caseNumber of trackedCases) {
-          await enqueueJob(sql, 'court_docket', { case_number: caseNumber }, {
-            chittyId,
-            cronSource: 'court_docket',
-          }, env);
+          try {
+            await enqueueJob(sql, 'court_docket', { case_number: caseNumber }, {
+              chittyId,
+              cronSource: 'court_docket',
+            }, env);
+          } catch (err) {
+            console.error(`[cron:court_docket] enqueue failed for ${caseNumber}:`, err);
+          }
         }
         const queueResult = await processQueue(sql, env, ctx);
         recordsSynced += queueResult.succeeded;
