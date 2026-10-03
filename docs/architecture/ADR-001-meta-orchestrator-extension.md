@@ -9,6 +9,11 @@ supersedes: none
 
 # ADR-001 — Extend ChittyCommand into the Tier-2 meta-orchestrator
 
+> **See also:** [Canonical Service-Boundary Contract](service-boundary-contract.md)
+> (`chittycanon://docs/ops/policy/chittycommand-service-boundary-contract`) — the
+> implementation-gated contract for ChittyOS service ownership boundaries this ADR
+> operates within.
+
 ## Context
 
 ChittyCommand exists today as a Tier-5 application: a unified life-management
