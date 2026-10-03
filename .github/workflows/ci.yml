@@ -101,6 +101,8 @@ jobs:
   # forces a CLOUDFLARE_API_TOKEN remote proxy.
   worker-tests:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
     needs:
       - workflow-secret-policy
       - secret-scan
