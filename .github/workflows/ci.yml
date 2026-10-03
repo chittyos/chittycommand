@@ -87,6 +87,13 @@ jobs:
         run: npx tsc -p tsconfig.json --noEmit
       - name: Test
         run: npm test
+      - name: Worker DO Tests
+        # Durable Object suite runs in workerd via
+        # @cloudflare/vitest-pool-workers (vitest.workers.config.mts +
+        # wrangler.test.jsonc). Fully offline: the test config declares only the
+        # CommandCoordinator DO, so no remote-only binding (Workers AI /
+        # Hyperdrive) forces a CLOUDFLARE_API_TOKEN remote proxy.
+        run: npm run test:workers
       - name: Governance Pressure Tests
         run: bash scripts/pressure-test-governance.sh
       - name: Lint (skipped)

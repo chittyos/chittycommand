@@ -1,0 +1,29 @@
+{
+  // Minimal, test-only Worker config for the CommandCoordinator Durable Object
+  // suite (tests/workers/coordinator.test.ts), consumed by
+  // vitest.workers.config.mts.
+  //
+  // It deliberately does NOT reuse the production wrangler.jsonc. That config
+  // declares `ai` (Workers AI) and `hyperdrive` bindings, which have no local
+  // simulator, so the vitest pool would open a remote proxy session against the
+  // real Cloudflare account (requiring CLOUDFLARE_API_TOKEN) merely to boot —
+  // unusable offline and in CI. The coordinator never touches those bindings,
+  // so this config declares only the DO under test and the suite stays local.
+  //
+  // Keep `compatibility_flags` and the CommandCoordinator migration in sync
+  // with wrangler.jsonc. `compatibility_date` is pinned one day behind
+  // (prod is 2026-08-07) because the workerd bundled with the installed
+  // @cloudflare/vitest-pool-workers tops out at 2026-08-06; none of the tested
+  // DO lease behavior is gated by that date. Revisit when the pool ships a
+  // newer workerd.
+  "name": "chittycommand-coordinator-tests",
+  "main": "tests/workers/worker-entry.ts",
+  "compatibility_date": "2026-08-06",
+  "compatibility_flags": ["nodejs_compat"],
+  "durable_objects": {
+    "bindings": [
+      { "name": "COMMAND_COORDINATOR", "class_name": "CommandCoordinator" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["CommandCoordinator"] }]
+}
