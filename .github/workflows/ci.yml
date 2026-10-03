@@ -106,6 +106,11 @@ jobs:
       - secret-scan
     steps:
       - uses: actions/checkout@v4
+        with:
+          # npm ci and the Workers pool run third-party code; don't leave the
+          # checkout token in .git/config for them to read. This job never uses
+          # git after checkout.
+          persist-credentials: false
       - uses: actions/setup-node@v4
         with:
           node-version: '22'
