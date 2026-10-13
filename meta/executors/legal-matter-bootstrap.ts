@@ -152,7 +152,7 @@ const executor: IntentExecutor = {
         description: result.error ?? 'ChittyCounsel bootstrap failed',
         actionType: 'legal_matter_bootstrap',
         targetType: 'case',
-        targetId: parsed.data.case_chitty_id,
+        targetId: null,
         status: 'failed',
         errorMessage: result.error ?? 'ChittyCounsel bootstrap failed',
         responsePayload: result.upstream_status
@@ -166,7 +166,7 @@ const executor: IntentExecutor = {
       description: `Read-only legal matter bootstrap completed for ${parsed.data.case_chitty_id}`,
       actionType: 'legal_matter_bootstrap',
       targetType: 'case',
-      targetId: parsed.data.case_chitty_id,
+      targetId: null,
       status: 'completed',
       responsePayload: {
         found: result.found,
@@ -176,6 +176,7 @@ const executor: IntentExecutor = {
       },
       metadata: {
         source_service: 'chittycounsel',
+        case_chitty_id: parsed.data.case_chitty_id,
         read_only: true,
         privilege: 'privileged',
         space: 'legalink',
