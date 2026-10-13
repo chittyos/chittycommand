@@ -87,8 +87,8 @@ Source: `chittycanon://gov/governance#three-aspects`
 
 ### Ecosystem Position
 
-- **Upstream**: ChittyAuth, ChittyTrust, ChittyID, ChittyConnect (ContextConsciousness + MemoryCloude + sensitive-intent secret brokerage), chittyagent-orchestrator (routing + channel fanout), chittyagent-tasks (queue + lease pattern), chittyagent-ch1tty (MCP portal/OAuth), ChittyFinance, ChittyBooks, ChittyAssets, ChittyCharge, ChittyScrape, ChittyLedger, ChittyEvidence, ChittyRouter, ChittySchema, ChittyCert, ChittyRegister, ChittyChat.
-- **Downstream / sub-channels**: ChittyServ cluster nodes (`chittymini-01..06`, `chittyserv-vm`) — each runs a supervised `daemon/` process and registers as an L-type sub-channel via `agent.chitty.cc/api/v1/channels`. ActionAgent (chat surface) and dashboard SPA at `app.command.chitty.cc` are sibling consumers of the same `meta/executors/*` registry.
+- **Upstream**: ChittyAuth, ChittyTrust, ChittyID, ChittyConnect (ContextConsciousness + MemoryCloude + sensitive-intent secret brokerage), chittyagent-orchestrator (routing + channel fanout), chittyagent-tasks (queue + lease pattern), chittyagent-ch1tty (MCP portal/OAuth), ChittyFinance, ChittyBooks, ChittyAssets, ChittyCharge, ChittyScrape, ChittyLedger, ChittyEvidence, ChittyCounsel, ChittyRouter, ChittySchema, ChittyCert, ChittyRegister, ChittyChat.
+- **Downstream / sub-channels**: ChittyServ cluster nodes (`chittymini-01..06`, `chittyserv-vm`) — each runs a supervised `daemon/` process and registers as an L-type sub-channel via `agent.chitty.cc/api/v1/channels`. ActionAgent (chat surface) and dashboard SPA at `app.command.chitty.cc` are sibling consumers of the same `meta/executors/*` registry. Legal matter bootstrap is projected through the registered `legal_matter_bootstrap` executor and reads ChittyCounsel without mutating governed evidence or facts.
 
 ### Dependencies
 
