@@ -25,6 +25,7 @@
     "CHITTYROUTER_URL": "https://router.chitty.cc",
     "CHITTYAGENT_SCRAPE_URL": "https://chittyagent-scrape.ccorp.workers.dev",
     "CHITTYEVIDENCE_URL": "https://evidence.chitty.cc",
+    "CHITTYCOUNSEL_URL": "https://counsel.chitty.cc",
     "CHITTYGOV_URL": "https://gov.chitty.cc",
     "CHITTYREGISTER_URL": "https://register.chitty.cc"
     // PLAID_CLIENT_ID and PLAID_SECRET set via `wrangler secret put`

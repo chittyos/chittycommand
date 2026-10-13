@@ -7,7 +7,7 @@ ChittyCommand is a unified life management and action dashboard for the ChittyOS
 **Repo:** `CHITTYOS/chittycommand`
 **Deploy:** Cloudflare Workers at `command.chitty.cc`
 **Stack:** Hono TypeScript, React + Tailwind, Neon PostgreSQL (via Hyperdrive), Cloudflare R2/KV
-**Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 5
+**Canonical URI:** `chittycanon://core/services/chittycommand` | Tier 2 (Platform) with Tier-5 dashboard surface
 
 ## Common Commands
 
@@ -29,7 +29,7 @@ wrangler secret put DATABASE_URL
 
 ## Architecture
 
-Single Cloudflare Worker (`chittycommand`) serving API + cron. Frontend is a separate React SPA at `app.command.chitty.cc` (Cloudflare Pages).
+Cloudflare Worker (`chittycommand`) serves the API, ActionAgent, MCP, and request-side meta-orchestrator surfaces; a supervised persistent daemon consumes the same Goal → Plan → Intent and executor registry for durable dispatch. Frontend is a separate React SPA at `app.command.chitty.cc` (Cloudflare Pages).
 
 ### Data Sources
 
@@ -76,7 +76,9 @@ Three modes:
 - `src/lib/validators.ts` — Zod schemas for request validation
 - `src/routes/bridge.ts` — Inter-service bridge (scrape, ledger, finance, Plaid)
 - `src/routes/mcp.ts` — MCP server for Codex integration (28 tools)
-- `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami
+- `src/routes/meta.ts` — Public canon/schema/beacon + authenticated whoami/intent execution
+- `meta/intent.ts` — Goal → Plan → Intent lifecycle
+- `meta/executors/` — Canonical executor registry; includes read-only `legal_matter_bootstrap` projection to ChittyCounsel
 - `src/routes/connect.ts` — ChittyConnect discovery proxy (rate-limited)
 - `src/routes/ledger.ts` — ChittyLedger evidence/custody passthrough
 - `src/routes/context.ts` — Persona/context management (user + global)
