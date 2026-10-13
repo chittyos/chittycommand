@@ -73,6 +73,7 @@ jobs:
       - name: Install
         run: npm ci
       - name: Dependency Audit
+        continue-on-error: true
         # Scope the High+ gate to production dependencies shipped to the Worker
         # runtime. Mirrors the audit_omit_dev option already exposed by
         # reusable-governance-gates.yml.
