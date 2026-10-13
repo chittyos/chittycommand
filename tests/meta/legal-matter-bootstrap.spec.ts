@@ -64,6 +64,39 @@ describe('legal_matter_bootstrap executor', () => {
     expect(result.errorMessage).toContain('classification mismatch');
   });
 
+  it('keeps the case ChittyID in metadata rather than UUID-only audit target_id', async () => {
+    const fetchMock = vi.fn(async () => Response.json({
+      found: true,
+      bootstrap: { case_found: true },
+      case: { chitty_id: '03-1-USA-0010-L-2602-0-01' },
+      provenance: { worker: 'chittycounsel', version: '0.2.0' },
+    }));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const ctx = {
+      intent: {
+        id: 'intent-test',
+        intentType: LEGAL_MATTER_BOOTSTRAP_INTENT,
+        payload: { case_chitty_id: '03-1-USA-0010-L-2602-0-01' },
+        privilege: 'privileged',
+        space: 'legalink',
+      },
+      env: { CHITTYCOUNSEL_URL: 'https://counsel.example.test' },
+    } as unknown as ExecutorContext;
+
+    const result = await executor.run(ctx);
+
+    expect(result.ok).toBe(true);
+    expect(result.targetId).toBeNull();
+    expect(result.metadata).toMatchObject({
+      case_chitty_id: '03-1-USA-0010-L-2602-0-01',
+      source_service: 'chittycounsel',
+      read_only: true,
+    });
+
+    vi.unstubAllGlobals();
+  });
+
   it('rejects an invalid payload before any upstream call', async () => {
     const ctx = {
       intent: {
