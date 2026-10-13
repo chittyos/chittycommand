@@ -88,6 +88,7 @@ Provide a unified life management and action dashboard that ingests data from 15
 | Upstream | ChittyScrape | Browser-based scraping for portals without APIs |
 | Upstream | ChittyLedger | Evidence and document ledger sync |
 | Upstream | ChittyEvidence | Evidence facts, documents, entities for case timelines |
+| Upstream | ChittyCounsel | Read-only legal matter bootstrap, case-strategy retrieval, and governed counsel work-product projection |
 | Upstream | ChittyConnect | Inter-service connectivity and discovery; **forever-context** read/write via ContextConsciousness + MemoryCloude; **sensitive-intent secret brokerage** path for all credential access (no inline secrets) |
 | Upstream | ChittyRouter | Unified ingestion gateway (scrape, email routing) |
 | Upstream | ChittySchema | Canonical schema validation and drift detection |
@@ -155,6 +156,7 @@ Executors self-register at module load (side-effect imports from `meta/executors
 | `intent_type` | Canonical URI | Notes |
 |---------------|---------------|-------|
 | `update_obligation_status` | `chittycanon://core/services/chittycommand/executors/update_obligation_status` | Real Neon write to `cc_obligations`. Source: `meta/executors/update-obligation-status.ts` |
+| `legal_matter_bootstrap` | `chittycanon://core/services/chittycommand/executors/legal_matter_bootstrap` | Read-only ChittyCounsel bootstrap projection. Requires `privileged` + `legalink`; writes no evidence or facts. Source: `meta/executors/legal-matter-bootstrap.ts` |
 
 > **Future executors** (e.g. `mercury_payment` — 🔒 REAL-MONEY, will require fresh `autonomous` sovereignty assessment and an enforced USD 500 per-intent cap) are tracked in ADR-001 but are NOT yet registered in `meta/executors/index.ts`. They will be added in follow-up PRs and listed here at the same time the executor file is committed. This table is the authoritative list of currently-registered executors — do not document executors that do not exist.
 
