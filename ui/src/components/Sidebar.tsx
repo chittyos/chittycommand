@@ -2,7 +2,7 @@ import { NavLink } from 'react-router-dom';
 import { cn } from '../lib/utils';
 import {
   LayoutDashboard, Zap, Receipt, ShieldAlert, Wallet, Scale, Gavel,
-  Lightbulb, TrendingUp, Upload, Settings, LogOut, BookOpen, ListChecks,
+  Lightbulb, TrendingUp, Upload, Settings, LogOut, BookOpen, ListChecks, ShieldCheck,
 } from 'lucide-react';
 import { logout, getUser } from '../lib/auth';
 
@@ -46,6 +46,7 @@ const navGroups: NavGroup[] = [
     label: 'System',
     items: [
       { path: '/upload', label: 'Documents', icon: Upload },
+      { path: '/aether', label: 'AETHER Governance', icon: ShieldCheck },
       { path: '/settings', label: 'Settings', icon: Settings },
     ],
   },
