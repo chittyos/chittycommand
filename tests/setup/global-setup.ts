@@ -1,7 +1,11 @@
 /**
- * Vitest globalSetup — applies SQL migrations against DATABASE_URL before any
- * integration tests run, so specs hitting a fresh Neon branch don't fail
- * `beforeAll` with `relation "cc_*" does not exist`.
+ * Vitest globalSetup — applies SQL migrations against the disposable Neon
+ * branch named by NEON_TEST_DATABASE_URL before any integration tests run, so
+ * specs hitting a fresh branch don't fail `beforeAll` with
+ * `relation "cc_*" does not exist`.
+ *
+ * The URL comes from db-guard.ts, never from the ambient DATABASE_URL — see
+ * that file for why.
  *
  * The repo's migrations directory mixes two histories:
  *   1. drizzle-kit-generated migrations tracked in `migrations/meta/_journal.json`
@@ -19,12 +23,13 @@
  * (e.g., parent branches where some journaled migrations were applied out of
  * band) converge cleanly. Everything else fails loudly.
  *
- * Skips entirely when DATABASE_URL is unset or SKIP_INTEGRATION=1.
+ * Skips entirely when NEON_TEST_DATABASE_URL is unset or SKIP_INTEGRATION=1.
  */
 import { readFileSync, readdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { Pool } from '@neondatabase/serverless';
+import { resolveTestDatabaseUrl } from './db-guard';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const MIGRATIONS_DIR = join(__dirname, '..', '..', 'migrations');
@@ -107,12 +112,12 @@ async function applyFile(pool: Pool, file: string): Promise<void> {
 }
 
 export default async function globalSetup(): Promise<void> {
-  const databaseUrl = process.env.DATABASE_URL;
+  const databaseUrl = resolveTestDatabaseUrl();
   const skip = process.env.SKIP_INTEGRATION === '1';
 
   if (!databaseUrl || skip) {
     console.log(
-      `[vitest globalSetup] Skipping migrations (DATABASE_URL=${databaseUrl ? 'set' : 'unset'}, SKIP_INTEGRATION=${process.env.SKIP_INTEGRATION ?? 'unset'})`,
+      `[vitest globalSetup] Skipping migrations (NEON_TEST_DATABASE_URL=${databaseUrl ? 'set' : 'unset'}, SKIP_INTEGRATION=${process.env.SKIP_INTEGRATION ?? 'unset'})`,
     );
     return;
   }
