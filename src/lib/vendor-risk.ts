@@ -13,6 +13,10 @@
  */
 import { urgencyLevel, type UrgencyLevel } from './urgency';
 
+// Score at/above which a vendor is "at risk" (high/critical). Mirrors the
+// urgencyLevel 'high' boundary; centralised so routes, MCP, and cron agree.
+export const AT_RISK_THRESHOLD = 50;
+
 export type VendorPaymentStatus = 'active' | 'failed' | 'limited' | 'unknown';
 export type VendorStatus = 'active' | 'paused' | 'cancelled' | 'zombie';
 
