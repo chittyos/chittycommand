@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - name: Fetch ephemeral creds via ChittyConnect
         id: creds
-        uses: CHITTYOS/chittyops/.github/actions/getchitty-creds@main
+        uses: chittyos/.github/.github/actions/getchitty-creds@main
         with:
           api_key: ${{ secrets.CHITTYCONNECT_API_KEY }}
           purpose: 'ci-test'
