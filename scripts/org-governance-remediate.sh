@@ -4,6 +4,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 POLICY_FILE="${ROOT_DIR}/.github/org-governance-policy.json"
 REPORT_FILE="${ROOT_DIR}/reports/org-governance/latest.json"
+BASELINE_DIR="${ROOT_DIR}/templates/governance-baseline"
 AUTO_PR="false"
 AUTO_ARM_PR_MERGE="${CHITTY_AUTO_ARM_PR_MERGE:-true}"
 DRY_RUN="false"
@@ -63,6 +64,29 @@ while [[ $# -gt 0 ]]; do
   esac
 done
 
+# Preflight: a policy gate that names a file with no baseline template can never be
+# auto-remediated, so every repo stays permanently non-compliant, the governance issue
+# never closes, and the control loop re-fires the same finding forever. Surface it loudly
+# instead of degrading silently.
+UNSATISFIABLE_GATES=0
+while IFS= read -r required_path; do
+  [[ -z "${required_path}" ]] && continue
+  if [[ ! -f "${BASELINE_DIR}/${required_path}" ]]; then
+    echo "UNSATISFIABLE_GATE: policy requiredFile '${required_path}' has no template at ${BASELINE_DIR}/${required_path} — no repo can ever become compliant." >&2
+    UNSATISFIABLE_GATES=$((UNSATISFIABLE_GATES + 1))
+  fi
+done < <(jq -r '(.requiredFiles // [])[]' "${POLICY_FILE}")
+while IFS= read -r required_workflow; do
+  [[ -z "${required_workflow}" ]] && continue
+  if [[ ! -f "${BASELINE_DIR}/${required_workflow}" ]]; then
+    echo "UNSATISFIABLE_GATE: policy requiredWorkflowTriggers names '${required_workflow}' with no template at ${BASELINE_DIR}/${required_workflow} — trigger findings for it can never be fixed." >&2
+    UNSATISFIABLE_GATES=$((UNSATISFIABLE_GATES + 1))
+  fi
+done < <(jq -r '(.requiredWorkflowTriggers // {}) | keys[]' "${POLICY_FILE}")
+if [[ "${UNSATISFIABLE_GATES}" -gt 0 ]]; then
+  echo "UNSATISFIABLE_GATE: ${UNSATISFIABLE_GATES} policy gate(s) are unsatisfiable; remediation will run in DEGRADED mode (issue-only, never converges). Fix ${POLICY_FILE} or add the missing templates." >&2
+fi
+
 if [[ ! -f "${REPORT_FILE}" ]]; then
   echo "Missing report file: ${REPORT_FILE}" >&2
   exit 1
@@ -80,7 +104,6 @@ fi
 ISSUE_TITLE="$(jq -r '.complianceIssueTitle // "[Governance] CI/CD compliance gaps"' "${POLICY_FILE}")"
 ISSUE_LABELS_JSON="$(jq -c '.issueManagement.labels // []' "${POLICY_FILE}")"
 ISSUE_MILESTONE_TITLE="$(jq -r '.issueManagement.milestoneTitle // ""' "${POLICY_FILE}")"
-BASELINE_DIR="${ROOT_DIR}/templates/governance-baseline"
 
 ensure_issue_taxonomy() {
   local full_repo="$1"
