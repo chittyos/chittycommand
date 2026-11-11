@@ -22,16 +22,17 @@
     "test:workers": "vitest run --config vitest.workers.config.mts"
   },
   "dependencies": {
-    "@cloudflare/ai-chat": "^0.1.9",
+    "@cloudflare/ai-chat": "0.12.2",
     "@hono/zod-validator": "^0.7.6",
     "@neondatabase/serverless": "^0.10.0",
-    "ai": "^6.0.141",
+    "agents": "0.33.0",
+    "ai": "^7.0.170",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
-    "hono-agents": "^3.0.7",
+    "hono-agents": "^3.0.12",
     "jose": "^6.2.3",
-    "workers-ai-provider": "^3.1.8",
-    "zod": "^4.3.6"
+    "workers-ai-provider": "^4.0.1",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.1",
@@ -49,6 +50,9 @@
     "js-yaml": "^4.3.2",
     "nanoid": "^5.1.16",
     "fast-uri": "^3.1.8",
-    "ip-address": "^10.7.2"
+    "ip-address": "^10.7.2",
+    "vite": "^8.3.8",
+    "postcss": "^8.5.32",
+    "source-map-js": "^1.2.2"
   }
 }

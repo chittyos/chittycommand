@@ -1,7 +1,7 @@
 import { AIChatAgent } from '@cloudflare/ai-chat';
 import { createWorkersAI } from 'workers-ai-provider';
 import { streamText, convertToModelMessages, stepCountIs } from 'ai';
-import type { StreamTextOnFinishCallback, ToolSet } from 'ai';
+import type { GenerateTextOnFinishCallback, StreamTextOnEndCallback, ToolSet } from 'ai';
 import type { OnChatMessageOptions } from '@cloudflare/ai-chat';
 import { getDb } from '../lib/db';
 import { buildSystemPrompt } from './system-prompt';
@@ -22,7 +22,7 @@ export class ActionAgent extends AIChatAgent<Env> {
   maxPersistedMessages = 200;
 
   async onChatMessage(
-    onFinish: StreamTextOnFinishCallback<ToolSet>,
+    onFinish: GenerateTextOnFinishCallback<ToolSet>,
     options?: OnChatMessageOptions,
   ): Promise<Response> {
     const sql = getDb(this.env);
@@ -56,7 +56,7 @@ export class ActionAgent extends AIChatAgent<Env> {
       tools,
       stopWhen: stepCountIs(5),
       abortSignal: options?.abortSignal,
-      onFinish: onFinish as unknown as StreamTextOnFinishCallback<typeof tools>,
+      onFinish: onFinish as unknown as StreamTextOnEndCallback<typeof tools>,
     });
 
     return result.toUIMessageStreamResponse();
