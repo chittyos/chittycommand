@@ -113,11 +113,13 @@ export const ccLegalDeadlines = pgTable('cc_legal_deadlines', {
   urgencyScore: integer('urgency_score'),
   evidenceDbRef: text('evidence_db_ref'),
   metadata: jsonb('metadata').default({}),
+  // Repeat number of (deadline_date, title) within one docket push (migration 0020).
+  entryOrdinal: integer('entry_ordinal').notNull().default(1),
   createdAt: timestamp('created_at', { withTimezone: true }).defaultNow(),
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (table) => ({
   dateIdx: index('idx_cc_legal_deadlines_date').on(table.deadlineDate),
-  entryUq: uniqueIndex('uq_cc_legal_deadlines_entry').on(table.caseRef, table.deadlineType, table.deadlineDate, table.title),
+  entryUq: uniqueIndex('uq_cc_legal_deadlines_entry').on(table.caseRef, table.deadlineType, table.deadlineDate, table.title, table.entryOrdinal),
 }));
 
 // ── Disputes ──────────────────────────────────────────────────

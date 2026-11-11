@@ -174,6 +174,10 @@ export async function syncCourtDocketCase(
 
   let inserted = 0;
   let skippedUndated = 0;
+  // Two entries with the same date and title in one push are distinct court
+  // records. Number repeats 1..n in push order so both are kept and a re-run
+  // of the same push maps each onto its existing row.
+  const seen = new Map<string, number>();
 
   for (const entry of result.data?.entries ?? []) {
     const date = parseDocketDate(entry.date);
@@ -182,11 +186,14 @@ export async function syncCourtDocketCase(
       continue;
     }
     const title = entry.description ? entry.description.slice(0, 500) : 'Docket entry';
+    const key = `${date}\u0000${title}`;
+    const entryOrdinal = (seen.get(key) ?? 0) + 1;
+    seen.set(key, entryOrdinal);
     const rows = await sql`
-      INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, description, deadline_date, metadata)
+      INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, description, deadline_date, metadata, entry_ordinal)
       VALUES (${caseNumber}, ${COURT_DOCKET_CASE_SYSTEM}, 'docket_entry', ${title}, ${entry.description ?? null}, ${date},
-              ${JSON.stringify({ ...provenance, filedBy: entry.filedBy ?? null })}::jsonb)
-      ON CONFLICT (case_ref, deadline_type, deadline_date, title) DO NOTHING
+              ${JSON.stringify({ ...provenance, filedBy: entry.filedBy ?? null })}::jsonb, ${entryOrdinal})
+      ON CONFLICT (case_ref, deadline_type, deadline_date, title, entry_ordinal) DO NOTHING
       RETURNING id
     `;
     inserted += rows.length;
@@ -198,10 +205,10 @@ export async function syncCourtDocketCase(
       skippedUndated++;
     } else {
       const rows = await sql`
-        INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, description, deadline_date, metadata)
+        INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, description, deadline_date, metadata, entry_ordinal)
         VALUES (${caseNumber}, ${COURT_DOCKET_CASE_SYSTEM}, 'hearing', 'Next hearing', null, ${hearingDate},
-                ${JSON.stringify(provenance)}::jsonb)
-        ON CONFLICT (case_ref, deadline_type, deadline_date, title) DO NOTHING
+                ${JSON.stringify(provenance)}::jsonb, 1)
+        ON CONFLICT (case_ref, deadline_type, deadline_date, title, entry_ordinal) DO NOTHING
         RETURNING id
       `;
       inserted += rows.length;
