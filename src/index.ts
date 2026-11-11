@@ -62,6 +62,8 @@ export type Env = {
   CHITTYBOOKS_URL?: string;
   CHITTYASSETS_URL?: string;
   CHITTYSCRAPE_URL?: string;
+  // Max age (hours) of a stored ChittyScrape docket result before it is refused as stale. Default 48.
+  COURT_DOCKET_MAX_AGE_HOURS?: string;
   CHITTYROUTER_URL?: string;
   CHITTYGOV_URL?: string;
   CHITTYGOV_TOKEN?: string;

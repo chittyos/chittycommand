@@ -4,49 +4,45 @@ import type { AuthVariables } from '../../middleware/auth';
 import { getDb } from '../../lib/db';
 import { scrapeClient } from '../../lib/integrations';
 import { courtDocketScrapeSchema } from '../../lib/validators';
+import { syncCourtDocketCase, type CourtDocketCaseResult } from '../../lib/court-docket';
 
 export const scrapeRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
 
 // ── ChittyScrape ─────────────────────────────────────────────
 
-/** Trigger court docket scrape */
+/**
+ * Read back the court docket result ChittyScrape has stored for one case and
+ * insert its dated entries. No live scrape is triggered.
+ */
 scrapeRoutes.post('/court-docket', async (c) => {
-  const scrape = scrapeClient(c.env);
-  if (!scrape) return c.json({ error: 'ChittyScrape not configured' }, 503);
+  if (!c.env.CHITTYSCRAPE_URL) return c.json({ error: 'ChittyScrape not configured' }, 503);
 
   const token = await c.env.COMMAND_KV.get('scrape:service_token');
   if (!token) return c.json({ error: 'Scrape service token not configured' }, 503);
 
   const parsed = courtDocketScrapeSchema.safeParse(await c.req.json());
   if (!parsed.success) return c.json({ error: 'Validation failed', issues: parsed.error.issues }, 400);
-  // No fallback. The schema now requires caseNumber; an absent matter is a 400.
+  // No fallback. The schema requires caseNumber; an absent matter is a 400.
   const targetCase = parsed.data.caseNumber;
 
-  const result = await scrape.scrapeCourtDocket(targetCase, token);
-
   const sql = getDb(c.env);
-  await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
-    VALUES ('court_docket', 'scrape', ${result?.success ? 'success' : 'error'}, ${result?.data?.entries?.length || 0}, ${result?.error || null})`;
-
-  if (result?.success && result.data) {
-    for (const entry of result.data.entries) {
-      await sql`
-        INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, description, deadline_date, metadata)
-        VALUES (${targetCase}, 'cook_county_circuit', 'docket_entry', ${entry.description?.slice(0, 500) || 'Docket entry'}, ${entry.description || null}, ${entry.date || new Date().toISOString()}, ${{ filedBy: entry.filedBy, scraped: true }}::jsonb)
-        ON CONFLICT DO NOTHING
-      `;
-    }
-
-    if (result.data.nextHearing) {
-      await sql`
-        INSERT INTO cc_legal_deadlines (case_ref, case_system, deadline_type, title, deadline_date, urgency_score, metadata)
-        VALUES (${targetCase}, 'cook_county_circuit', 'hearing', ${'Next Hearing: ' + targetCase}, ${result.data.nextHearing}, 90, ${{ scraped: true }}::jsonb)
-        ON CONFLICT DO NOTHING
-      `;
-    }
+  let result: CourtDocketCaseResult;
+  try {
+    result = await syncCourtDocketCase(c.env, sql, targetCase, token);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
+      VALUES ('court_docket', 'readback', 'error', 0, ${message})`;
+    return c.json({ error: 'court_docket_readback_failed', message }, 502);
   }
 
-  return c.json({ source: 'court_docket', result });
+  await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
+    VALUES ('court_docket', 'readback', ${result.ok ? 'completed' : 'error'}, ${result.ok ? result.inserted : 0}, ${result.ok ? null : result.error})`;
+
+  if (!result.ok) {
+    return c.json({ error: result.error, caseNumber: targetCase, ...(result.scrapedAt ? { scrapedAt: result.scrapedAt } : {}) }, 404);
+  }
+  return c.json({ source: 'court_docket', ...result });
 });
 
 /** Trigger Cook County tax scrape for all properties */

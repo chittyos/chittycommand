@@ -10,6 +10,7 @@ import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
 import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
+import { syncCourtDocketCase } from './court-docket';
 
 /**
  * Cron sync orchestrator.
@@ -555,14 +556,14 @@ async function getTrackedCases(env: Env): Promise<string[]> {
 }
 
 /**
- * Scrape court docket via ChittyScrape and insert new deadlines.
+ * Read back the docket results ChittyScrape has stored for every tracked case
+ * and insert their dated entries. Each case is isolated; any case that has no
+ * submitted result, a stale result, or fails outright makes the whole sync
+ * throw after the loop, so the caller records `error`, never `completed`.
  */
 export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
-  const scrape = scrapeClient(env);
-  if (!scrape) return 0;
-
   const token = await env.COMMAND_KV.get('scrape:service_token');
-  if (!token) return 0;
+  if (!token) throw new Error('[cron:court_docket] scrape:service_token not configured in KV');
 
   const trackedCases = await getTrackedCases(env);
   if (trackedCases.length === 0) {
@@ -570,37 +571,27 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
     return 0;
   }
 
-  let synced = 0;
+  let inserted = 0;
+  const failures: string[] = [];
 
   for (const caseNumber of trackedCases) {
-    const result = await scrape.scrapeCourtDocket(caseNumber, token);
-    if (!result?.success) {
-      console.error(`[cron:court_docket] scrape failed for ${caseNumber}:`, result?.error);
-      continue;
-    }
-
-    if (result.data?.entries) {
-      for (const entry of result.data.entries) {
-        await sql`
-          INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-          VALUES (${caseNumber}, ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
-          ON CONFLICT DO NOTHING
-        `;
-        synced++;
+    try {
+      const result = await syncCourtDocketCase(env, sql, caseNumber, token);
+      if (!result.ok) {
+        failures.push(`${caseNumber}: ${result.error}${result.scrapedAt ? ` (scrapedAt ${result.scrapedAt})` : ''}`);
+        continue;
       }
-    }
-
-    if (result.data?.nextHearing) {
-      await sql`
-        INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-        VALUES (${caseNumber}, 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
-        ON CONFLICT DO NOTHING
-      `;
-      synced++;
+      inserted += result.inserted;
+      console.log(`[cron:court_docket] ${caseNumber}: inserted=${result.inserted} skipped_undated=${result.skippedUndated} scrapedAt=${result.scrapedAt}`);
+    } catch (err) {
+      failures.push(`${caseNumber}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  return synced;
+  if (failures.length > 0) {
+    throw new Error(`[cron:court_docket] ${failures.length}/${trackedCases.length} case(s) failed (inserted=${inserted}): ${failures.join('; ')}`);
+  }
+  return inserted;
 }
 
 /**

@@ -710,6 +710,28 @@ export function assetsClient(env: Env) {
 // ── ChittyScrape ──────────────────────────────────────────────
 // Browser automation for portals without APIs
 
+/** One docket entry as stored by ChittyScrape (camelCase upstream contract). */
+export interface CourtDocketEntry {
+  date?: string;
+  description?: string;
+  filedBy?: string;
+}
+
+/** `GET /api/scrape/court-docket/latest` response body. */
+export interface CourtDocketLatest {
+  success: boolean;
+  data?: {
+    entries?: CourtDocketEntry[];
+    nextHearing?: string;
+    caseNumber?: string;
+  } | null;
+  error?: string | null;
+  method?: 'scrape';
+  portal?: string;
+  caseId?: string;
+  scrapedAt?: string;
+}
+
 export function scrapeClient(env: Env) {
   const baseUrl = env.CHITTYSCRAPE_URL;
   if (!baseUrl) return null;
@@ -737,9 +759,32 @@ export function scrapeClient(env: Env) {
     }
   }
 
+  /**
+   * Read the docket result ChittyScrape has already stored for a case
+   * (`GET /api/scrape/court-docket/latest?case=<id>`). Returns null when the
+   * upstream has no submitted result (404 `no_submitted_result`); throws on
+   * any other non-2xx so a broken upstream is never read as "nothing new".
+   */
+  async function getLatestCourtDocket(caseNumber: string, token: string): Promise<CourtDocketLatest | null> {
+    const path = `/api/scrape/court-docket/latest?case=${encodeURIComponent(caseNumber)}`;
+    const res = await fetch(`${baseUrl}${path}`, {
+      method: 'GET',
+      headers: { 'Authorization': `Bearer ${token}` },
+      signal: AbortSignal.timeout(30000),
+    });
+    if (res.status === 404) {
+      const body = await res.json().catch(() => null) as { error?: string } | null;
+      if (body?.error === 'no_submitted_result') return null;
+    }
+    if (!res.ok) {
+      const errBody = await res.text().catch(() => '');
+      throw new Error(`[scrape] GET court-docket/latest failed: ${res.status} ${errBody.slice(0, 500)}`);
+    }
+    return await res.json() as CourtDocketLatest;
+  }
+
   return {
-    scrapeCourtDocket: (caseNumber: string, token: string) =>
-      post<{ success: boolean; data?: any; error?: string }>('/api/scrape/court-docket', { caseNumber }, token),
+    getLatestCourtDocket,
 
     scrapeCookCountyTax: (pin: string, token: string) =>
       post<{ success: boolean; data?: any; error?: string }>('/api/scrape/cook-county-tax', { pin }, token),
