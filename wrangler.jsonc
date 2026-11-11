@@ -65,16 +65,16 @@
 
   // Observability — match dashboard config
   "observability": {
-    "enabled": true,
-    "head_sampling_rate": 1,
+    "enabled": false,
+    "head_sampling_rate": 0,
     "logs": {
-      "enabled": true,
-      "head_sampling_rate": 1,
-      "invocation_logs": true
+      "enabled": false,
+      "head_sampling_rate": 0,
+      "invocation_logs": false
     },
     "traces": {
-      "enabled": true,
-      "head_sampling_rate": 1
+      "enabled": false,
+      "head_sampling_rate": 0
     }
   },
 
@@ -84,11 +84,7 @@
   ],
 
   // ChittyTrack observability
-  "tail_consumers": [
-    { "service": "chittytrack" }
-  ],
-
-  "triggers": {
+    "triggers": {
     "crons": [
       "0 12 * * *",   // Daily 6 AM CT: Plaid + ChittyFinance sync
       "0 13 * * *",   // Daily 7 AM CT: Court docket check
