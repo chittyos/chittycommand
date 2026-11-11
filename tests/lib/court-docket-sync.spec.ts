@@ -139,7 +139,8 @@ if (SKIP) {
         title: 'Motion to compel discovery filed',
         description: 'Motion to compel discovery filed',
       });
-      expect(new Date(rows[0].deadline_date as string).toISOString()).toBe('2026-10-02T00:00:00.000Z');
+      // Date-only docket dates are stored as 12:00 America/Chicago (CDT on this date).
+      expect(new Date(rows[0].deadline_date as string).toISOString()).toBe('2026-10-02T17:00:00.000Z');
       expect(rows[0].metadata).toMatchObject({ source: 'chittyscrape', filedBy: 'Petitioner', scrapedAt });
       expect(rows[2]).toMatchObject({ deadline_type: 'hearing', title: 'Next hearing' });
       expect(new Date(rows[2].deadline_date as string).toISOString()).toBe('2026-12-03T14:30:00.000Z');

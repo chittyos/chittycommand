@@ -38,9 +38,41 @@ function validWall(y: number, mo: number, d: number, h = 0, mi = 0, sec = 0): bo
   return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
 }
 
-/** Wall-clock time with no zone in the input, as a UTC instant. */
+/** Cook County court inputs without an explicit offset are Chicago local time. */
+export const COURT_DOCKET_TIME_ZONE = 'America/Chicago';
+const DATE_ONLY_LOCAL_HOUR = 12;
+
+const chicagoParts = new Intl.DateTimeFormat('en-US', {
+  timeZone: COURT_DOCKET_TIME_ZONE,
+  hourCycle: 'h23',
+  year: 'numeric',
+  month: '2-digit',
+  day: '2-digit',
+  hour: '2-digit',
+  minute: '2-digit',
+  second: '2-digit',
+});
+
+/** Chicago's UTC offset in ms at instant `utcMs` (negative west of UTC). */
+function chicagoOffsetMs(utcMs: number): number {
+  const p: Record<string, number> = {};
+  for (const part of chicagoParts.formatToParts(new Date(utcMs))) {
+    if (part.type !== 'literal') p[part.type] = Number(part.value);
+  }
+  const wallAsUtc = Date.UTC(p.year, p.month - 1, p.day, p.hour === 24 ? 0 : p.hour, p.minute, p.second);
+  return wallAsUtc - Math.floor(utcMs / 1000) * 1000;
+}
+
+/**
+ * Chicago wall-clock time as a UTC instant. Independent of the worker's own
+ * time zone: the offset comes from Intl for America/Chicago, re-checked at
+ * the candidate instant so DST boundaries resolve consistently.
+ */
 function wallToUtc(y: number, mo: number, d: number, h: number, mi: number): number {
-  return Date.UTC(y, mo - 1, d, h, mi);
+  const wall = Date.UTC(y, mo - 1, d, h, mi);
+  const first = wall - chicagoOffsetMs(wall);
+  const second = wall - chicagoOffsetMs(first);
+  return second;
 }
 
 /**
@@ -68,6 +100,8 @@ export function parseIsoInstant(value: unknown): string | null {
 /**
  * Strict docket date parser. Accepts only:
  *   YYYY-MM-DD, ISO datetime with offset/Z, M/D/YYYY, M/D/YYYY h:mm AM|PM.
+ * Date-only values become 12:00 Chicago local; date+time values are Chicago
+ * local; ISO datetimes with an offset/Z are taken as given.
  * Anything else (e.g. "Status 3", "Continued to 11") is null: the caller
  * skips and counts it. Free text never reaches a lenient engine parser.
  */
@@ -82,13 +116,13 @@ export function parseDocketDate(value: unknown): string | null {
   let m = ISO_DATE.exec(v);
   if (m) {
     const [y, mo, d] = [m[1], m[2], m[3]].map(Number);
-    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, 0, 0)).toISOString() : null;
+    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, DATE_ONLY_LOCAL_HOUR, 0)).toISOString() : null;
   }
 
   m = US_DATE.exec(v);
   if (m) {
     const [mo, d, y] = [m[1], m[2], m[3]].map(Number);
-    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, 0, 0)).toISOString() : null;
+    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, DATE_ONLY_LOCAL_HOUR, 0)).toISOString() : null;
   }
 
   m = US_DATETIME.exec(v);

@@ -55,3 +55,39 @@ describe('parseDocketDate — ISO datetime with explicit offset is taken as give
     expect(parseIsoInstant('12/03/2026')).toBeNull();
   });
 });
+
+// Expected instants are fixed facts about 2026 Chicago time: CDT (UTC-5)
+// through 2026-11-01 02:00 local, CST (UTC-6) after. All but the 11/1 case
+// sit clear of a transition, so hardcoding them pins the conversion.
+describe('parseDocketDate — no-offset inputs are America/Chicago local', () => {
+  it.each([
+    ['2026-10-02', '2026-10-02T17:00:00.000Z'], // CDT noon
+    ['10/02/2026', '2026-10-02T17:00:00.000Z'], // CDT noon
+    ['1/5/2026', '2026-01-05T18:00:00.000Z'], // CST noon
+    ['2026-12-03', '2026-12-03T18:00:00.000Z'], // CST noon
+    ['12/03/2026 09:30 AM', '2026-12-03T15:30:00.000Z'], // CST
+    ['12/03/2026 9:30AM', '2026-12-03T15:30:00.000Z'],
+    ['12/03/2026 12:00 AM', '2026-12-03T06:00:00.000Z'],
+    ['12/03/2026 12:15 PM', '2026-12-03T18:15:00.000Z'],
+    ['7/15/2026 2:05 PM', '2026-07-15T19:05:00.000Z'], // CDT
+    ['11/1/2026 3:00 AM', '2026-11-01T09:00:00.000Z'], // first hour after fall-back
+  ])('%s → %s', (input, expected) => {
+    expect(parseDocketDate(input)).toBe(expected);
+  });
+
+  it('is stable across repeated calls and independent of process.env.TZ', () => {
+    const saved = process.env.TZ;
+    try {
+      const results = new Set<string | null>();
+      for (const tz of ['UTC', 'Pacific/Auckland', 'America/Los_Angeles', 'Asia/Kolkata']) {
+        process.env.TZ = tz;
+        results.add(parseDocketDate('10/02/2026'));
+        results.add(parseDocketDate('10/02/2026'));
+      }
+      expect([...results]).toEqual(['2026-10-02T17:00:00.000Z']);
+    } finally {
+      if (saved === undefined) delete process.env.TZ;
+      else process.env.TZ = saved;
+    }
+  });
+});
