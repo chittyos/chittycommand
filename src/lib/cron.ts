@@ -10,7 +10,7 @@ import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
 import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
-import { syncCourtDocketCase } from './court-docket';
+import { syncCourtDocketCase, CourtDocketSyncError } from './court-docket';
 
 /**
  * Cron sync orchestrator.
@@ -230,8 +230,11 @@ export async function runCronSync(
   } catch (err) {
     console.error(`Scheduled sync failed [${source}]:`, err);
     if (logId) {
+      // A partial court-docket run still wrote rows for the cases that succeeded.
+      const partial = err instanceof CourtDocketSyncError ? err.insertedTotal : null;
       await sql`
-        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)}, completed_at = NOW()
+        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)},
+          records_synced = COALESCE(${partial}::int, records_synced), completed_at = NOW()
         WHERE id = ${logId}
       `.catch((dbErr) => console.error('[cron] Failed to update sync_log with error status:', dbErr));
     }
@@ -553,23 +556,30 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
 
   let inserted = 0;
   const failures: string[] = [];
+  const failedCases: string[] = [];
 
   for (const caseNumber of trackedCases) {
     try {
       const result = await syncCourtDocketCase(env, sql, caseNumber, token);
       if (!result.ok) {
+        failedCases.push(caseNumber);
         failures.push(`${caseNumber}: ${result.error}${result.scrapedAt ? ` (scrapedAt ${result.scrapedAt})` : ''}`);
         continue;
       }
       inserted += result.inserted;
       console.log(`[cron:court_docket] ${caseNumber}: inserted=${result.inserted} skipped_undated=${result.skippedUndated} scrapedAt=${result.scrapedAt}`);
     } catch (err) {
+      failedCases.push(caseNumber);
       failures.push(`${caseNumber}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
   if (failures.length > 0) {
-    throw new Error(`[cron:court_docket] ${failures.length}/${trackedCases.length} case(s) failed (inserted=${inserted}): ${failures.join('; ')}`);
+    throw new CourtDocketSyncError(
+      `[cron:court_docket] ${failedCases.length}/${trackedCases.length} case(s) failed [${failedCases.join(', ')}] (inserted=${inserted}): ${failures.join('; ')}`,
+      inserted,
+      failedCases,
+    );
   }
   return inserted;
 }

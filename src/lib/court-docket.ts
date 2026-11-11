@@ -20,6 +20,26 @@ export type CourtDocketCaseResult =
   | { ok: true; caseNumber: string; inserted: number; skippedUndated: number; scrapedAt: string }
   | { ok: false; caseNumber: string; error: 'no_submitted_result' | 'stale_result'; scrapedAt?: string };
 
+/** A read-back refusal with a machine-readable reason, e.g. `case_unverifiable`. */
+export class CourtDocketError extends Error {
+  constructor(public readonly code: string, message: string) {
+    super(message);
+    this.name = 'CourtDocketError';
+  }
+}
+
+/**
+ * Thrown by a multi-case sync when any case failed. Cases that succeeded have
+ * already inserted their rows; `insertedTotal` counts them so the sync log
+ * records what was written, and `failedCases` names the cases that were not.
+ */
+export class CourtDocketSyncError extends Error {
+  constructor(message: string, public readonly insertedTotal: number, public readonly failedCases: string[]) {
+    super(message);
+    this.name = 'CourtDocketSyncError';
+  }
+}
+
 function maxAgeHours(env: Env): number {
   const parsed = Number(env.COURT_DOCKET_MAX_AGE_HOURS);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_AGE_HOURS;
@@ -139,7 +159,7 @@ export function parseDocketDate(value: unknown): string | null {
 /**
  * Read the stored docket for one case and insert its entries.
  * Throws when ChittyScrape is unconfigured, the upstream errors, or the
- * result names a different case (nothing is inserted in that case).
+ * result names a different case or no case at all (nothing is inserted).
  */
 export async function syncCourtDocketCase(
   env: Env,
@@ -159,6 +179,12 @@ export async function syncCourtDocketCase(
   }
 
   const returnedCase = result.data?.caseNumber;
+  if (returnedCase === undefined && result.caseId === undefined) {
+    throw new CourtDocketError(
+      'case_unverifiable',
+      `[court_docket] case_unverifiable: result for ${caseNumber} names no case (neither caseId nor data.caseNumber)`,
+    );
+  }
   if (returnedCase !== undefined && returnedCase !== caseNumber) {
     throw new Error(`[court_docket] case mismatch: requested ${caseNumber}, result is for ${returnedCase}`);
   }

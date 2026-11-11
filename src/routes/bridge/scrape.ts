@@ -31,8 +31,14 @@ scrapeRoutes.post('/court-docket', async (c) => {
     result = await syncCourtDocketCase(c.env, sql, targetCase, token);
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
-    await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
-      VALUES ('court_docket', 'readback', 'error', 0, ${message})`;
+    // Logging the failure must not replace the failure: a sync_log write error
+    // is reported to the console and the 502 still goes out.
+    try {
+      await sql`INSERT INTO cc_sync_log (source, sync_type, status, records_synced, error_message)
+        VALUES ('court_docket', 'readback', 'error', 0, ${message})`;
+    } catch (logErr) {
+      console.error('[bridge:court_docket] failed to record sync_log error row:', logErr);
+    }
     return c.json({ error: 'court_docket_readback_failed', message }, 502);
   }
 
@@ -40,7 +46,10 @@ scrapeRoutes.post('/court-docket', async (c) => {
     VALUES ('court_docket', 'readback', ${result.ok ? 'completed' : 'error'}, ${result.ok ? result.inserted : 0}, ${result.ok ? null : result.error})`;
 
   if (!result.ok) {
-    return c.json({ error: result.error, caseNumber: targetCase, ...(result.scrapedAt ? { scrapedAt: result.scrapedAt } : {}) }, 404);
+    // Absent result: 404. A stored result that is too old: 409 (it exists but
+    // conflicts with the freshness requirement).
+    const status = result.error === 'stale_result' ? 409 : 404;
+    return c.json({ error: result.error, caseNumber: targetCase, ...(result.scrapedAt ? { scrapedAt: result.scrapedAt } : {}) }, status);
   }
   return c.json({ source: 'court_docket', ...result });
 });
