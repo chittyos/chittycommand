@@ -18,6 +18,7 @@ import { computeVendorRisk, vendorRiskInputFromRow, numOrNull } from '../lib/ven
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
+import { syncCourtDocketCase } from '../lib/court-docket';
 import {
   claimNextIntent,
   completeIntent,
@@ -653,6 +654,23 @@ interface ProjectionRow {
 }
 
 interface CallerContext { userId: string; scopes: string[] }
+
+/**
+ * court_docket via MCP runs the stored-result read-back for one case and
+ * returns its result. It never enqueues: the dispatcher's court_docket path
+ * POSTs a live scrape that no longer exists.
+ */
+async function runCourtDocketReadback(
+  env: Env,
+  sql: NeonQueryFunction<false, false>,
+  target: Record<string, unknown> | undefined,
+) {
+  const caseNumber = typeof target?.case_number === 'string' ? target.case_number.trim() : '';
+  if (!caseNumber) throw new Error('court_docket requires target.case_number');
+  const token = await env.COMMAND_KV.get('scrape:service_token');
+  if (!token) throw new Error('scrape:service_token not configured in KV');
+  return syncCourtDocketCase(env, sql, caseNumber, token);
+}
 
 async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolName: string, args: Record<string, unknown>, caller: CallerContext): Promise<unknown> {
   switch (toolName) {
@@ -1339,6 +1357,12 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
     case 'retry_scrape_job': {
       const id = String(args.id || '').trim();
       if (!id) throw new Error('Missing argument: id');
+      // court_docket jobs re-run as a read-back, never through the dispatcher's
+      // dead live-scrape path.
+      const existing = await getJobStatus(sql, id, env);
+      if (existing?.jobType === 'court_docket') {
+        return runCourtDocketReadback(env, sql, existing.target);
+      }
       const success = await retryJob(sql, id, env);
       if (!success) throw new Error('Job not found or not in retryable state (must be failed or dead_letter)');
       return { ok: true, status: 'queued', message: 'Job re-queued for retry' };
@@ -1357,6 +1381,8 @@ async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolN
 
       const validTypes: ScrapeJobType[] = ['court_docket', 'cook_county_tax', 'mr_cooper', 'portal_scrape', 'sos_status', 'recorder_filings', 'assessor_check'];
       if (!validTypes.includes(jobType)) throw new Error(`Invalid job_type. Must be one of: ${validTypes.join(', ')}`);
+
+      if (jobType === 'court_docket') return runCourtDocketReadback(env, sql, target);
 
       const jobId = await enqueueJob(sql, jobType, target, {
         chittyId: args.chitty_id ? String(args.chitty_id) : undefined,

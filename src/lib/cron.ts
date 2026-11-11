@@ -208,31 +208,11 @@ export async function runCronSync(
     }
 
     if (source === 'court_docket') {
-      try {
-        // Enqueue via dispatcher for retry + fan-out
-        const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
-        const trackedCases = await getTrackedCases(env);
-        if (trackedCases.length === 0) {
-          console.warn('[cron:court_docket] no cases configured in KV legal:tracked_cases — nothing to sync');
-        }
-        // Per-case isolation: one failing enqueue must not abandon the rest of
-        // the batch, nor skip processQueue for jobs that did enqueue.
-        for (const caseNumber of trackedCases) {
-          try {
-            await enqueueJob(sql, 'court_docket', { case_number: caseNumber }, {
-              chittyId,
-              cronSource: 'court_docket',
-            }, env);
-          } catch (err) {
-            console.error(`[cron:court_docket] enqueue failed for ${caseNumber}:`, err);
-          }
-        }
-        const queueResult = await processQueue(sql, env, ctx);
-        recordsSynced += queueResult.succeeded;
-        console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
-      } catch (err) {
-        console.error('[cron:court_docket] failed:', err);
-      }
+      // Read back stored ChittyScrape results directly. The job dispatcher's
+      // court_docket path POSTs a live scrape that no longer exists, so this
+      // phase must not enqueue. A failure propagates so the sync log records
+      // `error`, never `completed`.
+      recordsSynced += await syncCourtDocket(env, sql);
     }
 
     if (source === 'monthly_check') {
