@@ -31,7 +31,7 @@
     "hono-agents": "^3.0.12",
     "jose": "^6.2.3",
     "workers-ai-provider": "^4.0.1",
-    "zod": "^4.3.6"
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.20.1",
