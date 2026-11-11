@@ -25,10 +25,81 @@ function maxAgeHours(env: Env): number {
   return Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_MAX_AGE_HOURS;
 }
 
-function parseDate(value: unknown): string | null {
-  if (typeof value !== 'string' || value.trim() === '') return null;
-  const ms = Date.parse(value);
-  return Number.isNaN(ms) ? null : new Date(ms).toISOString();
+const ISO_DATE = /^(\d{4})-(\d{2})-(\d{2})$/;
+const ISO_DATETIME =
+  /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2})(?::(\d{2})(?:\.(\d+))?)?(Z|([+-])(\d{2}):?(\d{2}))$/;
+const US_DATE = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/;
+const US_DATETIME = /^(\d{1,2})\/(\d{1,2})\/(\d{4}) (\d{1,2}):(\d{2}) ?(AM|PM)$/;
+
+/** True when y-mo-d h:mi:s names a real calendar instant (no rollover). */
+function validWall(y: number, mo: number, d: number, h = 0, mi = 0, sec = 0): boolean {
+  if (mo < 1 || mo > 12 || d < 1 || h > 23 || mi > 59 || sec > 59) return false;
+  const t = new Date(Date.UTC(y, mo - 1, d));
+  return t.getUTCFullYear() === y && t.getUTCMonth() === mo - 1 && t.getUTCDate() === d;
+}
+
+/** Wall-clock time with no zone in the input, as a UTC instant. */
+function wallToUtc(y: number, mo: number, d: number, h: number, mi: number): number {
+  return Date.UTC(y, mo - 1, d, h, mi);
+}
+
+/**
+ * Parse an ISO-8601 datetime that carries an explicit offset or Z. Returns
+ * the ISO instant, or null for anything else (no free-text parsing).
+ */
+export function parseIsoInstant(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const m = ISO_DATETIME.exec(value.trim());
+  if (!m) return null;
+  const [y, mo, d, h, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+  const sec = m[6] ? Number(m[6]) : 0;
+  const ms = m[7] ? Number(m[7].slice(0, 3).padEnd(3, '0')) : 0;
+  if (!validWall(y, mo, d, h, mi, sec)) return null;
+  let offsetMin = 0;
+  if (m[8] !== 'Z') {
+    const oh = Number(m[10]);
+    const om = Number(m[11]);
+    if (oh > 23 || om > 59) return null;
+    offsetMin = (m[9] === '-' ? -1 : 1) * (oh * 60 + om);
+  }
+  return new Date(Date.UTC(y, mo - 1, d, h, mi, sec, ms) - offsetMin * 60_000).toISOString();
+}
+
+/**
+ * Strict docket date parser. Accepts only:
+ *   YYYY-MM-DD, ISO datetime with offset/Z, M/D/YYYY, M/D/YYYY h:mm AM|PM.
+ * Anything else (e.g. "Status 3", "Continued to 11") is null: the caller
+ * skips and counts it. Free text never reaches a lenient engine parser.
+ */
+export function parseDocketDate(value: unknown): string | null {
+  if (typeof value !== 'string') return null;
+  const v = value.trim();
+  if (v === '') return null;
+
+  const iso = parseIsoInstant(v);
+  if (iso) return iso;
+
+  let m = ISO_DATE.exec(v);
+  if (m) {
+    const [y, mo, d] = [m[1], m[2], m[3]].map(Number);
+    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, 0, 0)).toISOString() : null;
+  }
+
+  m = US_DATE.exec(v);
+  if (m) {
+    const [mo, d, y] = [m[1], m[2], m[3]].map(Number);
+    return validWall(y, mo, d) ? new Date(wallToUtc(y, mo, d, 0, 0)).toISOString() : null;
+  }
+
+  m = US_DATETIME.exec(v);
+  if (m) {
+    const [mo, d, y, h12, mi] = [m[1], m[2], m[3], m[4], m[5]].map(Number);
+    if (h12 < 1 || h12 > 12) return null;
+    const h = (h12 % 12) + (m[6] === 'PM' ? 12 : 0);
+    return validWall(y, mo, d, h, mi) ? new Date(wallToUtc(y, mo, d, h, mi)).toISOString() : null;
+  }
+
+  return null;
 }
 
 /**
@@ -61,18 +132,17 @@ export async function syncCourtDocketCase(
     throw new Error(`[court_docket] case mismatch: requested ${caseNumber}, result caseId is ${result.caseId}`);
   }
 
-  const scrapedAtMs = result.scrapedAt ? Date.parse(result.scrapedAt) : NaN;
-  if (Number.isNaN(scrapedAtMs) || now.getTime() - scrapedAtMs > maxAgeHours(env) * 3_600_000) {
+  const scrapedAt = parseIsoInstant(result.scrapedAt);
+  if (!scrapedAt || now.getTime() - new Date(scrapedAt).getTime() > maxAgeHours(env) * 3_600_000) {
     return { ok: false, caseNumber, error: 'stale_result', scrapedAt: result.scrapedAt };
   }
-  const scrapedAt = new Date(scrapedAtMs).toISOString();
   const provenance = { source: 'chittyscrape', portal: result.portal ?? null, scrapedAt };
 
   let inserted = 0;
   let skippedUndated = 0;
 
   for (const entry of result.data?.entries ?? []) {
-    const date = parseDate(entry.date);
+    const date = parseDocketDate(entry.date);
     if (!date) {
       skippedUndated++;
       continue;
@@ -89,7 +159,7 @@ export async function syncCourtDocketCase(
   }
 
   if (result.data?.nextHearing !== undefined) {
-    const hearingDate = parseDate(result.data.nextHearing);
+    const hearingDate = parseDocketDate(result.data.nextHearing);
     if (!hearingDate) {
       skippedUndated++;
     } else {
