@@ -18,7 +18,7 @@ import { computeVendorRisk, vendorRiskInputFromRow, numOrNull } from '../lib/ven
 import { listJobs, getJobStatus, retryJob, getDeadLetters, enqueueJob } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
 import { evidenceClient, ledgerClient, govClient } from '../lib/integrations';
-import { syncCourtDocketCase } from '../lib/court-docket';
+import { runCourtDocketReadback } from '../lib/court-docket';
 import {
   claimNextIntent,
   completeIntent,
@@ -654,23 +654,6 @@ interface ProjectionRow {
 }
 
 interface CallerContext { userId: string; scopes: string[] }
-
-/**
- * court_docket via MCP runs the stored-result read-back for one case and
- * returns its result. It never enqueues: the dispatcher's court_docket path
- * POSTs a live scrape that no longer exists.
- */
-async function runCourtDocketReadback(
-  env: Env,
-  sql: NeonQueryFunction<false, false>,
-  target: Record<string, unknown> | undefined,
-) {
-  const caseNumber = typeof target?.case_number === 'string' ? target.case_number.trim() : '';
-  if (!caseNumber) throw new Error('court_docket requires target.case_number');
-  const token = await env.COMMAND_KV.get('scrape:service_token');
-  if (!token) throw new Error('scrape:service_token not configured in KV');
-  return syncCourtDocketCase(env, sql, caseNumber, token);
-}
 
 async function executeTool(env: Env, sql: NeonQueryFunction<false, false>, toolName: string, args: Record<string, unknown>, caller: CallerContext): Promise<unknown> {
   switch (toolName) {

@@ -15,10 +15,12 @@ import { scrapeClient } from './integrations';
 
 export const COURT_DOCKET_CASE_SYSTEM = 'cook_county';
 const DEFAULT_MAX_AGE_HOURS = 48;
+/** Clock skew tolerated before a scrapedAt in the future is refused. */
+const FUTURE_SKEW_MS = 5 * 60_000;
 
 export type CourtDocketCaseResult =
   | { ok: true; caseNumber: string; inserted: number; skippedUndated: number; scrapedAt: string }
-  | { ok: false; caseNumber: string; error: 'no_submitted_result' | 'stale_result'; scrapedAt?: string };
+  | { ok: false; caseNumber: string; error: 'no_submitted_result' | 'stale_result'; scrapedAt?: string; message?: string };
 
 /** A read-back refusal with a machine-readable reason, e.g. `case_unverifiable`. */
 export class CourtDocketError extends Error {
@@ -193,6 +195,9 @@ export async function syncCourtDocketCase(
   }
 
   const scrapedAt = parseIsoInstant(result.scrapedAt);
+  if (scrapedAt && new Date(scrapedAt).getTime() > now.getTime() + FUTURE_SKEW_MS) {
+    return { ok: false, caseNumber, error: 'stale_result', scrapedAt: result.scrapedAt, message: 'scrapedAt is in the future' };
+  }
   if (!scrapedAt || now.getTime() - new Date(scrapedAt).getTime() > maxAgeHours(env) * 3_600_000) {
     return { ok: false, caseNumber, error: 'stale_result', scrapedAt: result.scrapedAt };
   }
@@ -246,4 +251,21 @@ export async function syncCourtDocketCase(
   }
 
   return { ok: true, caseNumber, inserted, skippedUndated, scrapedAt };
+}
+
+/**
+ * court_docket via the API or MCP runs the stored-result read-back for one
+ * case and returns its result. It never enqueues: the dispatcher's
+ * court_docket path used to POST a live scrape that no longer exists.
+ */
+export async function runCourtDocketReadback(
+  env: Env,
+  sql: NeonQueryFunction<false, false>,
+  target: Record<string, unknown> | undefined,
+) {
+  const caseNumber = typeof target?.case_number === 'string' ? target.case_number.trim() : '';
+  if (!caseNumber) throw new Error('court_docket requires target.case_number');
+  const token = await env.COMMAND_KV.get('scrape:service_token');
+  if (!token) throw new Error('scrape:service_token not configured in KV');
+  return syncCourtDocketCase(env, sql, caseNumber, token);
 }

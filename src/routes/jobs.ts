@@ -11,8 +11,33 @@ import {
   processQueue,
 } from '../lib/job-dispatcher';
 import type { ScrapeJobType, ScrapeJobStatus } from '../lib/job-dispatcher';
+import { runCourtDocketReadback, CourtDocketError } from '../lib/court-docket';
+import type { Context } from 'hono';
 
 export const jobRoutes = new Hono<{ Bindings: Env; Variables: AuthVariables }>();
+
+/**
+ * court_docket never goes through the queue: run the stored-result read-back
+ * and map its refusals to HTTP statuses.
+ */
+async function respondCourtDocketReadback(
+  c: Context<{ Bindings: Env; Variables: AuthVariables }>,
+  target: Record<string, unknown> | undefined,
+) {
+  try {
+    const result = await runCourtDocketReadback(c.env, getDb(c.env), target);
+    if (!result.ok) {
+      const status = result.error === 'stale_result' ? 409 : 404;
+      return c.json({ ok: false, code: result.error, message: result.message ?? result.error }, status);
+    }
+    return c.json(result, 200);
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = err instanceof CourtDocketError ? err.code : 'court_docket_readback_failed';
+    const status = code === 'stale_result' ? 409 : code === 'no_submitted_result' ? 404 : 502;
+    return c.json({ ok: false, code, message }, status);
+  }
+}
 
 // List jobs with optional filters
 jobRoutes.get('/jobs', async (c) => {
@@ -46,6 +71,8 @@ jobRoutes.get('/jobs/queue/dead-letter', async (c) => {
 // Retry a failed job
 jobRoutes.post('/jobs/:id/retry', async (c) => {
   const sql = getDb(c.env);
+  const existing = await getJobStatus(sql, c.req.param('id'), c.env);
+  if (existing?.jobType === 'court_docket') return respondCourtDocketReadback(c, existing.target);
   const success = await retryJob(sql, c.req.param('id'), c.env);
   if (!success) return c.json({ error: 'Job not found or not in retryable state' }, 404);
   return c.json({ status: 'queued', message: 'Job re-queued for retry' });
@@ -69,6 +96,8 @@ jobRoutes.post('/jobs', async (c) => {
   if (!validTypes.includes(body.job_type)) {
     return c.json({ error: `Invalid job_type. Must be one of: ${validTypes.join(', ')}` }, 400);
   }
+
+  if (body.job_type === 'court_docket') return respondCourtDocketReadback(c, body.target);
 
   const jobId = await enqueueJob(sql, body.job_type, body.target, {
     chittyId: body.chitty_id,

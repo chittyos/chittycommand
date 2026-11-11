@@ -313,6 +313,25 @@ if (SKIP) {
       expect(await rowsFor(CASE_MULTI_A)).toHaveLength(0);
     });
 
+    it('/api/sync trigger: one failed case among two records the inserted total and status error', async () => {
+      // CASE_MULTI_A has nothing stored (404); CASE_MULTI_B returns two entries.
+      stored.delete(CASE_MULTI_A);
+      stored.set(CASE_MULTI_B, storedResult(CASE_MULTI_B, {
+        caseNumber: CASE_MULTI_B,
+        entries: [
+          { date: '2026-10-02', description: 'Motion to compel discovery filed' },
+          { date: '2026-10-20', description: 'Order entered: briefing schedule set' },
+        ],
+      }));
+      const { body } = await triggerSync(makeEnv([CASE_MULTI_A, CASE_MULTI_B]));
+      const [newest] = await sql`
+        SELECT id, status, records_synced FROM cc_sync_log
+        WHERE source = 'court_docket' ORDER BY started_at DESC LIMIT 1`;
+      expect(newest.id).toBe(body.sync_id);
+      expect(newest.records_synced).toBe(2);
+      expect(newest.status).toBe('error');
+    });
+
     it('bridge: absent result is 404 and logs one readback row', async () => {
       const { status, body, logs } = await bridgeReadback(CASE_BR_MISSING);
       expect(status).toBe(404);
