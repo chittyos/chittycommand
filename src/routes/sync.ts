@@ -2,6 +2,7 @@ import { Hono } from 'hono';
 import type { Env } from '../index';
 import { getDb } from '../lib/db';
 import { matchTransactions } from '../lib/matcher';
+import { CourtDocketSyncError } from '../lib/court-docket';
 import { syncMercury, syncPlaid, syncFinance, syncCourtDocket, syncMrCooper, syncCookCountyTax, syncPortal, syncGovernanceCompliance } from '../lib/cron';
 
 export const syncRoutes = new Hono<{ Bindings: Env }>();
@@ -84,8 +85,11 @@ syncRoutes.post('/trigger/:source', async (c) => {
         WHERE id = ${log.id}
       `;
     } catch (err) {
+      // A partial court-docket run still wrote rows for the cases that succeeded.
+      const partial = err instanceof CourtDocketSyncError ? err.insertedTotal : null;
       await sql`
-        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)}, completed_at = NOW()
+        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)},
+          records_synced = COALESCE(${partial}::int, records_synced), completed_at = NOW()
         WHERE id = ${log.id}
       `.catch(() => {});
     }

@@ -10,6 +10,7 @@ import { reconcileNotionDisputes } from './dispute-sync';
 import { enqueueJob, processQueue, type ScrapeJobType } from './job-dispatcher';
 import { decayStaleRouxIntents } from './intent-decay';
 import { computeVendorRisk, vendorRiskInputFromRow } from './vendor-risk';
+import { syncCourtDocketCase, CourtDocketSyncError } from './court-docket';
 
 /**
  * Cron sync orchestrator.
@@ -207,31 +208,11 @@ export async function runCronSync(
     }
 
     if (source === 'court_docket') {
-      try {
-        // Enqueue via dispatcher for retry + fan-out
-        const chittyId = await env.COMMAND_KV.get('default:chitty_id') || undefined;
-        const trackedCases = await getTrackedCases(env);
-        if (trackedCases.length === 0) {
-          console.warn('[cron:court_docket] no cases configured in KV legal:tracked_cases — nothing to sync');
-        }
-        // Per-case isolation: one failing enqueue must not abandon the rest of
-        // the batch, nor skip processQueue for jobs that did enqueue.
-        for (const caseNumber of trackedCases) {
-          try {
-            await enqueueJob(sql, 'court_docket', { case_number: caseNumber }, {
-              chittyId,
-              cronSource: 'court_docket',
-            }, env);
-          } catch (err) {
-            console.error(`[cron:court_docket] enqueue failed for ${caseNumber}:`, err);
-          }
-        }
-        const queueResult = await processQueue(sql, env, ctx);
-        recordsSynced += queueResult.succeeded;
-        console.log(`[cron:court_docket] dispatcher: ${queueResult.succeeded} succeeded, ${queueResult.failed} failed`);
-      } catch (err) {
-        console.error('[cron:court_docket] failed:', err);
-      }
+      // Read back stored ChittyScrape results directly. The job dispatcher's
+      // court_docket path POSTs a live scrape that no longer exists, so this
+      // phase must not enqueue. A failure propagates so the sync log records
+      // `error`, never `completed`.
+      recordsSynced += await syncCourtDocket(env, sql);
     }
 
     if (source === 'monthly_check') {
@@ -249,8 +230,11 @@ export async function runCronSync(
   } catch (err) {
     console.error(`Scheduled sync failed [${source}]:`, err);
     if (logId) {
+      // A partial court-docket run still wrote rows for the cases that succeeded.
+      const partial = err instanceof CourtDocketSyncError ? err.insertedTotal : null;
       await sql`
-        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)}, completed_at = NOW()
+        UPDATE cc_sync_log SET status = 'error', error_message = ${String(err)},
+          records_synced = COALESCE(${partial}::int, records_synced), completed_at = NOW()
         WHERE id = ${logId}
       `.catch((dbErr) => console.error('[cron] Failed to update sync_log with error status:', dbErr));
     }
@@ -555,14 +539,14 @@ async function getTrackedCases(env: Env): Promise<string[]> {
 }
 
 /**
- * Scrape court docket via ChittyScrape and insert new deadlines.
+ * Read back the docket results ChittyScrape has stored for every tracked case
+ * and insert their dated entries. Each case is isolated; any case that has no
+ * submitted result, a stale result, or fails outright makes the whole sync
+ * throw after the loop, so the caller records `error`, never `completed`.
  */
 export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, false>): Promise<number> {
-  const scrape = scrapeClient(env);
-  if (!scrape) return 0;
-
   const token = await env.COMMAND_KV.get('scrape:service_token');
-  if (!token) return 0;
+  if (!token) throw new Error('[cron:court_docket] scrape:service_token not configured in KV');
 
   const trackedCases = await getTrackedCases(env);
   if (trackedCases.length === 0) {
@@ -570,37 +554,34 @@ export async function syncCourtDocket(env: Env, sql: NeonQueryFunction<false, fa
     return 0;
   }
 
-  let synced = 0;
+  let inserted = 0;
+  const failures: string[] = [];
+  const failedCases: string[] = [];
 
   for (const caseNumber of trackedCases) {
-    const result = await scrape.scrapeCourtDocket(caseNumber, token);
-    if (!result?.success) {
-      console.error(`[cron:court_docket] scrape failed for ${caseNumber}:`, result?.error);
-      continue;
-    }
-
-    if (result.data?.entries) {
-      for (const entry of result.data.entries) {
-        await sql`
-          INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-          VALUES (${caseNumber}, ${entry.type || 'court_entry'}, ${entry.date || null}, ${entry.description || ''}, 'court_docket_scrape')
-          ON CONFLICT DO NOTHING
-        `;
-        synced++;
+    try {
+      const result = await syncCourtDocketCase(env, sql, caseNumber, token);
+      if (!result.ok) {
+        failedCases.push(caseNumber);
+        failures.push(`${caseNumber}: ${result.error}${result.scrapedAt ? ` (scrapedAt ${result.scrapedAt})` : ''}`);
+        continue;
       }
-    }
-
-    if (result.data?.nextHearing) {
-      await sql`
-        INSERT INTO cc_legal_deadlines (case_number, deadline_type, deadline_date, description, source)
-        VALUES (${caseNumber}, 'hearing', ${result.data.nextHearing}, 'Next court hearing', 'court_docket_scrape')
-        ON CONFLICT DO NOTHING
-      `;
-      synced++;
+      inserted += result.inserted;
+      console.log(`[cron:court_docket] ${caseNumber}: inserted=${result.inserted} skipped_undated=${result.skippedUndated} scrapedAt=${result.scrapedAt}`);
+    } catch (err) {
+      failedCases.push(caseNumber);
+      failures.push(`${caseNumber}: ${err instanceof Error ? err.message : String(err)}`);
     }
   }
 
-  return synced;
+  if (failures.length > 0) {
+    throw new CourtDocketSyncError(
+      `[cron:court_docket] ${failedCases.length}/${trackedCases.length} case(s) failed [${failedCases.join(', ')}] (inserted=${inserted}): ${failures.join('; ')}`,
+      inserted,
+      failedCases,
+    );
+  }
+  return inserted;
 }
 
 /**

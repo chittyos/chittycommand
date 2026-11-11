@@ -180,7 +180,8 @@ export const submitEvidenceSchema = z.object({
 // prohibition in legal-operating-defaults §8. A docket scrape with no matter
 // named is a bad request, not an invitation to guess.
 export const courtDocketScrapeSchema = z.object({
-  caseNumber: z.string().min(1).max(50),
+  // Same key shape ChittyScrape accepts: exact, case-sensitive, 1-64 chars.
+  caseNumber: z.string().regex(/^[A-Za-z0-9-]{1,64}$/),
 });
 
 // ── Bridge: Plaid ────────────────────────────────────────────

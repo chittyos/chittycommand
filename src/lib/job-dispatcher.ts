@@ -1,6 +1,7 @@
 import type { NeonQueryFunction } from '@neondatabase/serverless';
 import type { Env } from '../index';
 import { routerClient } from './integrations';
+import { runCourtDocketReadback } from './court-docket';
 import type { ScrapeJobResponse } from './integrations';
 
 export type ScrapeJobType =
@@ -99,13 +100,63 @@ export async function processQueue(
   ctx?: ExecutionContext,
   limit = 10,
 ): Promise<{ processed: number; succeeded: number; failed: number }> {
+  // Rows already queued locally for court_docket resolve through the stored-
+  // result read-back, never the ChittyRouter live-scrape POST (dead endpoint).
+  const docket = await processQueuedCourtDocketJobs(sql, env, limit);
+
   const router = routerClient(env);
   if (router) {
     const result = await router.processScrapeQueue();
-    if (result) return result;
+    if (result) {
+      return {
+        processed: result.processed + docket.processed,
+        succeeded: result.succeeded + docket.succeeded,
+        failed: result.failed + docket.failed,
+      };
+    }
     console.warn('[dispatcher] ScrapeAgent processQueue failed');
   }
-  return { processed: 0, succeeded: 0, failed: 0 };
+  return docket;
+}
+
+async function processQueuedCourtDocketJobs(
+  sql: NeonQueryFunction<false, false>,
+  env: Env,
+  limit: number,
+): Promise<{ processed: number; succeeded: number; failed: number }> {
+  const claimed = await sql`
+    UPDATE cc_scrape_jobs
+    SET status = 'running', attempt = attempt + 1, started_at = NOW()
+    WHERE id IN (
+      SELECT id FROM cc_scrape_jobs
+      WHERE job_type = 'court_docket' AND status = 'queued' AND scheduled_at <= NOW()
+      ORDER BY scheduled_at
+      LIMIT ${limit}
+      FOR UPDATE SKIP LOCKED
+    )
+    RETURNING id, target
+  `;
+  let succeeded = 0;
+  let failed = 0;
+  for (const row of claimed) {
+    try {
+      const result = await runCourtDocketReadback(env, sql, row.target as Record<string, unknown>);
+      if (result.ok) {
+        await sql`UPDATE cc_scrape_jobs SET status = 'completed', completed_at = NOW(),
+          result = ${JSON.stringify(result)}::jsonb, error_message = NULL WHERE id = ${row.id}`;
+        succeeded++;
+      } else {
+        await sql`UPDATE cc_scrape_jobs SET status = 'failed', completed_at = NOW(),
+          result = ${JSON.stringify(result)}::jsonb, error_message = ${result.message ?? result.error} WHERE id = ${row.id}`;
+        failed++;
+      }
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      await sql`UPDATE cc_scrape_jobs SET status = 'failed', completed_at = NOW(), error_message = ${message} WHERE id = ${row.id}`;
+      failed++;
+    }
+  }
+  return { processed: claimed.length, succeeded, failed };
 }
 
 /**
