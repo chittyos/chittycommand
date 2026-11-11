@@ -72,6 +72,10 @@ jobs:
           cache: 'npm'
       - name: Install
         run: npm ci
+      - name: Typecheck
+        run: npx tsc -p tsconfig.json --noEmit
+      - name: Test
+        run: npm test
       - name: Dependency Audit
         # Scope the High+ gate to production dependencies shipped to the Worker
         # runtime. Mirrors the audit_omit_dev option already exposed by
@@ -83,10 +87,6 @@ jobs:
         # 5 high-severity advisories in the production tree, three of which
         # predated the break. The gate is the source of truth, not this comment.
         run: npm audit --audit-level=high --omit=dev
-      - name: Typecheck
-        run: npx tsc -p tsconfig.json --noEmit
-      - name: Test
-        run: npm test
       - name: Governance Pressure Tests
         run: bash scripts/pressure-test-governance.sh
       - name: Lint (skipped)
