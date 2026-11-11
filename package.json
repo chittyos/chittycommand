@@ -25,6 +25,7 @@
     "@cloudflare/ai-chat": "0.12.2",
     "@hono/zod-validator": "^0.7.6",
     "@neondatabase/serverless": "^0.10.0",
+    "agents": "0.33.0",
     "ai": "^7.0.170",
     "drizzle-orm": "^0.45.2",
     "hono": "^4.13.8",
