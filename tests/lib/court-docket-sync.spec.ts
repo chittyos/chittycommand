@@ -1,7 +1,7 @@
 /**
  * Integration test for the court docket read-back (src/lib/court-docket.ts,
- * syncCourtDocket in src/lib/cron.ts, and the /api/sync trigger that records
- * its status).
+ * syncCourtDocket in src/lib/cron.ts, the /api/sync trigger that records its
+ * status, and the /api/bridge/scrape/court-docket read-back route).
  *
  * Runs against a REAL Neon branch. The database is never mocked. The only
  * test double is the HTTP fetch to ChittyScrape, an external service: the
@@ -19,8 +19,10 @@
 import { describe, it, expect, beforeAll, afterAll, afterEach, vi } from 'vitest';
 import { neon } from '@neondatabase/serverless';
 import type { Env } from '../../src/index';
-import { syncCourtDocketCase } from '../../src/lib/court-docket';
+import { syncCourtDocketCase, CourtDocketSyncError } from '../../src/lib/court-docket';
+import { syncCourtDocket } from '../../src/lib/cron';
 import { syncRoutes } from '../../src/routes/sync';
+import { scrapeRoutes } from '../../src/routes/bridge/scrape';
 
 const DATABASE_URL = process.env.DATABASE_URL;
 const SKIP = !DATABASE_URL || process.env.SKIP_INTEGRATION === '1';
@@ -35,7 +37,20 @@ const CASE_UNDATED = `CCTEST-UND-${RUN}`;
 const CASE_MISMATCH = `CCTEST-MIS-${RUN}`;
 const CASE_MISSING = `CCTEST-404-${RUN}`;
 const CASE_STALE = `CCTEST-OLD-${RUN}`;
-const ALL_CASES = [CASE_INSERT, CASE_UNDATED, CASE_MISMATCH, CASE_MISSING, CASE_STALE];
+const CASE_REPEAT = `CCTEST-REP-${RUN}`;
+const CASE_NOID = `CCTEST-NID-${RUN}`;
+const CASE_FAILED = `CCTEST-ERR-${RUN}`;
+const CASE_MULTI_A = `CCTEST-MLA-${RUN}`;
+const CASE_MULTI_B = `CCTEST-MLB-${RUN}`;
+const CASE_USDATE = `CCTEST-USD-${RUN}`;
+const CASE_BR_MISSING = `CCTEST-B404-${RUN}`;
+const CASE_BR_STALE = `CCTEST-B409-${RUN}`;
+const CASE_BR_MISMATCH = `CCTEST-B502-${RUN}`;
+const ALL_CASES = [
+  CASE_INSERT, CASE_UNDATED, CASE_MISMATCH, CASE_MISSING, CASE_STALE,
+  CASE_REPEAT, CASE_NOID, CASE_FAILED, CASE_MULTI_A, CASE_MULTI_B, CASE_USDATE,
+  CASE_BR_MISSING, CASE_BR_STALE, CASE_BR_MISMATCH,
+];
 
 /** Stored results ChittyScrape would return, keyed by exact case string. */
 const stored = new Map<string, unknown>();
@@ -49,12 +64,12 @@ function makeKv(values: Record<string, string>) {
   return { get: async (key: string) => map.get(key) ?? null } as unknown as KVNamespace;
 }
 
-function makeEnv(trackedCases: string[] = []): Env {
+function makeEnv(trackedCases: string[] = [], { withToken = true } = {}): Env {
   return {
     DATABASE_URL,
     CHITTYSCRAPE_URL: SCRAPE_URL,
     COMMAND_KV: makeKv({
-      'scrape:service_token': SCRAPE_TOKEN,
+      ...(withToken ? { 'scrape:service_token': SCRAPE_TOKEN } : {}),
       'legal:tracked_cases': JSON.stringify(trackedCases),
     }),
   } as unknown as Env;
@@ -90,6 +105,28 @@ if (SKIP) {
     syncLogIds.push(body.sync_id);
     const [log] = await sql`SELECT status, error_message FROM cc_sync_log WHERE id = ${body.sync_id}`;
     return { body, log };
+  }
+
+  async function readbackLogIds(): Promise<Set<string>> {
+    const rows = await sql`SELECT id FROM cc_sync_log WHERE source = 'court_docket' AND sync_type = 'readback'`;
+    return new Set(rows.map((r) => r.id as string));
+  }
+
+  /** POST the bridge read-back route; returns status, body, and the sync_log rows it created. */
+  async function bridgeReadback(caseNumber: string) {
+    const before = await readbackLogIds();
+    const res = await scrapeRoutes.request(
+      '/court-docket',
+      { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ caseNumber }) },
+      makeEnv(),
+    );
+    const body = await res.json() as Record<string, unknown>;
+    const created = [...await readbackLogIds()].filter((id) => !before.has(id));
+    syncLogIds.push(...created);
+    const logs = created.length > 0
+      ? await sql`SELECT sync_type, status, error_message FROM cc_sync_log WHERE id = ANY(${created})`
+      : [];
+    return { status: res.status, body, logs };
   }
 
   describe('court docket read-back (real Neon)', () => {
@@ -209,6 +246,120 @@ if (SKIP) {
       expect(log.status).toBe('error');
       expect(log.error_message).toContain(`${CASE_STALE}: stale_result (scrapedAt ${scrapedAt})`);
       expect(await rowsFor(CASE_STALE)).toHaveLength(0);
+    });
+
+    it('two identical same-day entries are two rows (ordinals 1, 2); a re-run inserts 0', async () => {
+      const payload = storedResult(CASE_REPEAT, {
+        caseNumber: CASE_REPEAT,
+        entries: [
+          { date: '2026-10-05', description: 'Order entered: continued for status' },
+          { date: '2026-10-05', description: 'Order entered: continued for status' },
+        ],
+      });
+      stored.set(CASE_REPEAT, payload);
+      expect(await syncCourtDocketCase(makeEnv(), sql, CASE_REPEAT, SCRAPE_TOKEN)).toMatchObject({ ok: true, inserted: 2 });
+      const rows = await sql`SELECT entry_ordinal FROM cc_legal_deadlines WHERE case_ref = ${CASE_REPEAT} ORDER BY entry_ordinal`;
+      expect(rows.map((r) => r.entry_ordinal)).toEqual([1, 2]);
+
+      stored.set(CASE_REPEAT, payload);
+      expect(await syncCourtDocketCase(makeEnv(), sql, CASE_REPEAT, SCRAPE_TOKEN)).toMatchObject({ ok: true, inserted: 0 });
+      expect(await rowsFor(CASE_REPEAT)).toHaveLength(2);
+    });
+
+    it('a result naming neither caseId nor data.caseNumber throws case_unverifiable and inserts nothing', async () => {
+      stored.set(CASE_NOID, {
+        success: true, error: null, method: 'scrape', portal: 'cook_county_circuit', scrapedAt: new Date().toISOString(),
+        data: { entries: [{ date: '2026-10-02', description: 'Motion to compel discovery filed' }] },
+      });
+      await expect(syncCourtDocketCase(makeEnv(), sql, CASE_NOID, SCRAPE_TOKEN)).rejects.toMatchObject({ code: 'case_unverifiable' });
+      expect(await rowsFor(CASE_NOID)).toHaveLength(0);
+    });
+
+    it('a stored result with success:false throws and inserts nothing', async () => {
+      stored.set(CASE_FAILED, {
+        ...storedResult(CASE_FAILED, {
+          caseNumber: CASE_FAILED,
+          entries: [{ date: '2026-10-02', description: 'Motion to compel discovery filed' }],
+        }),
+        success: false,
+        error: 'portal_unavailable',
+      });
+      await expect(syncCourtDocketCase(makeEnv(), sql, CASE_FAILED, SCRAPE_TOKEN)).rejects.toThrow(/success=false/);
+      expect(await rowsFor(CASE_FAILED)).toHaveLength(0);
+    });
+
+    it('syncCourtDocket throws when scrape:service_token is missing', async () => {
+      await expect(syncCourtDocket(makeEnv([CASE_MULTI_B], { withToken: false }), sql)).rejects.toThrow(/scrape:service_token/);
+      expect(await rowsFor(CASE_MULTI_B)).toHaveLength(0);
+    });
+
+    it('multi-case: a failed case does not stop the others, and the error carries failedCases and insertedTotal', async () => {
+      // CASE_MULTI_A has nothing stored, so its fetch returns 404 no_submitted_result.
+      stored.set(CASE_MULTI_B, storedResult(CASE_MULTI_B, {
+        caseNumber: CASE_MULTI_B,
+        entries: [
+          { date: '2026-10-02', description: 'Motion to compel discovery filed' },
+          { date: '2026-10-20', description: 'Order entered: briefing schedule set' },
+        ],
+      }));
+      const err = await syncCourtDocket(makeEnv([CASE_MULTI_A, CASE_MULTI_B]), sql).then(
+        () => { throw new Error('expected syncCourtDocket to throw'); },
+        (e: unknown) => e,
+      );
+      expect(err).toBeInstanceOf(CourtDocketSyncError);
+      expect((err as CourtDocketSyncError).failedCases).toEqual([CASE_MULTI_A]);
+      expect((err as CourtDocketSyncError).insertedTotal).toBe(2);
+      expect(await rowsFor(CASE_MULTI_B)).toHaveLength(2);
+      expect(await rowsFor(CASE_MULTI_A)).toHaveLength(0);
+    });
+
+    it('bridge: absent result is 404 and logs one readback row', async () => {
+      const { status, body, logs } = await bridgeReadback(CASE_BR_MISSING);
+      expect(status).toBe(404);
+      expect(body.error).toBe('no_submitted_result');
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ sync_type: 'readback', status: 'error' });
+    });
+
+    it('bridge: stale result is 409 and logs one readback row', async () => {
+      stored.set(CASE_BR_STALE, storedResult(CASE_BR_STALE, {
+        caseNumber: CASE_BR_STALE,
+        entries: [{ date: '2026-10-02', description: 'Motion to compel discovery filed' }],
+      }, new Date(Date.now() - 72 * 3_600_000).toISOString()));
+      const { status, body, logs } = await bridgeReadback(CASE_BR_STALE);
+      expect(status).toBe(409);
+      expect(body.error).toBe('stale_result');
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ sync_type: 'readback', status: 'error' });
+      expect(await rowsFor(CASE_BR_STALE)).toHaveLength(0);
+    });
+
+    it('bridge: case mismatch is 502 and logs one readback row', async () => {
+      stored.set(CASE_BR_MISMATCH, storedResult(CASE_BR_MISMATCH, {
+        caseNumber: `${CASE_BR_MISMATCH}-OTHER`,
+        entries: [{ date: '2026-10-02', description: 'Motion to compel discovery filed' }],
+      }));
+      const { status, body, logs } = await bridgeReadback(CASE_BR_MISMATCH);
+      expect(status).toBe(502);
+      expect(body.error).toBe('court_docket_readback_failed');
+      expect(logs).toHaveLength(1);
+      expect(logs[0]).toMatchObject({ sync_type: 'readback', status: 'error' });
+      expect(logs[0].error_message).toContain('case mismatch');
+      expect(await rowsFor(CASE_BR_MISMATCH)).toHaveLength(0);
+    });
+
+    it('a US-format date (10/02/2026) stored across two runs yields one row', async () => {
+      const payload = () => storedResult(CASE_USDATE, {
+        caseNumber: CASE_USDATE,
+        entries: [{ date: '10/02/2026', description: 'Motion to compel discovery filed' }],
+      });
+      stored.set(CASE_USDATE, payload());
+      expect(await syncCourtDocketCase(makeEnv(), sql, CASE_USDATE, SCRAPE_TOKEN)).toMatchObject({ ok: true, inserted: 1 });
+      stored.set(CASE_USDATE, payload());
+      expect(await syncCourtDocketCase(makeEnv(), sql, CASE_USDATE, SCRAPE_TOKEN)).toMatchObject({ ok: true, inserted: 0 });
+      const rows = await rowsFor(CASE_USDATE);
+      expect(rows).toHaveLength(1);
+      expect(new Date(rows[0].deadline_date as string).toISOString()).toBe('2026-10-02T17:00:00.000Z');
     });
   });
 }
