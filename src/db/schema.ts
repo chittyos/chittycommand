@@ -117,6 +117,7 @@ export const ccLegalDeadlines = pgTable('cc_legal_deadlines', {
   updatedAt: timestamp('updated_at', { withTimezone: true }).defaultNow(),
 }, (table) => ({
   dateIdx: index('idx_cc_legal_deadlines_date').on(table.deadlineDate),
+  entryUq: uniqueIndex('uq_cc_legal_deadlines_entry').on(table.caseRef, table.deadlineType, table.deadlineDate, table.title),
 }));
 
 // ── Disputes ──────────────────────────────────────────────────
